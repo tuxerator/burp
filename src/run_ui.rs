@@ -1,33 +1,32 @@
-use egui::Context;
-use egui_graphs::{DefaultEdgeShape, DefaultNodeShape, Graph, GraphView};
+extern crate geozero;
+
+use std::fs::File;
+use std::io::{BufReader, Read};
+
+use egui::{Context, Id};
 use galileo_types::geo::impls::GeoPoint2d;
 use galileo_types::geo::GeoPoint;
-use petgraph::stable_graph::StableGraph;
-use petgraph::Directed;
+use geo::Coord;
+use graph_rs::graph::csr::DirectedCsrGraph;
+use graph_rs::input::geo_zero::geozero::geojson::read_geojson;
+use graph_rs::input::geo_zero::GraphWriter;
+use graph_rs::{DirectedGraph, Graph};
+use ordered_float::OrderedFloat;
+use rfd::FileDialog;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct UiState {
     pub positions: Positions,
     pub map_hidden: bool,
-    pub graph: Graph<(), (), Directed>,
+    pub graph: Option<DirectedCsrGraph<OrderedFloat<f64>, Coord<OrderedFloat<f64>>>>,
 }
 
 impl UiState {
     pub fn new() -> Self {
-        let mut g: StableGraph<(), ()> = StableGraph::new();
-
-        let a = g.add_node(());
-        let b = g.add_node(());
-        let c = g.add_node(());
-
-        g.add_edge(a, b, ());
-        g.add_edge(b, c, ());
-        g.add_edge(c, a, ());
-
         Self {
             positions: Positions::default(),
             map_hidden: false,
-            graph: Graph::from(&g),
+            graph: None,
         }
     }
 }
@@ -38,8 +37,8 @@ pub struct Positions {
     pub map_center_position: Option<GeoPoint2d>,
 }
 
-pub fn run_ui(state: &mut UiState, ui: &Context) {
-    egui::Window::new("Galileo map").show(ui, |ui| {
+pub fn run_ui(state: &mut UiState, ctx: &Context) {
+    egui::Window::new("Galileo map").show(ctx, |ui| {
         ui.label("Pointer position:");
         if let Some(pointer_position) = state.positions.pointer_position {
             ui.label(format!(
@@ -65,9 +64,22 @@ pub fn run_ui(state: &mut UiState, ui: &Context) {
         }
     });
 
-    egui::SidePanel::right("Left panel").show(ui, |ui| {
-        if ui.add(egui::Button::new("Hide map")).clicked() {
-            state.map_hidden = true;
+    egui::SidePanel::right("Left panel").show(ctx, |ui| {
+        if ui.add(egui::Button::new("Load")).clicked() {
+            let file_path = FileDialog::new().set_directory("~/").pick_file().unwrap();
+
+            let file = File::open(file_path).unwrap();
+            let mut buf_reader = BufReader::new(file);
+            let mut geojson = String::new();
+
+            buf_reader.read_to_string(&mut geojson);
+
+            let mut graph_writer = GraphWriter::default();
+            graph_writer.filter_features();
+
+            read_geojson(geojson.as_bytes(), &mut graph_writer);
+
+            state.graph = Some(graph_writer.get_graph());
         }
     });
 }

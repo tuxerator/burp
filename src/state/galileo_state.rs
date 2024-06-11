@@ -1,8 +1,14 @@
+use core::panic;
+use std::f64;
 use std::sync::{Arc, RwLock};
 
 use crate::run_ui::Positions;
 use crate::state::WgpuFrame;
+use ::geo_types::Geometry::{self, GeometryCollection, LineString, Point};
+use ::geo_types::{coord, LineString as LineLineString};
 use galileo::control::{EventPropagation, MouseEvent, UserEvent};
+use galileo::layer::FeatureLayer;
+use galileo::symbol::ArbitraryGeometrySymbol;
 use galileo::{
     control::{EventProcessor, MapController},
     render::WgpuRenderer,
@@ -10,8 +16,19 @@ use galileo::{
     winit::WinitInputHandler,
     Map, MapBuilder, MapView, TileSchema,
 };
-use galileo_types::cartesian::Point2d;
+use galileo_types::cartesian::{CartesianPoint2d, Point2d};
+use galileo_types::geo::Crs;
+use galileo_types::geometry_type::GeoSpace2d;
 use galileo_types::{cartesian::Size, latlon};
+use galileo_types::{Disambig, Disambiguate};
+use geo::Coord;
+use geozero::geojson::GeoJson;
+use geozero::{geo_types, ToGeo};
+use graph_rs::graph::csr::DirectedCsrGraph;
+use graph_rs::input::geo_zero::geozero::geojson::read_geojson;
+use graph_rs::input::geo_zero::GraphWriter;
+use graph_rs::DirectedGraph;
+use ordered_float::OrderedFloat;
 use wgpu::{Device, Queue, Surface, SurfaceConfiguration};
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
@@ -69,14 +86,14 @@ impl GalileoState {
             )
         };
 
-        let layer = Box::new(MapBuilder::create_raster_tile_layer(
+        let map_layer = Box::new(MapBuilder::create_raster_tile_layer(
             tile_source,
             TileSchema::web(18),
         ));
 
         let map = Arc::new(RwLock::new(galileo::Map::new(
             view,
-            vec![layer],
+            vec![map_layer],
             Some(messenger),
         )));
 
@@ -88,6 +105,33 @@ impl GalileoState {
             pointer_position,
             hidden: false,
         }
+    }
+
+    pub fn build_graph_layer<T: DirectedGraph<OrderedFloat<f64>, Coord<OrderedFloat<f64>>>>(
+        &self,
+        g: &T,
+    ) {
+        let mut lines = Vec::new();
+        for node in 0..g.node_count() {
+            for edge in g.neighbors(node) {
+                let line = LineLineString::new(vec![
+                    coord! {x: g.node_value(node).unwrap().x.0, y: g.node_value(node).unwrap().y.0},
+                    coord! {x: g.node_value(edge.target()).unwrap().x.0, y: g.node_value(edge.target()).unwrap().y.0},
+                ]);
+                lines.push(line.to_geo2d());
+            }
+        }
+
+        let point_layer: FeatureLayer<
+            _,
+            Disambig<::geo_types::LineString, GeoSpace2d>,
+            ArbitraryGeometrySymbol,
+            GeoSpace2d,
+        > = FeatureLayer::new(lines, ArbitraryGeometrySymbol::default(), Crs::WGS84);
+
+        let mut map = self.map.write().unwrap();
+
+        map.layers_mut().push(point_layer);
     }
 
     pub fn about_to_wait(&self) {

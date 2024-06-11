@@ -149,6 +149,10 @@ impl State {
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         self.ui_state.positions = self.galileo_state.positions();
         self.galileo_state.hide(self.ui_state.map_hidden);
+        if self.ui_state.graph.is_some() {
+            self.galileo_state
+                .build_graph_layer(self.ui_state.graph.take().as_ref().unwrap());
+        }
 
         let texture = self.surface.get_current_texture()?;
 
