@@ -1,0 +1,44 @@
+[package]
+name = "burp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "burp"
+
+[dependencies]
+egui = "0.27"
+egui-wgpu = "0.27"
+egui-winit = { version = "0.27", default-features = false }
+egui_graphs = "0.20"
+env_logger = { version = "0.11", default-features = false }
+galileo = { path = "../../galileo/galileo/" }
+galileo-types = { path = "../../galileo/galileo-types/" }
+wgpu = { version = "0.19", default-features = false }
+winit = { version = "0.29", default-features = false }
+petgraph = "0.6"
+graph-rs = { path = "../graph-rs/" }
+geozero = "0.13"
+ordered-float = "4.2"
+geo-types = "0.7"
+geo = "0.28"
+rfd = { version = "0.14", default-features = false, features = [
+  "xdg-portal",
+  "tokio",
+] }
+log = "0.4.20"
+
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1.0", default-features = false, features = ["full"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.egui-winit]
+version = "0.27"
+features = ["clipboard", "links", "wayland", "x11"]

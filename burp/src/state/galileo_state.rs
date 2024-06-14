@@ -5,8 +5,9 @@ use std::sync::{Arc, RwLock};
 use crate::run_ui::Positions;
 use crate::state::WgpuFrame;
 use ::geo_types::Geometry::{self, GeometryCollection, LineString, Point};
-use ::geo_types::{coord, LineString as LineLineString};
-use galileo::control::{EventPropagation, MouseEvent, UserEvent};
+use ::geo_types::{coord, LineString as LineLineString, Point as PointPoint};
+use galileo::control::{EventPropagation, MouseButton, MouseEvent, UserEvent};
+use galileo::layer::feature_layer::{self, Feature, FeatureStore};
 use galileo::layer::FeatureLayer;
 use galileo::symbol::ArbitraryGeometrySymbol;
 use galileo::{
@@ -17,7 +18,8 @@ use galileo::{
     Map, MapBuilder, MapView, TileSchema,
 };
 use galileo_types::cartesian::{CartesianPoint2d, Point2d};
-use galileo_types::geo::Crs;
+use galileo_types::geo::impls::GeoPoint2d;
+use galileo_types::geo::{Crs, GeoPoint, NewGeoPoint};
 use galileo_types::geometry_type::GeoSpace2d;
 use galileo_types::{cartesian::Size, latlon};
 use galileo_types::{Disambig, Disambiguate};
@@ -25,9 +27,11 @@ use geo::Coord;
 use geozero::geojson::GeoJson;
 use geozero::{geo_types, ToGeo};
 use graph_rs::graph::csr::DirectedCsrGraph;
+use graph_rs::graph::quad_tree::QuadGraph;
 use graph_rs::input::geo_zero::geozero::geojson::read_geojson;
 use graph_rs::input::geo_zero::GraphWriter;
-use graph_rs::DirectedGraph;
+use graph_rs::{CoordGraph, DirectedGraph, Graph};
+use log::info;
 use ordered_float::OrderedFloat;
 use wgpu::{Device, Queue, Surface, SurfaceConfiguration};
 use winit::dpi::PhysicalSize;
@@ -39,6 +43,8 @@ pub struct GalileoState {
     renderer: Arc<RwLock<WgpuRenderer>>,
     map: Arc<RwLock<galileo::Map>>,
     pointer_position: Arc<RwLock<Point2d>>,
+    click_position: Arc<RwLock<Point2d>>,
+    graph: Arc<RwLock<Option<QuadGraph<f64, DirectedCsrGraph<f64, Coord<f64>>>>>>,
     hidden: bool,
 }
 
@@ -49,6 +55,7 @@ impl GalileoState {
         surface: Arc<Surface<'static>>,
         queue: Arc<Queue>,
         config: SurfaceConfiguration,
+        graph: Arc<RwLock<Option<QuadGraph<f64, DirectedCsrGraph<f64, Coord<f64>>>>>>,
     ) -> Self {
         let messenger = galileo::winit::WinitMessenger::new(window);
 
@@ -60,14 +67,69 @@ impl GalileoState {
         let pointer_position = Arc::new(RwLock::new(Point2d::default()));
         let pointer_position_clone = pointer_position.clone();
 
+        let click_position = Arc::new(RwLock::new(Point2d::default()));
+        let click_position_clone = click_position.clone();
+
+        let graph_clone = Arc::clone(&graph);
+
         let mut event_processor = EventProcessor::default();
-        event_processor.add_handler(move |ev: &UserEvent, _map: &mut Map| {
+        event_processor.add_handler(move |ev: &UserEvent, map: &mut Map| {
             if let UserEvent::PointerMoved(MouseEvent {
                 screen_pointer_position,
                 ..
             }) = ev
             {
                 *pointer_position_clone.write().expect("poisoned lock") = *screen_pointer_position;
+            }
+
+            match ev {
+                UserEvent::PointerMoved(MouseEvent {
+                    screen_pointer_position,
+                    ..
+                }) => {
+                    *pointer_position_clone.write().expect("poisoned lock") =
+                        *screen_pointer_position;
+                }
+                UserEvent::Click(
+                    MouseButton::Left,
+                    MouseEvent {
+                        screen_pointer_position,
+                        ..
+                    },
+                ) => {
+                    let geo_pos = map
+                        .view()
+                        .screen_to_map_geo(*screen_pointer_position)
+                        .expect("Point is not on map");
+
+                    let feature_layer = map.layers_mut().get_mut(1).and_then(|layer| {
+                        layer.as_any_mut().downcast_mut::<FeatureLayer<
+                            _,
+                            GeoPoint2d,
+                            ArbitraryGeometrySymbol,
+                            GeoSpace2d,
+                        >>()
+                    });
+
+                    *click_position_clone.write().expect("poisoned lock") =
+                        *screen_pointer_position;
+
+                    if let Some(layer) = feature_layer {
+                        let features = layer.features_mut();
+                        features.insert(geo_pos);
+
+                        if let Some(ref graph_ref) = *graph_clone.read().expect("poisoned lock") {
+                            let node = graph_ref
+                                .nearest_node(PointPoint::new(geo_pos.lon(), geo_pos.lat()));
+                            let node_geo = graph_ref
+                                .graph()
+                                .node_value(node)
+                                .expect("node not in grpah");
+                            features.insert(NewGeoPoint::latlon(node_geo.lat(), node_geo.lon()));
+                        }
+                    }
+                }
+                _ => (),
             }
 
             EventPropagation::Propagate
@@ -91,9 +153,17 @@ impl GalileoState {
             TileSchema::web(18),
         ));
 
+        let interaction_layer: Box<
+            FeatureLayer<_, GeoPoint2d, ArbitraryGeometrySymbol, GeoSpace2d>,
+        > = Box::new(FeatureLayer::new(
+            vec![],
+            ArbitraryGeometrySymbol::default(),
+            Crs::WGS84,
+        ));
+
         let map = Arc::new(RwLock::new(galileo::Map::new(
             view,
-            vec![map_layer],
+            vec![map_layer, interaction_layer],
             Some(messenger),
         )));
 
@@ -103,35 +173,49 @@ impl GalileoState {
             renderer,
             map,
             pointer_position,
+            click_position,
+            graph,
             hidden: false,
         }
     }
 
-    pub fn build_graph_layer<T: DirectedGraph<OrderedFloat<f64>, Coord<OrderedFloat<f64>>>>(
+    pub fn build_graph_layer<T: CoordGraph<f64> + Send + 'static>(
         &self,
-        g: &T,
+        graph: Arc<RwLock<Option<T>>>,
     ) {
         let mut lines = Vec::new();
-        for node in 0..g.node_count() {
-            for edge in g.neighbors(node) {
-                let line = LineLineString::new(vec![
-                    coord! {x: g.node_value(node).unwrap().x.0, y: g.node_value(node).unwrap().y.0},
-                    coord! {x: g.node_value(edge.target()).unwrap().x.0, y: g.node_value(edge.target()).unwrap().y.0},
-                ]);
-                lines.push(line.to_geo2d());
+        let map = Arc::clone(&self.map);
+
+        tokio::spawn(async move {
+            if let Some(ref g) = *graph.read().expect("poisoned lock") {
+                info!("Creating geometries");
+                for node in 0..g.node_count() {
+                    for edge in g.neighbors(node) {
+                        let line = LineLineString::new(vec![
+                            *g.node_value(node).unwrap(),
+                            *g.node_value(edge.target()).unwrap(),
+                        ]);
+                        lines.push(line.to_geo2d());
+                    }
+                }
+
+                info!("Building feature layer");
+
+                let edge_layer: FeatureLayer<
+                    _,
+                    Disambig<::geo_types::LineString, GeoSpace2d>,
+                    ArbitraryGeometrySymbol,
+                    GeoSpace2d,
+                > = FeatureLayer::new(lines, ArbitraryGeometrySymbol::default(), Crs::WGS84);
+
+                let mut map = map.write().expect("poisoned lock");
+
+                map.layers_mut().push(edge_layer);
+                map.load_layers();
+
+                info!("Finished building feature layer");
             }
-        }
-
-        let point_layer: FeatureLayer<
-            _,
-            Disambig<::geo_types::LineString, GeoSpace2d>,
-            ArbitraryGeometrySymbol,
-            GeoSpace2d,
-        > = FeatureLayer::new(lines, ArbitraryGeometrySymbol::default(), Crs::WGS84);
-
-        let mut map = self.map.write().unwrap();
-
-        map.layers_mut().push(point_layer);
+        });
     }
 
     pub fn about_to_wait(&self) {
@@ -184,9 +268,11 @@ impl GalileoState {
 
     pub fn positions(&self) -> Positions {
         let pointer_position = *self.pointer_position.read().expect("poisoned lock");
+        let click_position = *self.click_position.read().expect("poisoned lock");
         let view = self.map.read().expect("poisoned lock").view().clone();
         Positions {
             pointer_position: view.screen_to_map_geo(pointer_position),
+            click_position: view.screen_to_map_geo(click_position),
             map_center_position: view.position(),
         }
     }

@@ -1,7 +1,15 @@
-use std::{iter, sync::Arc};
+use std::{
+    iter,
+    sync::{
+        mpsc::{self, Receiver},
+        Arc, RwLock,
+    },
+};
 
 use crate::run_ui::{run_ui, UiState};
 
+use geo::Coord;
+use graph_rs::graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph};
 use wgpu::TextureView;
 use winit::{event::*, window::Window};
 
@@ -19,6 +27,10 @@ pub struct WgpuFrame<'frame> {
     size: winit::dpi::PhysicalSize<u32>,
 }
 
+pub enum Events {
+    BuildGraphLayer,
+}
+
 pub struct State {
     pub surface: Arc<wgpu::Surface<'static>>,
     pub device: Arc<wgpu::Device>,
@@ -29,6 +41,8 @@ pub struct State {
     pub egui_state: EguiState,
     pub galileo_state: GalileoState,
     pub ui_state: UiState,
+    pub graph: Arc<RwLock<Option<QuadGraph<f64, DirectedCsrGraph<f64, Coord<f64>>>>>>,
+    pub reciever: Receiver<Events>,
 }
 
 impl State {
@@ -96,6 +110,9 @@ impl State {
         let surface = Arc::new(surface);
         let device = Arc::new(device);
         let queue = Arc::new(queue);
+        let graph = Arc::new(RwLock::new(None));
+
+        let (sender, reciever) = mpsc::channel();
 
         let galileo_state = GalileoState::new(
             Arc::clone(&window),
@@ -103,6 +120,7 @@ impl State {
             Arc::clone(&surface),
             Arc::clone(&queue),
             config.clone(),
+            Arc::clone(&graph),
         );
 
         Self {
@@ -114,7 +132,9 @@ impl State {
             window,
             egui_state,
             galileo_state,
-            ui_state: UiState::new(),
+            ui_state: UiState::new(Arc::clone(&graph), sender.clone()),
+            graph,
+            reciever,
         }
     }
 
@@ -148,10 +168,9 @@ impl State {
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         self.ui_state.positions = self.galileo_state.positions();
-        self.galileo_state.hide(self.ui_state.map_hidden);
-        if self.ui_state.graph.is_some() {
-            self.galileo_state
-                .build_graph_layer(self.ui_state.graph.take().as_ref().unwrap());
+
+        if let Ok(event) = self.reciever.try_recv() {
+            self.process_event(event);
         }
 
         let texture = self.surface.get_current_texture()?;
@@ -194,5 +213,17 @@ impl State {
         texture.present();
 
         Ok(())
+    }
+
+    fn process_event(&self, event: Events) {
+        match event {
+            Events::BuildGraphLayer => self.build_graph_layer(),
+            _ => (),
+        };
+    }
+
+    pub fn build_graph_layer(&self) {
+        self.galileo_state
+            .build_graph_layer(Arc::clone(&self.graph));
     }
 }

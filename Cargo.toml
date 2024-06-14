@@ -1,35 +1,12 @@
-[package]
-name = "bachelor_projekt"
-version = "0.1.0"
+[workspace]
+members = ["burp", "graph-rs"]
+resolver = "2"
+
+[workspace.package]
+authors = ["Jakob Sanowski <jakob.sanowski@sanbach.de>"]
+categories = ["science::geo"]
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-egui = "0.27"
-egui-wgpu = "0.27"
-egui-winit = { version = "0.27", default-features = false }
-egui_graphs = "0.20"
-env_logger = { version = "0.11", default-features = false }
-galileo = { path = "../galileo/galileo/" }
-galileo-types = { path = "../galileo/galileo-types/" }
-wgpu = { version = "0.19", default-features = false }
-winit = { version = "0.29", default-features = false }
-petgraph = "0.6"
-graph-rs = { path = "../graph-rs/" }
-geozero = "0.13"
-ordered-float = "4.2"
-geo-types = "0.7"
-geo = "0.28"
-rfd = { version = "0.14", default-features = false, features = [
-  "xdg-portal",
-  "tokio",
-] }
-
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1.0", default-features = false, features = ["full"] }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies.egui-winit]
-version = "0.27"
-features = ["clipboard", "links", "wayland", "x11"]
+keywords = ["gis", "map"]
+license = "GPL-3"
+repository = "https://gitlab.inf.uni-konstanz.de/jakob.sanowski/bachelor-projekt"
+version = "0.1.0"
