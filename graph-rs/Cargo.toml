@@ -1,0 +1,16 @@
+[package]
+name = "graph-rs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+petgraph = { version = "0.6", features = ["stable_graph"] }
+log = "0.4.20"
+osmpbfreader = { version = "0.16.1" }
+geozero = { version = "0.12.0" }
+geo = { version = "0.28.0" }
+ordered-float = { version = "4.2.0" }
+qutee = "0.2"
+approx = "0.5"
