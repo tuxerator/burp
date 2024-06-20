@@ -1,5 +1,6 @@
 extern crate geozero;
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::sync::mpsc::Sender;
@@ -12,7 +13,7 @@ use geo::Coord;
 use graph_rs::graph::csr::DirectedCsrGraph;
 use graph_rs::graph::quad_tree::QuadGraph;
 use graph_rs::input::geo_zero::geozero::geojson::read_geojson;
-use graph_rs::input::geo_zero::GraphWriter;
+use graph_rs::input::geo_zero::{ColumnValueClonable, GraphWriter};
 use graph_rs::{DirectedGraph, Graph};
 use ordered_float::OrderedFloat;
 use rfd::FileDialog;
@@ -82,8 +83,20 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
                 let file = File::open(file_path).unwrap();
                 let buf_reader = BufReader::new(file);
 
-                let mut graph_writer = GraphWriter::default();
-                graph_writer.filter_features();
+                let filter = |p: &HashMap<String, ColumnValueClonable>| {
+                    let footway = p.get("footway");
+                    let highway = p.get("highway");
+
+                    if highway.is_none() {
+                        return false;
+                    }
+
+                    match footway {
+                        Some(ColumnValueClonable::String(s)) => s == "null",
+                        _ => true,
+                    }
+                };
+                let mut graph_writer = GraphWriter::new(filter);
 
                 read_geojson(buf_reader, &mut graph_writer);
                 let mut graph = graph_ref.write().expect("poisoned lock");

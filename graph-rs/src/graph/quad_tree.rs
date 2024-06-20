@@ -162,6 +162,7 @@ where
 #[cfg(test)]
 mod test {
     use std::{
+        collections::HashMap,
         fs::File,
         io::{BufReader, Read},
     };
@@ -170,7 +171,10 @@ mod test {
     use geo::{point, GeodesicDestination, HaversineDestination, Point};
     use geozero::geojson::read_geojson;
 
-    use crate::{input::geo_zero::GraphWriter, CoordGraph, Graph};
+    use crate::{
+        input::geo_zero::{ColumnValueClonable, GraphWriter},
+        CoordGraph, Graph,
+    };
 
     use super::QuadGraph;
 
@@ -225,8 +229,7 @@ mod test {
         }]
         }"#;
 
-        let mut graph_writer = GraphWriter::default();
-        graph_writer.filter_features();
+        let mut graph_writer = GraphWriter::new(|_| true);
 
         let p_1 = Point::new(13.355102, 52.5364593).haversine_destination(30., 1000.);
 
@@ -249,8 +252,20 @@ mod test {
     fn nearest_neighbour_search_big() {
         let file = File::open("../resources/Berlin.geojson").unwrap();
         let reader = BufReader::new(file);
-        let mut graph_writer = GraphWriter::default();
-        graph_writer.filter_features();
+        let filter = |p: &HashMap<String, ColumnValueClonable>| {
+            let footway = p.get("footway");
+            let highway = p.get("highway");
+
+            if highway.is_none() {
+                return false;
+            }
+
+            match footway {
+                Some(ColumnValueClonable::String(s)) => s == "null",
+                _ => true,
+            }
+        };
+        let mut graph_writer = GraphWriter::new(filter);
 
         let p_1 = Point::new(13.4865, 52.5668);
 

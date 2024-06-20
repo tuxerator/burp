@@ -2,7 +2,14 @@ pub use geozero;
 use log::info;
 use ordered_float::OrderedFloat;
 
-use std::{cmp::Ordering, collections::HashMap, io::Read, mem};
+use std::{
+    cmp::Ordering,
+    collections::{self, HashMap},
+    io::Read,
+    iter::Map,
+    mem,
+    ops::Deref,
+};
 
 use geo::{
     coord,
@@ -18,17 +25,19 @@ use crate::{graph::csr::DirectedCsrGraph, DirectedGraph, Graph};
 
 use super::edgelist::EdgeList;
 
-#[derive(Debug, Default)]
-pub struct GraphWriter {
+pub struct GraphWriter<F>
+where
+    F: Fn(&HashMap<String, ColumnValueClonable>) -> bool,
+{
     node_map: HashMap<Coord<OrderedFloat<f64>>, usize>,
     nodes: Vec<Coord<f64>>,
     edges: Vec<(usize, usize, f64)>,
     line: Vec<(usize, usize, f64)>,
     coords: Option<Vec<Coord>>,
     index: usize,
-    filter_features: bool,
-    is_way: bool,
-    is_sidewalk: bool,
+    property_filter: F,
+    properties: HashMap<String, ColumnValueClonable>,
+    include_feature: bool,
 }
 
 pub fn read_geojson<R, P>(reader: R, processor: &mut P) -> Result<(), GeozeroError>
@@ -39,13 +48,26 @@ where
     geozero::geojson::read_geojson(reader, processor)
 }
 
-impl GraphWriter {
-    pub fn new_from(graph_writer: GraphWriter) -> GraphWriter {
-        graph_writer
+impl<F> GraphWriter<F>
+where
+    F: Fn(&HashMap<String, ColumnValueClonable>) -> bool,
+{
+    pub fn new(property_filter: F) -> Self {
+        GraphWriter {
+            node_map: HashMap::default(),
+            nodes: Vec::default(),
+            edges: Vec::default(),
+            line: Vec::default(),
+            coords: None,
+            index: usize::default(),
+            property_filter,
+            properties: HashMap::default(),
+            include_feature: true,
+        }
     }
 
-    pub fn filter_features(&mut self) {
-        self.filter_features = true;
+    pub fn new_from(graph_writer: Self) -> Self {
+        graph_writer
     }
 
     pub fn get_graph(&mut self) -> DirectedCsrGraph<f64, Coord> {
@@ -61,10 +83,12 @@ impl GraphWriter {
     }
 }
 
-impl GeomProcessor for GraphWriter {
+impl<F> GeomProcessor for GraphWriter<F>
+where
+    F: Fn(&HashMap<String, ColumnValueClonable>) -> bool,
+{
     fn xy(&mut self, x: f64, y: f64, idx: usize) -> geozero::error::Result<()> {
-        if (!self.is_way || self.is_sidewalk) && self.filter_features {
-            let _ = self.coords.take();
+        if !self.include_feature {
             return Ok(());
         }
         let coords = self
@@ -81,7 +105,6 @@ impl GeomProcessor for GraphWriter {
             self.nodes.push(coord);
             self.index += 1;
         }
-
         Ok(())
     }
 
@@ -111,8 +134,8 @@ impl GeomProcessor for GraphWriter {
     }
 
     fn linestring_end(&mut self, tagged: bool, idx: usize) -> geozero::error::Result<()> {
-        if (!self.is_way || self.is_sidewalk) && self.filter_features {
-            let _ = self.coords.take();
+        if !self.include_feature {
+            self.coords.take();
             return Ok(());
         }
         let mut coords = self
@@ -141,11 +164,7 @@ impl GeomProcessor for GraphWriter {
 
             let d = p_a.haversine_distance(&p_b);
 
-            if self.filter_features {
-                self.line.push((*node_a, *node_b, d));
-            } else {
-                self.edges.push((*node_a, *node_b, d))
-            }
+            self.edges.push((*node_a, *node_b, d));
 
             coord_a = coord_b;
         }
@@ -154,38 +173,93 @@ impl GeomProcessor for GraphWriter {
     }
 }
 
-impl FeatureProcessor for GraphWriter {
+impl<F> FeatureProcessor for GraphWriter<F>
+where
+    F: Fn(&HashMap<String, ColumnValueClonable>) -> bool,
+{
     fn feature_begin(&mut self, idx: u64) -> geozero::error::Result<()> {
-        self.is_way = false;
-        self.is_sidewalk = false;
-        self.line = Vec::new();
+        self.include_feature = true;
 
         Ok(())
     }
-    fn feature_end(&mut self, idx: u64) -> geozero::error::Result<()> {
-        if self.is_way && !self.is_sidewalk {
-            self.edges.append(&mut self.line);
-        }
+
+    fn properties_end(&mut self) -> geozero::error::Result<()> {
+        self.include_feature = (self.property_filter)(&self.properties);
         Ok(())
     }
 }
 
-impl PropertyProcessor for GraphWriter {
+impl<F> PropertyProcessor for GraphWriter<F>
+where
+    F: Fn(&HashMap<String, ColumnValueClonable>) -> bool,
+{
     fn property(&mut self, i: usize, n: &str, v: &ColumnValue) -> geozero::error::Result<bool> {
-        match n {
-            "footway" => {
-                if let ColumnValue::String(s) = v {
-                    if s != &"null" {
-                        self.is_sidewalk = true;
-                    }
-                }
-            }
-            "highway" => {
-                self.is_way = true;
-            }
-            _ => (),
-        };
+        let value = ColumnValueClonable::from(v);
+
+        self.properties.insert(n.to_string(), value);
         Ok(false) // don't abort
+    }
+}
+
+pub enum ColumnValueClonable {
+    Bool(bool),
+    Binary(Vec<u8>),
+    Byte(i8),
+    UByte(u8),
+    Short(i16),
+    UShort(u16),
+    Int(i32),
+    UInt(u32),
+    Long(i64),
+    ULong(u64),
+    Float(f32),
+    Double(f64),
+    String(String),
+    DateTime(String),
+    Json(String),
+}
+
+impl<'a> From<&ColumnValue<'a>> for ColumnValueClonable {
+    fn from(value: &ColumnValue<'a>) -> Self {
+        match value {
+            ColumnValue::Bool(i) => ColumnValueClonable::Bool(*i),
+            ColumnValue::Binary(i) => ColumnValueClonable::Binary(i.to_vec()),
+            ColumnValue::Byte(i) => ColumnValueClonable::Byte(*i),
+            ColumnValue::UByte(i) => ColumnValueClonable::UByte(*i),
+            ColumnValue::Short(i) => ColumnValueClonable::Short(*i),
+            ColumnValue::UShort(i) => ColumnValueClonable::UShort(*i),
+            ColumnValue::Int(i) => ColumnValueClonable::Int(*i),
+            ColumnValue::UInt(i) => ColumnValueClonable::UInt(*i),
+            ColumnValue::Long(i) => ColumnValueClonable::Long(*i),
+            ColumnValue::ULong(i) => ColumnValueClonable::ULong(*i),
+            ColumnValue::Float(i) => ColumnValueClonable::Float(*i),
+            ColumnValue::Double(i) => ColumnValueClonable::Double(*i),
+            ColumnValue::String(i) => ColumnValueClonable::String(i.to_string()),
+            ColumnValue::DateTime(i) => ColumnValueClonable::DateTime(i.to_string()),
+            ColumnValue::Json(i) => ColumnValueClonable::Json(i.to_string()),
+        }
+    }
+}
+
+impl Clone for ColumnValueClonable {
+    fn clone(&self) -> Self {
+        match self {
+            ColumnValueClonable::Bool(i) => ColumnValueClonable::Bool(*i),
+            ColumnValueClonable::Binary(i) => ColumnValueClonable::Binary(i.clone()),
+            ColumnValueClonable::Byte(i) => ColumnValueClonable::Byte(*i),
+            ColumnValueClonable::UByte(i) => ColumnValueClonable::UByte(*i),
+            ColumnValueClonable::Short(i) => ColumnValueClonable::Short(*i),
+            ColumnValueClonable::UShort(i) => ColumnValueClonable::UShort(*i),
+            ColumnValueClonable::Int(i) => ColumnValueClonable::Int(*i),
+            ColumnValueClonable::UInt(i) => ColumnValueClonable::UInt(*i),
+            ColumnValueClonable::Long(i) => ColumnValueClonable::Long(*i),
+            ColumnValueClonable::ULong(i) => ColumnValueClonable::ULong(*i),
+            ColumnValueClonable::Float(i) => ColumnValueClonable::Float(*i),
+            ColumnValueClonable::Double(i) => ColumnValueClonable::Double(*i),
+            ColumnValueClonable::String(i) => ColumnValueClonable::String(i.clone()),
+            ColumnValueClonable::DateTime(i) => ColumnValueClonable::DateTime(i.clone()),
+            ColumnValueClonable::Json(i) => ColumnValueClonable::Json(i.clone()),
+        }
     }
 }
 
@@ -206,13 +280,16 @@ fn to_ord_coord(&coord: &Coord) -> Coord<OrderedFloat<f64>> {
 
 #[cfg(test)]
 mod test {
-    use std::error::Error;
+    use std::{collections::HashMap, error::Error};
 
     use geo::{Coord, CoordsIter, Geometry, Point};
     use geozero::{geo_types::GeoWriter, geojson::read_geojson};
     use ordered_float::OrderedFloat;
 
-    use crate::{input::geo_zero::GraphWriter, DirectedGraph, Graph};
+    use crate::{
+        input::geo_zero::{ColumnValueClonable, GraphWriter},
+        DirectedGraph, Graph,
+    };
 
     #[test]
     fn line_string() {
@@ -222,7 +299,7 @@ mod test {
                 [1875038.447610231,-3269648.6879248763],[1874359.641504197,-3270196.812984864],[1874141.0428635243,-3270953.7840121365],[1874440.1778162003,-3271619.4315206874],[1876396.0598222911,-3274138.747656357],[1876442.0805243007,-3275052.60551469],[1874739.312657555,-3275457.333765534]
             ]
         }"#;
-        let mut graph_writer = GraphWriter::default();
+        let mut graph_writer = GraphWriter::new(|_| true);
         assert!(read_geojson(geojson.as_bytes(), &mut graph_writer).is_ok());
         let graph = graph_writer.get_graph();
 
@@ -246,7 +323,7 @@ mod test {
                 [174.612009,-36.156397],[175.336616,-37.209098],[175.357596,-36.526194],[175.808887,-36.798942],[175.95849,-37.555382],[176.763195,-37.881253],[177.438813,-37.961248],[178.010354,-37.579825],[178.517094,-37.695373],[178.274731,-38.582813],[177.97046,-39.166343],[177.206993,-39.145776],[176.939981,-39.449736],[177.032946,-39.879943],[176.885824,-40.065978],[176.508017,-40.604808],[176.01244,-41.289624],[175.239567,-41.688308],[175.067898,-41.425895],[174.650973,-41.281821],[175.22763,-40.459236],[174.900157,-39.908933],[173.824047,-39.508854],[173.852262,-39.146602],[174.574802,-38.797683],[174.743474,-38.027808],[174.697017,-37.381129],[174.292028,-36.711092],[174.319004,-36.534824],[173.840997,-36.121981],[173.054171,-35.237125],[172.636005,-34.529107],[173.007042,-34.450662],[173.551298,-35.006183],[174.32939,-35.265496],[174.612009,-36.156397]
             ]]]
         }"#;
-        let mut graph_writer = GraphWriter::default();
+        let mut graph_writer = GraphWriter::new(|_| true);
         assert!(read_geojson(geojson.as_bytes(), &mut graph_writer).is_ok());
         let graph = graph_writer.get_graph();
 
@@ -307,8 +384,9 @@ mod test {
         }]
         }"#;
 
-        let mut graph_writer = GraphWriter::default();
-        graph_writer.filter_features();
+        let filter =
+            |p: &HashMap<String, ColumnValueClonable>| p.contains_key(&"highway".to_string());
+        let mut graph_writer = GraphWriter::new(filter);
         assert!(read_geojson(geojson.as_bytes(), &mut graph_writer).is_ok());
         let graph = graph_writer.get_graph();
 
