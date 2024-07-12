@@ -1,31 +1,48 @@
-use std::marker::PhantomData;
+use std::{
+    fmt::{self, Debug},
+    marker::PhantomData,
+};
 
 use geo::{
-    point, Coord, GeodesicDestination, GeodesicDistance, HaversineDestination, HaversineDistance,
-    Point, RhumbDestination, Translate, VincentyDistance,
+    point, Coord, CoordNum, EuclideanDistance, GeodesicDestination, GeodesicDistance,
+    HaversineDestination, HaversineDistance, Point, RhumbDestination, Translate, VincentyDistance,
 };
 use log::info;
 use ordered_float::OrderedFloat;
-use qutee::{Boundary, Coordinate, DynCap, QuadTree};
+use qutee::{Boundary, DynCap, QuadTree};
+use serde::{
+    de::{self, Visitor},
+    Deserialize, Deserializer, Serialize,
+};
 
-use crate::{CoordGraph, DirectedGraph, Graph};
+use crate::{CoordGraph, Coordinate, DirectedGraph, Graph};
 
 use super::csr::DirectedCsrGraph;
 
-pub struct QuadGraph<EV, G>
+#[derive(Serialize, PartialEq, Debug)]
+pub struct QuadGraph<EV, NV, G>
 where
-    G: Graph<EV, Coord>,
+    G: Graph<EV, NV>,
     EV: Send,
+    NV: Coordinate + Debug,
 {
     graph: G,
+
+    #[serde(skip_serializing)]
     quad_tree: Box<QuadTree<f64, usize>>,
-    _marker: PhantomData<EV>,
+
+    #[serde(skip_serializing)]
+    _marker_0: PhantomData<EV>,
+
+    #[serde(skip_serializing)]
+    _marker_1: PhantomData<NV>,
 }
 
-impl<EV, G> QuadGraph<EV, G>
+impl<EV, NV, G> QuadGraph<EV, NV, G>
 where
-    G: DirectedGraph<EV, Coord>,
+    G: DirectedGraph<EV, NV>,
     EV: Send,
+    NV: Coordinate + Debug,
 {
     pub fn new_from_graph(graph: G) -> Self {
         let mut quad_tree = Box::new(QuadTree::new_with_dyn_cap(
@@ -34,7 +51,10 @@ where
         ));
 
         for node in 0..graph.node_count() {
-            quad_tree.insert_at(graph.node_value(node).unwrap().x_y(), node);
+            quad_tree.insert_at(
+                graph.node_value(node).expect("no value for node").x_y(),
+                node,
+            );
         }
 
         info!("Created quad-tree");
@@ -42,7 +62,8 @@ where
         Self {
             graph,
             quad_tree,
-            _marker: PhantomData,
+            _marker_0: PhantomData,
+            _marker_1: PhantomData,
         }
     }
 
@@ -51,10 +72,11 @@ where
     }
 }
 
-impl<EV, G> Graph<EV, Coord> for QuadGraph<EV, G>
+impl<EV, NV, G> Graph<EV, NV> for QuadGraph<EV, NV, G>
 where
-    G: Graph<EV, Coord>,
+    G: Graph<EV, NV>,
     EV: Sync + Send,
+    NV: Coordinate + Sync + Debug,
 {
     fn degree(&self, node: usize) -> usize {
         self.graph.degree(node)
@@ -75,21 +97,26 @@ where
         self.graph.edge_count()
     }
 
-    fn node_value(&self, node: usize) -> Option<&Coord> {
+    fn node_value(&self, node: usize) -> Option<&NV> {
         self.graph.node_value(node)
+    }
+
+    fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), crate::GraphError> {
+        self.graph.set_node_value(node, value)
     }
 
     fn to_stable_graph(
         &self,
-    ) -> petgraph::prelude::StableGraph<Option<Coord>, EV, petgraph::prelude::Directed, usize> {
+    ) -> petgraph::prelude::StableGraph<Option<NV>, EV, petgraph::prelude::Directed, usize> {
         self.graph.to_stable_graph()
     }
 }
 
-impl<EV, G> DirectedGraph<EV, Coord> for QuadGraph<EV, G>
+impl<EV, NV, G> DirectedGraph<EV, NV> for QuadGraph<EV, NV, G>
 where
-    G: DirectedGraph<EV, Coord>,
+    G: DirectedGraph<EV, NV>,
     EV: Send + Sync,
+    NV: Coordinate + Sync + Debug,
 {
     fn in_degree(&self, node: usize) -> usize {
         self.graph.in_degree(node)
@@ -114,25 +141,23 @@ where
     }
 }
 
-impl<EV, G> CoordGraph<EV> for QuadGraph<EV, G>
+impl<EV, NV, G> CoordGraph<EV, NV> for QuadGraph<EV, NV, G>
 where
-    G: Graph<EV, Coord>,
+    G: Graph<EV, NV>,
     EV: Sync + Send,
+    NV: Coordinate + Sync + Debug,
 {
     fn nearest_node(&self, point: Point) -> usize {
         info!("Searching neighbour for: {:?}", point);
-        let mut p1 = point.geodesic_destination(315., 100.);
-        let mut p2 = point.geodesic_destination(135., 100.);
+        let mut p1 = point.haversine_destination(315., 100.);
+        let mut p2 = point.haversine_destination(135., 100.);
         let mut res = self
             .quad_tree
             .query_points(Boundary::between_points(p1.x_y(), p2.x_y()));
 
-        while res.next() == None {
+        while res.next().is_none() || p1.haversine_distance(&p2) <= 1000000.0 {
             p1 = p1.haversine_destination(315., 100.);
             p2 = p2.haversine_destination(135., 100.);
-            let p_1 = qutee::Point::new(13.3530100, 52.536565);
-            let p_2 = qutee::Point::new(13.35302, 52.53655);
-            let boundary = Boundary::between_points(p_1, p_2);
 
             res = self
                 .quad_tree
@@ -141,7 +166,7 @@ where
 
         let near_node = res
             .fold((f64::MAX, 0), |closest, p| {
-                let d = point.haversine_distance(&Point::new(p.0.x, p.0.y));
+                let d = point.euclidean_distance(&Point::new(p.0.x, p.0.y));
 
                 if d < closest.0 {
                     (d, p.1)
@@ -159,6 +184,122 @@ where
     }
 }
 
+impl<'de, EV, NV> Deserialize<'de> for QuadGraph<EV, NV, DirectedCsrGraph<EV, NV>>
+where
+    EV: Send + Sync + Copy + Deserialize<'de>,
+    NV: Coordinate + Send + Sync + Debug + Clone + Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        enum Field {
+            Graph,
+        }
+
+        impl<'de> Deserialize<'de> for Field {
+            fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                struct FieldVisitor;
+
+                impl<'de> Visitor<'de> for FieldVisitor {
+                    type Value = Field;
+
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        formatter.write_str("`graph` field")
+                    }
+
+                    fn visit_str<E>(self, value: &str) -> Result<Field, E>
+                    where
+                        E: de::Error,
+                    {
+                        match value {
+                            "graph" => Ok(Field::Graph),
+                            _ => Err(de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+
+                    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+                    where
+                        E: de::Error,
+                    {
+                        match value.as_str() {
+                            "graph" => Ok(Field::Graph),
+                            _ => Err(de::Error::unknown_field(value.as_str(), FIELDS)),
+                        }
+                    }
+                }
+
+                deserializer.deserialize_identifier(FieldVisitor)
+            }
+        }
+
+        struct QuadGraphVisitor<EV, NV> {
+            _marker_0: PhantomData<EV>,
+            _marker_1: PhantomData<NV>,
+        }
+
+        impl<EV, NV> QuadGraphVisitor<EV, NV> {
+            fn new() -> Self {
+                QuadGraphVisitor {
+                    _marker_0: PhantomData,
+                    _marker_1: PhantomData,
+                }
+            }
+        }
+
+        impl<'de, EV, NV> Visitor<'de> for QuadGraphVisitor<EV, NV>
+        where
+            EV: Send + Sync + Copy + Deserialize<'de>,
+            NV: Coordinate + Send + Sync + Debug + Clone + Deserialize<'de>,
+        {
+            type Value = QuadGraph<EV, NV, DirectedCsrGraph<EV, NV>>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("struct QuadGraph")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: de::SeqAccess<'de>,
+            {
+                let graph = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+
+                Ok(QuadGraph::new_from_graph(graph))
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: de::MapAccess<'de>,
+            {
+                let mut graph = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Graph => {
+                            if graph.is_some() {
+                                return Err(de::Error::duplicate_field("graph"));
+                            }
+                            graph = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                let graph = graph.ok_or_else(|| de::Error::missing_field("graph"))?;
+
+                Ok(QuadGraph::new_from_graph(graph))
+            }
+        }
+
+        const FIELDS: &[&str] = &["graph"];
+        deserializer.deserialize_struct("QuadGraph", FIELDS, QuadGraphVisitor::new())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::{
@@ -170,10 +311,12 @@ mod test {
     use approx::assert_relative_eq;
     use geo::{point, GeodesicDestination, HaversineDestination, Point};
     use geozero::geojson::read_geojson;
+    use serde_test::{assert_tokens, Token};
 
     use crate::{
+        graph::csr::DirectedCsrGraph,
         input::geo_zero::{ColumnValueClonable, GraphWriter},
-        CoordGraph, Graph,
+        CoordGraph, Coordinate, Graph,
     };
 
     use super::QuadGraph;
@@ -282,5 +425,136 @@ mod test {
             Point::from(quad_graph.graph.node_value(nearest_node).unwrap().x_y()),
             epsilon = 1e-6
         );
+    }
+
+    #[test]
+    fn ser_de() {
+        let mut geojson = r#" {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [
+                [
+                    13.3530166,
+                    52.5365623
+                ],
+                [
+                    13.3531553,
+                    52.5364245
+                ]
+                ]
+            },
+            "properties": {
+                "osm_id": 54111470,
+                "osm_type": "ways_line",
+                "tunnel": null,
+                "surface": "paving_stones",
+                "name": null,
+                "width": null,
+                "highway": "service",
+                "oneway": null,
+                "layer": null,
+                "bridge": null,
+                "smoothness": null
+            }
+        }]
+        }"#;
+
+        let mut graph_writer = GraphWriter::new(|_| true);
+
+        read_geojson(geojson.as_bytes(), &mut graph_writer);
+
+        let graph = graph_writer.get_graph();
+
+        let quad_graph = QuadGraph::new_from_graph(graph);
+
+        println!("{:?}", serde_json::to_string(&quad_graph));
+        assert_tokens(
+            &quad_graph,
+            &[
+                Token::Struct {
+                    name: "QuadGraph",
+                    len: 1,
+                },
+                Token::Str("graph"),
+                Token::Struct {
+                    name: "DirectedCsrGraph",
+                    len: 3,
+                },
+                Token::Str("node_values"),
+                Token::Seq { len: Some(2) },
+                Token::Struct {
+                    name: "Coord",
+                    len: 2,
+                },
+                Token::Str("x"),
+                Token::F64(13.3530166),
+                Token::Str("y"),
+                Token::F64(52.5365623),
+                Token::StructEnd,
+                Token::Struct {
+                    name: "Coord",
+                    len: 2,
+                },
+                Token::Str("x"),
+                Token::F64(13.3531553),
+                Token::Str("y"),
+                Token::F64(52.5364245),
+                Token::StructEnd,
+                Token::SeqEnd,
+                Token::String("csr_out"),
+                Token::Struct {
+                    name: "Csr",
+                    len: 2,
+                },
+                Token::Str("offsets"),
+                Token::Seq { len: Some(3) },
+                Token::U64(0),
+                Token::U64(1),
+                Token::U64(1),
+                Token::SeqEnd,
+                Token::Str("targets"),
+                Token::Seq { len: Some(1) },
+                Token::Struct {
+                    name: "Target",
+                    len: 2,
+                },
+                Token::Str("target"),
+                Token::U64(1),
+                Token::Str("value"),
+                Token::F64(17.96628678846495),
+                Token::StructEnd,
+                Token::SeqEnd,
+                Token::StructEnd,
+                Token::Str("csr_inc"),
+                Token::Struct {
+                    name: "Csr",
+                    len: 2,
+                },
+                Token::Str("offsets"),
+                Token::Seq { len: Some(3) },
+                Token::U64(0),
+                Token::U64(0),
+                Token::U64(1),
+                Token::SeqEnd,
+                Token::Str("targets"),
+                Token::Seq { len: Some(1) },
+                Token::Struct {
+                    name: "Target",
+                    len: 2,
+                },
+                Token::Str("target"),
+                Token::U64(0),
+                Token::Str("value"),
+                Token::F64(17.96628678846495),
+                Token::StructEnd,
+                Token::SeqEnd,
+                Token::StructEnd,
+                Token::StructEnd,
+                Token::StructEnd,
+            ],
+        )
     }
 }

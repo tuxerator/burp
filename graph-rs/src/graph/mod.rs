@@ -1,9 +1,11 @@
 use std::{hash::Hash, usize};
 
+use serde::{Deserialize, Serialize};
+
 pub mod csr;
 pub mod quad_tree;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Target<EV> {
     target: usize,
     value: EV,

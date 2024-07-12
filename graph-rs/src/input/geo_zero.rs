@@ -1,35 +1,83 @@
+use geo_types::{CoordNum, Point};
 pub use geozero;
 use log::info;
 use ordered_float::OrderedFloat;
+use serde::{Deserialize, Serialize};
 
+use core::f64;
 use std::{
     cmp::Ordering,
     collections::{self, HashMap},
+    hash::Hash,
     io::Read,
     iter::Map,
     mem,
     ops::Deref,
 };
 
-use geo::{
-    coord,
-    geometry::{Coord, Point},
-    point, EuclideanDistance, GeodesicDistance, HaversineDistance, LineString,
-};
+use geo::{point, EuclideanDistance, GeodesicDistance, HaversineDistance};
 use geozero::{
     error::GeozeroError, geojson::GeoJson, ColumnValue, FeatureProcessor, GeomProcessor,
     PropertyProcessor,
 };
 
-use crate::{graph::csr::DirectedCsrGraph, DirectedGraph, Graph};
+use crate::{coord, graph::csr::DirectedCsrGraph, Coordinate, DirectedGraph, Graph};
 
 use super::edgelist::EdgeList;
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct Coord<T: CoordNum = f64> {
+    pub x: T,
+    pub y: T,
+}
+
+impl<T: CoordNum> PartialEq for Coord<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.x == other.x && self.y == other.y
+    }
+}
+
+impl<T: CoordNum> Eq for Coord<T> {}
+
+impl<T: CoordNum + Serialize> Hash for Coord<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let coord_bytes = bincode::serialize(self).unwrap();
+        state.write(coord_bytes.as_slice());
+        state.finish();
+    }
+}
+
+impl<T: CoordNum> Coordinate<T> for Coord<T> {
+    fn x_y(&self) -> (T, T) {
+        (self.x, self.y)
+    }
+
+    fn zero() -> Self {
+        Self {
+            x: T::zero(),
+            y: T::zero(),
+        }
+    }
+
+    fn as_coord(&self) -> geo_types::Coord<T> {
+        geo_types::Coord {
+            x: self.x,
+            y: self.y,
+        }
+    }
+}
+
+impl<T: CoordNum> Into<Point<T>> for Coord<T> {
+    fn into(self) -> Point<T> {
+        Point::new(self.x, self.y)
+    }
+}
 
 pub struct GraphWriter<F>
 where
     F: Fn(&HashMap<String, ColumnValueClonable>) -> bool,
 {
-    node_map: HashMap<Coord<OrderedFloat<f64>>, usize>,
+    node_map: HashMap<Coord<f64>, usize>,
     nodes: Vec<Coord<f64>>,
     edges: Vec<(usize, usize, f64)>,
     line: Vec<(usize, usize, f64)>,
@@ -97,10 +145,9 @@ where
             .ok_or(GeozeroError::Geometry("Not ready for coords".to_string()))?;
 
         let coord = coord! {x: x, y: y};
-        let ord_coord = coord! {x: OrderedFloat(x), y: OrderedFloat(y)};
         coords.push(coord);
 
-        if let std::collections::hash_map::Entry::Vacant(e) = self.node_map.entry(ord_coord) {
+        if let std::collections::hash_map::Entry::Vacant(e) = self.node_map.entry(coord) {
             e.insert(self.index);
             self.nodes.push(coord);
             self.index += 1;
@@ -146,18 +193,12 @@ where
 
         let mut coord_a = coords.next().unwrap();
         for coord_b in coords {
-            let node_a =
-                self.node_map
-                    .get(&to_ord_coord(&coord_a))
-                    .ok_or(GeozeroError::Geometry(
-                        "Coord not processed yet".to_string(),
-                    ))?;
-            let node_b =
-                self.node_map
-                    .get(&to_ord_coord(&coord_b))
-                    .ok_or(GeozeroError::Geometry(
-                        "Coord not processed yet".to_string(),
-                    ))?;
+            let node_a = self.node_map.get(&coord_a).ok_or(GeozeroError::Geometry(
+                "Coord not processed yet".to_string(),
+            ))?;
+            let node_b = self.node_map.get(&coord_b).ok_or(GeozeroError::Geometry(
+                "Coord not processed yet".to_string(),
+            ))?;
 
             let p_a: Point = coord_a.into();
             let p_b: Point = coord_b.into();
@@ -201,6 +242,7 @@ where
     }
 }
 
+#[derive(Debug)]
 pub enum ColumnValueClonable {
     Bool(bool),
     Binary(Vec<u8>),
@@ -288,7 +330,7 @@ mod test {
 
     use crate::{
         input::geo_zero::{ColumnValueClonable, GraphWriter},
-        DirectedGraph, Graph,
+        Coordinate, DirectedGraph, Graph,
     };
 
     #[test]

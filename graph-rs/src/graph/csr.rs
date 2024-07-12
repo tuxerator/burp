@@ -9,14 +9,15 @@ use petgraph::{
     stable_graph::{self, NodeIndex, StableGraph},
     Directed, Undirected,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{
     graph::Target,
     input::{edgelist::EdgeList, Direction},
-    DirectedGraph, Graph,
+    DirectedGraph, Graph, GraphError,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Csr<EV> {
     offsets: Box<[usize]>,
     targets: Box<[Target<EV>]>,
@@ -56,7 +57,7 @@ impl<EV> Csr<EV> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct DirectedCsrGraph<EV, NV>
 where
     EV: Copy + Send + Sync,
@@ -131,6 +132,17 @@ where
 
     fn node_value(&self, node: usize) -> Option<&NV> {
         self.node_values.get(node)
+    }
+
+    fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), crate::GraphError> {
+        let node_value = self
+            .node_values
+            .get_mut(node)
+            .ok_or(GraphError::EmptyNode(node))?;
+
+        *node_value = value;
+
+        Ok(())
     }
 
     fn to_stable_graph(&self) -> StableGraph<Option<NV>, EV, Directed, usize> {
