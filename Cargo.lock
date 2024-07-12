@@ -490,6 +490,7 @@ dependencies = [
  "ordered-float",
  "petgraph",
  "rfd",
+ "serde",
  "tokio",
  "wgpu",
  "winit",
@@ -1685,13 +1686,19 @@ name = "graph-rs"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "bincode",
+ "bytemuck",
  "geo",
+ "geo-types",
  "geozero 0.12.0",
  "log",
  "ordered-float",
  "osmpbfreader",
  "petgraph",
  "qutee",
+ "serde",
+ "serde_json",
+ "serde_test",
 ]
 
 [[package]]
@@ -3585,6 +3592,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.66",
+]
+
+[[package]]
+name = "serde_test"
+version = "1.0.176"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a2f49ace1498612d14f7e0b8245519584db8299541dfe31a06374a828d620ab"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
