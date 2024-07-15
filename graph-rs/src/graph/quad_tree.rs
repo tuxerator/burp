@@ -23,7 +23,6 @@ use super::csr::DirectedCsrGraph;
 pub struct QuadGraph<EV, NV, G>
 where
     G: Graph<EV, NV>,
-    EV: Send,
     NV: Coordinate + Debug,
 {
     graph: G,
@@ -41,7 +40,6 @@ where
 impl<EV, NV, G> QuadGraph<EV, NV, G>
 where
     G: DirectedGraph<EV, NV>,
-    EV: Send,
     NV: Coordinate + Debug,
 {
     pub fn new_from_graph(graph: G) -> Self {
@@ -75,8 +73,7 @@ where
 impl<EV, NV, G> Graph<EV, NV> for QuadGraph<EV, NV, G>
 where
     G: Graph<EV, NV>,
-    EV: Sync + Send,
-    NV: Coordinate + Sync + Debug,
+    NV: Coordinate + Debug,
 {
     fn degree(&self, node: usize) -> usize {
         self.graph.degree(node)
@@ -105,6 +102,13 @@ where
         self.graph.node_value_mut(node)
     }
 
+    fn iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
+    where
+        NV: 'a,
+    {
+        self.graph.iter()
+    }
+
     fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), crate::GraphError> {
         self.graph.set_node_value(node, value)
     }
@@ -119,8 +123,7 @@ where
 impl<EV, NV, G> DirectedGraph<EV, NV> for QuadGraph<EV, NV, G>
 where
     G: DirectedGraph<EV, NV>,
-    EV: Send + Sync,
-    NV: Coordinate + Sync + Debug,
+    NV: Coordinate + Debug,
 {
     fn in_degree(&self, node: usize) -> usize {
         self.graph.in_degree(node)
@@ -148,51 +151,50 @@ where
 impl<EV, NV, G> CoordGraph<EV, NV> for QuadGraph<EV, NV, G>
 where
     G: Graph<EV, NV>,
-    EV: Sync + Send,
-    NV: Coordinate + Sync + Debug,
+    NV: Coordinate + Debug,
 {
-    fn nearest_node(&self, coord: Coord) -> usize {
+    fn nearest_node(&self, point: Coord) -> Option<usize> {
+        self.nearest_node_bound(point, f64::MAX)
+    }
+    fn nearest_node_bound(&self, coord: Coord, tolerance: f64) -> Option<usize> {
         info!("Searching neighbour for: {:?}", coord);
         let point: Point = coord.into();
-        let mut p1 = point.haversine_destination(315., 100.);
-        let mut p2 = point.haversine_destination(135., 100.);
+        let mut p1 = point.haversine_destination(315., 50.);
+        let mut p2 = point.haversine_destination(135., 50.);
         let mut res = self
             .quad_tree
             .query_points(Boundary::between_points(p1.x_y(), p2.x_y()));
 
-        while res.next().is_none() || p1.haversine_distance(&p2) <= 1000000.0 {
-            p1 = p1.haversine_destination(315., 100.);
-            p2 = p2.haversine_destination(135., 100.);
+        while res.next().is_none() && p1.haversine_distance(&p2) <= tolerance {
+            p1 = p1.haversine_destination(315., 50.);
+            p2 = p2.haversine_destination(135., 50.);
+
+            info!("Searching between {:?}, {:?}", p1, p2);
 
             res = self
                 .quad_tree
                 .query_points(Boundary::between_points(p1.x_y(), p2.x_y()));
         }
 
-        let near_node = res
-            .fold((f64::MAX, 0), |closest, p| {
-                let d = point.euclidean_distance(&Point::new(p.0.x, p.0.y));
+        info!("Found points");
 
-                if d < closest.0 {
-                    (d, p.1)
-                } else {
-                    closest
-                }
-            })
-            .1;
+        res.fold((f64::MAX, None), |closest, p| {
+            let d = point.euclidean_distance(&Point::new(p.0.x, p.0.y));
 
-        info!(
-            "Found point: {:?}",
-            self.graph.node_value(near_node).unwrap()
-        );
-        near_node
+            if d < closest.0 && d <= tolerance {
+                (d, Some(p.1))
+            } else {
+                closest
+            }
+        })
+        .1
     }
 }
 
 impl<'de, EV, NV> Deserialize<'de> for QuadGraph<EV, NV, DirectedCsrGraph<EV, NV>>
 where
-    EV: Send + Sync + Copy + Deserialize<'de>,
-    NV: Coordinate + Send + Sync + Debug + Clone + Deserialize<'de>,
+    EV: Copy + Deserialize<'de>,
+    NV: Coordinate + Debug + Clone + Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -257,8 +259,8 @@ where
 
         impl<'de, EV, NV> Visitor<'de> for QuadGraphVisitor<EV, NV>
         where
-            EV: Send + Sync + Copy + Deserialize<'de>,
-            NV: Coordinate + Send + Sync + Debug + Clone + Deserialize<'de>,
+            EV: Copy + Deserialize<'de>,
+            NV: Coordinate + Debug + Clone + Deserialize<'de>,
         {
             type Value = QuadGraph<EV, NV, DirectedCsrGraph<EV, NV>>;
 
@@ -391,7 +393,13 @@ mod test {
 
         assert_relative_eq!(
             Point::new(13.355102, 52.5364593),
-            Point::from(quad_graph.graph.node_value(nearest_node).unwrap().x_y()),
+            Point::from(
+                quad_graph
+                    .graph
+                    .node_value(nearest_node.unwrap())
+                    .unwrap()
+                    .x_y()
+            ),
             epsilon = 1e-6
         );
     }
@@ -427,7 +435,13 @@ mod test {
 
         assert_relative_eq!(
             Point::new(13.4864, 52.5659),
-            Point::from(quad_graph.graph.node_value(nearest_node).unwrap().x_y()),
+            Point::from(
+                quad_graph
+                    .graph
+                    .node_value(nearest_node.unwrap())
+                    .unwrap()
+                    .x_y()
+            ),
             epsilon = 1e-6
         );
     }

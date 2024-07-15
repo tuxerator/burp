@@ -1,5 +1,6 @@
 use std::{
-    collections::HashSet, fmt::Debug, hash::Hash, io::Read, sync::atomic::AtomicI8, usize, vec,
+    collections::HashSet, fmt::Debug, hash::Hash, io::Read, marker::PhantomData,
+    sync::atomic::AtomicI8, usize, vec,
 };
 
 use log::info;
@@ -60,8 +61,8 @@ impl<EV> Csr<EV> {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct DirectedCsrGraph<EV, NV>
 where
-    EV: Copy + Send + Sync,
-    NV: Clone + Send + Sync,
+    EV: Copy,
+    NV: Clone,
 {
     pub node_values: Box<[NV]>,
     pub csr_out: Csr<EV>,
@@ -70,8 +71,8 @@ where
 
 impl<EV, NV> DirectedCsrGraph<EV, NV>
 where
-    EV: Copy + Send + Sync,
-    NV: Clone + Send + Sync,
+    EV: Copy,
+    NV: Clone,
 {
     pub fn new(
         node_values: Box<[NV]>,
@@ -96,8 +97,8 @@ where
 
 impl<EV, NV> Graph<EV, NV> for DirectedCsrGraph<EV, NV>
 where
-    EV: Copy + Send + Sync,
-    NV: Clone + Send + Sync,
+    EV: Copy,
+    NV: Clone,
 {
     fn node_count(&self) -> usize {
         self.csr_out.node_count()
@@ -138,6 +139,16 @@ where
         self.node_values.get_mut(node)
     }
 
+    fn iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
+    where
+        NV: 'a,
+    {
+        self.node_values
+            .iter()
+            .enumerate()
+            .map(|(index, node)| (index, node))
+    }
+
     fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), crate::GraphError> {
         let node_value = self
             .node_values
@@ -175,8 +186,8 @@ where
 
 impl<EV, NV> DirectedGraph<EV, NV> for DirectedCsrGraph<EV, NV>
 where
-    EV: Copy + Send + Sync,
-    NV: Clone + Send + Sync,
+    EV: Copy,
+    NV: Clone,
 {
     // TODO: Use Result<usize> as return value.
     fn out_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
@@ -207,7 +218,7 @@ where
 
 impl<EV> From<EdgeList<EV>> for DirectedCsrGraph<EV, ()>
 where
-    EV: Copy + Default + Send + Sync,
+    EV: Copy + Default,
 {
     fn from(edge_list: EdgeList<EV>) -> Self {
         let degrees_out = edge_list.degrees(Direction::Outgoing);

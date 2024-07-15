@@ -1,13 +1,13 @@
 use std::{error::Error, fmt::Display, usize};
 
 use ::geo_types::{Coord, CoordNum, Point};
-use geozero::geo_types;
 use graph::Target;
 use petgraph::{stable_graph::StableGraph, Directed};
 
 pub use geozero::{FeatureProcessor, GeomProcessor, PropertyProcessor};
 
 pub mod builder;
+pub mod geo_types;
 pub mod graph;
 pub mod input;
 
@@ -41,10 +41,14 @@ pub trait Coordinate<T: CoordNum = f64> {
     fn as_coord(&self) -> Coord<T>;
 }
 
-pub trait Graph<EV, NV>: Sync {
+pub trait Graph<EV, NV> {
     fn node_count(&self) -> usize;
 
     fn edge_count(&self) -> usize;
+
+    fn iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
+    where
+        NV: 'a;
 
     fn neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
     where
@@ -61,7 +65,7 @@ pub trait Graph<EV, NV>: Sync {
     fn to_stable_graph(&self) -> StableGraph<Option<NV>, EV, Directed, usize>;
 }
 
-pub trait DirectedGraph<EV, NV>: Graph<EV, NV> {
+pub trait DirectedGraph<EV, NV>: for<'a> Graph<EV, NV> {
     fn out_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
     where
         EV: 'a;
@@ -76,5 +80,7 @@ pub trait DirectedGraph<EV, NV>: Graph<EV, NV> {
 }
 
 pub trait CoordGraph<EV, NV: Coordinate>: Graph<EV, NV> {
-    fn nearest_node(&self, point: Coord) -> usize;
+    fn nearest_node(&self, point: Coord) -> Option<usize>;
+
+    fn nearest_node_bound(&self, point: Coord, tolerance: f64) -> Option<usize>;
 }

@@ -6,11 +6,9 @@ use std::{
     },
 };
 
-use crate::{
-    input::NodeValue,
-    run_ui::{run_ui, UiState},
-};
+use crate::run_ui::{run_ui, UiState};
 
+use burp::{oracle::Oracle, types::Poi};
 use geo::Coord;
 use graph_rs::graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph};
 use wgpu::TextureView;
@@ -44,7 +42,7 @@ pub struct State {
     pub egui_state: EguiState,
     pub galileo_state: GalileoState,
     pub ui_state: UiState,
-    pub graph: Arc<RwLock<Option<QuadGraph<f64, NodeValue, DirectedCsrGraph<f64, NodeValue>>>>>,
+    pub oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
     pub reciever: Receiver<Events>,
 }
 
@@ -136,7 +134,7 @@ impl State {
             egui_state,
             galileo_state,
             ui_state: UiState::new(Arc::clone(&graph), sender.clone()),
-            graph,
+            oracle: graph,
             reciever,
         }
     }
@@ -220,13 +218,8 @@ impl State {
 
     fn process_event(&self, event: Events) {
         match event {
-            Events::BuildGraphLayer => self.build_graph_layer(),
+            Events::BuildGraphLayer => self.galileo_state.build_map_layer(),
             _ => (),
         };
-    }
-
-    pub fn build_graph_layer(&self) {
-        self.galileo_state
-            .build_graph_layer(Arc::clone(&self.graph));
     }
 }

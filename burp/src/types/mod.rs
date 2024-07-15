@@ -1,18 +1,36 @@
 use core::fmt;
+use std::fmt::Debug;
 
-use crate::serde::CoordDef;
+use crate::{oracle::NodeTrait, serde::CoordDef};
 use geo_types::Coord;
 use graph_rs::Coordinate;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Poi {
     name: String,
     amenity: Amenity,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+impl Poi {
+    pub fn new(name: String, amenity: Amenity) -> Self {
+        Self { name, amenity }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn amenity(&self) -> &Amenity {
+        &self.amenity
+    }
+}
+
+impl NodeTrait for Poi {}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum Amenity {
+    None,
     Bar,
     Cafe,
     FastFood,
@@ -22,15 +40,15 @@ pub enum Amenity {
     Restaurant,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct CoordNode<T> {
     #[serde(with = "CoordDef")]
     coord: Coord,
-    data: Option<T>,
+    data: Vec<T>,
 }
 
 impl<T> CoordNode<T> {
-    pub fn new(coord: Coord, data: Option<T>) -> Self {
+    pub fn new(coord: Coord, data: Vec<T>) -> Self {
         Self { coord, data }
     }
 
@@ -42,18 +60,34 @@ impl<T> CoordNode<T> {
         &self.coord
     }
 
-    pub fn set_data(&mut self, data: Option<T>) {
+    pub fn set_data(&mut self, data: Vec<T>) {
         self.data = data;
     }
 
-    pub fn data(&self) -> &Option<T> {
+    pub fn push_data(&mut self, data: T) {
+        self.data.push(data);
+    }
+
+    pub fn append_data(&mut self, data: &mut Vec<T>) {
+        self.data.append(data);
+    }
+
+    pub fn data(&self) -> &Vec<T> {
         &self.data
+    }
+
+    pub fn data_mut(&mut self) -> &mut Vec<T> {
+        &mut self.data
     }
 }
 
-impl<T> fmt::Display for CoordNode<T> {
+impl<T: Debug> fmt::Display for CoordNode<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "({}, {})", self.coord.x, self.coord.y)
+        write!(
+            f,
+            "coord: ({}, {}), data: {:?}",
+            self.coord.x, self.coord.y, self.data
+        )
     }
 }
 
@@ -61,7 +95,7 @@ impl<T> Default for CoordNode<T> {
     fn default() -> Self {
         Self {
             coord: Coord::default(),
-            data: None,
+            data: Vec::default(),
         }
     }
 }
@@ -74,7 +108,7 @@ impl<T> Coordinate for CoordNode<T> {
     fn zero() -> Self {
         Self {
             coord: Coord::zero(),
-            data: None,
+            data: vec![],
         }
     }
 

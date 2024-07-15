@@ -6,6 +6,8 @@ use std::io::{BufReader, Read};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
 
+use burp::oracle::Oracle;
+use burp::types::Poi;
 use egui::{Context, Id};
 use egui_graphs::Node;
 use galileo_types::geo::impls::GeoPoint2d;
@@ -19,24 +21,20 @@ use log::info;
 use ordered_float::OrderedFloat;
 use rfd::FileDialog;
 
-use crate::input::geo_zero::{ColumnValueClonable, GraphWriter, PoiWriter};
-use crate::input::NodeValue;
 use crate::state::Events;
+use burp::input::geo_zero::{ColumnValueClonable, GraphWriter, PoiWriter};
 
 pub struct UiState {
     pub positions: Positions,
-    pub graph: Arc<RwLock<Option<QuadGraph<f64, NodeValue, DirectedCsrGraph<f64, NodeValue>>>>>,
+    pub oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
     pub sender: Sender<Events>,
 }
 
 impl UiState {
-    pub fn new(
-        graph: Arc<RwLock<Option<QuadGraph<f64, NodeValue, DirectedCsrGraph<f64, NodeValue>>>>>,
-        sender: Sender<Events>,
-    ) -> Self {
+    pub fn new(oracle: Arc<RwLock<Option<Oracle<Poi>>>>, sender: Sender<Events>) -> Self {
         Self {
             positions: Positions::default(),
-            graph,
+            oracle,
             sender,
         }
     }
@@ -78,7 +76,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
 
     egui::SidePanel::right("Left panel").show(ctx, |ui| {
         if ui.add(egui::Button::new("Load graph")).clicked() {
-            let graph_ref = Arc::clone(&state.graph);
+            let oracle_ref = Arc::clone(&state.oracle);
             let sender_clone = state.sender.clone();
             let file_path = FileDialog::new().set_directory("~/").pick_file().unwrap();
 
@@ -105,8 +103,10 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
                 let mut graph_writer = GraphWriter::new(filter);
 
                 read_geojson(buf_reader, &mut graph_writer);
-                let mut graph = graph_ref.write().expect("poisoned lock");
-                *graph = Some(QuadGraph::new_from_graph(graph_writer.get_graph()));
+                let mut oracle = oracle_ref.write().expect("poisoned lock");
+                let graph = QuadGraph::new_from_graph(graph_writer.get_graph());
+                *oracle = Some(Oracle::from(graph));
+
                 sender_clone
                     .send(Events::BuildGraphLayer)
                     .expect("reciever was deallocated");
@@ -116,14 +116,18 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
         if ui.add(egui::Button::new("Load POIs")).clicked() {
             let sender_clone = state.sender.clone();
             let file_path = FileDialog::new().set_directory("~/").pick_file().unwrap();
-            let graph_ref = Arc::clone(&state.graph);
+            let oracle_ref = Arc::clone(&state.oracle);
 
             tokio::spawn(async move {
                 let file = File::open(file_path).unwrap();
                 let buf_reader = BufReader::new(file);
 
-                let mut poi_writer = PoiWriter::new(|_| true, graph_ref);
+                let mut poi_writer = PoiWriter::new(|_| true);
                 read_geojson(buf_reader, &mut poi_writer);
+
+                if let Some(ref mut oracel) = *oracle_ref.write().expect("poisoned lock") {
+                    oracel.add_pois(poi_writer.pois());
+                }
                 info!("Loaded Pois");
             });
         }

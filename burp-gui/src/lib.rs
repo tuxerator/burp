@@ -6,12 +6,8 @@ use winit::{
     window::Window,
 };
 
-mod input;
-mod oracle;
 mod run_ui;
-mod serde;
 mod state;
-mod types;
 
 pub async fn run(window: Window, event_loop: EventLoop<()>) {
     let window = Arc::new(window);

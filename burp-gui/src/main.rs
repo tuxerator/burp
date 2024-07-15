@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use burp::run;
+use burp_gui::run;
 
 fn main() {
     tokio::runtime::Builder::new_multi_thread()

@@ -2,13 +2,15 @@ use core::panic;
 use std::f64;
 use std::sync::{Arc, RwLock};
 
-use crate::input::NodeValue;
 use crate::run_ui::Positions;
 use crate::state::WgpuFrame;
 use ::geo_types::Geometry::{self, GeometryCollection, LineString, Point};
 use ::geo_types::{coord, LineString as LineLineString, Point as PointPoint};
+use burp::oracle::Oracle;
+use burp::types::{CoordNode, Poi};
 use galileo::control::{EventPropagation, MouseButton, MouseEvent, UserEvent};
 use galileo::layer::feature_layer::{self, Feature, FeatureStore};
+use galileo::layer::vector_tile_layer::style::VectorTileStyle;
 use galileo::layer::FeatureLayer;
 use galileo::symbol::{ArbitraryGeometrySymbol, SimpleContourSymbol};
 use galileo::Color;
@@ -47,7 +49,7 @@ pub struct GalileoState {
     map: Arc<RwLock<galileo::Map>>,
     pointer_position: Arc<RwLock<Point2d>>,
     click_position: Arc<RwLock<Point2d>>,
-    graph: Arc<RwLock<Option<QuadGraph<f64, NodeValue, DirectedCsrGraph<f64, NodeValue>>>>>,
+    oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
     hidden: bool,
 }
 
@@ -58,7 +60,7 @@ impl GalileoState {
         surface: Arc<Surface<'static>>,
         queue: Arc<Queue>,
         config: SurfaceConfiguration,
-        graph: Arc<RwLock<Option<QuadGraph<f64, NodeValue, DirectedCsrGraph<f64, NodeValue>>>>>,
+        oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
     ) -> Self {
         let messenger = galileo::winit::WinitMessenger::new(window);
 
@@ -73,9 +75,9 @@ impl GalileoState {
         let click_position = Arc::new(RwLock::new(Point2d::default()));
         let click_position_clone = click_position.clone();
 
-        let graph_clone = Arc::clone(&graph);
-
         let mut event_processor = EventProcessor::default();
+
+        let oracle_ref = oracle.clone();
         event_processor.add_handler(move |ev: &UserEvent, map: &mut Map| {
             if let UserEvent::PointerMoved(MouseEvent {
                 screen_pointer_position,
@@ -108,56 +110,16 @@ impl GalileoState {
                         .screen_to_map_geo(*screen_pointer_position)
                         .expect("Point is not on map");
 
-                    if let Some(ref graph_ref) = *graph_clone.read().expect("poisoned lock") {
-                        let node =
-                            graph_ref.nearest_node(PointPoint::new(geo_pos.lon(), geo_pos.lat()));
-                        info!("{:?}", graph_ref.node_value(node));
-                        let node_geo = graph_ref
-                            .graph()
-                            .node_value(node)
-                            .expect("node not in grpah")
-                            .as_coord();
-
-                        let layers = map.layers_mut();
-
-                        {
-                            let point_layer = layers.get_mut(1).and_then(|layer| {
-                                layer.as_any_mut().downcast_mut::<FeatureLayer<
-                                    _,
-                                    GeoPoint2d,
-                                    ArbitraryGeometrySymbol,
-                                    GeoSpace2d,
-                                >>()
-                            });
-                            if let Some(layer) = point_layer {
-                                let point_features = layer.features_mut();
-                                point_features.insert(geo_pos);
-
-                                point_features
-                                    .insert(NewGeoPoint::latlon(node_geo.lat(), node_geo.lon()));
-                            }
-                        }
-
-                        {
-                            let contour_layer = layers.get_mut(2).and_then(|layer| {
-                                layer.as_any_mut().downcast_mut::<FeatureLayer<
-                                    _,
-                                    Contour<PointPoint>,
-                                    SimpleContourSymbol,
-                                    GeoSpace2d,
-                                >>()
-                            });
-
-                            if let Some(layer) = contour_layer {
-                                let contour_features = layer.features_mut();
-                                contour_features.insert(Contour::new(
-                                    vec![
-                                        PointPoint::new(geo_pos.lon(), geo_pos.lat()),
-                                        PointPoint::from(node_geo.x_y()),
-                                    ],
-                                    false,
-                                ));
-                            }
+                    {
+                        let oracle_ref = oracle_ref.read().expect("poisoned lock");
+                        if let Some(ref oracle) = *oracle_ref {
+                            println!(
+                                "node_value: {:?}",
+                                oracle.get_node_value_at(
+                                    PointPoint::new(geo_pos.lon(), geo_pos.lat()),
+                                    20.0
+                                )
+                            )
                         }
                     }
                 }
@@ -175,34 +137,26 @@ impl GalileoState {
 
         let tile_source = |index: &TileIndex| {
             format!(
-                "https://tile.openstreetmap.org/{}/{}/{}.png",
+                "https://api.maptiler.com/maps/openstreetmap/256/{}/{}/{}.jpg?key=8vBMrBmo8MIbxzh6yNkC",
+                index.z, index.x, index.y
+            )
+        };
+
+        let vt_tile_source = |index: &TileIndex| {
+            format!(
+                "https://api.maptiler.com/tiles/v3-openmaptiles/{}/{}/{}.pbf?key=8vBMrBmo8MIbxzh6yNkC",
                 index.z, index.x, index.y
             )
         };
 
         let map_layer = Box::new(MapBuilder::create_raster_tile_layer(
             tile_source,
-            TileSchema::web(18),
-        ));
-
-        let point_layer: Box<FeatureLayer<_, GeoPoint2d, ArbitraryGeometrySymbol, GeoSpace2d>> =
-            Box::new(FeatureLayer::new(
-                vec![],
-                ArbitraryGeometrySymbol::default(),
-                Crs::WGS84,
-            ));
-
-        let contour_layer: Box<
-            FeatureLayer<_, Contour<PointPoint>, SimpleContourSymbol, GeoSpace2d>,
-        > = Box::new(FeatureLayer::new(
-            vec![],
-            SimpleContourSymbol::new(Color::rgba(0, 255, 255, 255), 2.0),
-            Crs::WGS84,
+            TileSchema::web(20),
         ));
 
         let map = Arc::new(RwLock::new(galileo::Map::new(
             view,
-            vec![map_layer, point_layer, contour_layer],
+            vec![map_layer],
             Some(messenger),
         )));
 
@@ -213,48 +167,17 @@ impl GalileoState {
             map,
             pointer_position,
             click_position,
-            graph,
+            oracle,
             hidden: false,
         }
     }
 
-    pub fn build_graph_layer<T: CoordGraph<f64, NodeValue> + Send + 'static>(
-        &self,
-        graph: Arc<RwLock<Option<T>>>,
-    ) {
-        let mut lines = Vec::new();
-        let map = Arc::clone(&self.map);
+    pub fn build_map_layer(&self) {
+        let mut oracle = self.oracle.write().expect("poisoned lock");
 
-        tokio::spawn(async move {
-            if let Some(ref g) = *graph.read().expect("poisoned lock") {
-                info!("Creating geometries");
-                for node in 0..g.node_count() {
-                    for edge in g.neighbors(node) {
-                        let line = LineLineString::new(vec![
-                            g.node_value(node).unwrap().as_coord(),
-                            g.node_value(edge.target()).unwrap().as_coord(),
-                        ]);
-                        lines.push(line.to_geo2d());
-                    }
-                }
-
-                info!("Building feature layer");
-
-                let edge_layer: FeatureLayer<
-                    _,
-                    Disambig<::geo_types::LineString, GeoSpace2d>,
-                    ArbitraryGeometrySymbol,
-                    GeoSpace2d,
-                > = FeatureLayer::new(lines, ArbitraryGeometrySymbol::default(), Crs::WGS84);
-
-                let mut map = map.write().expect("poisoned lock");
-
-                map.layers_mut().push(edge_layer);
-                map.load_layers();
-
-                info!("Finished building feature layer");
-            }
-        });
+        if let Some(ref mut oracle) = *oracle {
+            oracle.draw_to_map(self.map.clone());
+        }
     }
 
     pub fn about_to_wait(&self) {
@@ -315,4 +238,11 @@ impl GalileoState {
             map_center_position: view.position(),
         }
     }
+}
+
+fn get_layer_style() -> VectorTileStyle {
+    const STYLE: &str = "resources/map_styles/bright.json";
+    println!("Reached!");
+    let file = std::fs::File::open(STYLE).unwrap();
+    serde_json::from_reader(file).unwrap()
 }

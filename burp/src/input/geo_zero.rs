@@ -27,6 +27,11 @@ use graph_rs::{graph::csr::DirectedCsrGraph, CoordGraph, Coordinate, DirectedGra
 
 use graph_rs::input::edgelist::EdgeList;
 
+use crate::{
+    oracle::Oracle,
+    types::{Amenity, CoordNode, Poi},
+};
+
 use super::NodeValue;
 
 pub struct GraphWriter<F>
@@ -34,7 +39,7 @@ where
     F: Fn(&HashMap<String, ColumnValueClonable>) -> bool,
 {
     node_map: HashMap<Coord<OrderedFloat<f64>>, usize>,
-    nodes: Vec<NodeValue>,
+    nodes: Vec<CoordNode<Poi>>,
     edges: Vec<(usize, usize, f64)>,
     line: Vec<(usize, usize, f64)>,
     coords: Option<Vec<Coord>>,
@@ -74,7 +79,7 @@ where
         graph_writer
     }
 
-    pub fn get_graph(&mut self) -> DirectedCsrGraph<f64, NodeValue> {
+    pub fn get_graph(&mut self) -> DirectedCsrGraph<f64, CoordNode<Poi>> {
         let edge_list = EdgeList::new(mem::take(&mut self.edges));
 
         let graph = DirectedCsrGraph::from(edge_list);
@@ -106,7 +111,7 @@ where
 
         if let std::collections::hash_map::Entry::Vacant(e) = self.node_map.entry(ord_coord) {
             e.insert(self.index);
-            self.nodes.push(NodeValue::Coord(coord));
+            self.nodes.push(CoordNode::new(coord, vec![]));
             self.index += 1;
         }
         Ok(())
@@ -268,12 +273,10 @@ impl Clone for ColumnValueClonable {
     }
 }
 
-pub struct PoiWriter<F, EV, G>
+pub struct PoiWriter<F>
 where
     F: Fn(&HashMap<String, ColumnValueClonable>) -> bool,
-    G: CoordGraph<EV, NodeValue> + 'static,
 {
-    graph: Arc<RwLock<Option<G>>>,
     coord: Option<Coord>,
     coords: Option<Vec<Coord>>,
     line_strings: Option<Vec<LineString>>,
@@ -283,18 +286,16 @@ where
     polygons: Option<Vec<Polygon>>,
     property_filter: F,
     properties: Option<HashMap<String, ColumnValueClonable>>,
+    pois: Vec<CoordNode<Poi>>,
     include_feature: bool,
-    _marker: PhantomData<EV>,
 }
 
-impl<F, EV, G> PoiWriter<F, EV, G>
+impl<F> PoiWriter<F>
 where
     F: Fn(&HashMap<String, ColumnValueClonable>) -> bool,
-    G: CoordGraph<EV, NodeValue>,
 {
-    pub fn new(property_filter: F, graph: Arc<RwLock<Option<G>>>) -> Self {
+    pub fn new(property_filter: F) -> Self {
         PoiWriter {
-            graph,
             coord: None,
             coords: None,
             line_strings: None,
@@ -304,8 +305,8 @@ where
             polygons: None,
             property_filter,
             properties: None,
+            pois: Vec::default(),
             include_feature: true,
-            _marker: PhantomData,
         }
     }
     fn finish_geometry(&mut self, geometry: Geometry<f64>) -> geozero::error::Result<()> {
@@ -318,12 +319,15 @@ where
         }
         Ok(())
     }
+
+    pub fn pois(&self) -> &[CoordNode<Poi>] {
+        &self.pois
+    }
 }
 
-impl<F, EV, G> FeatureProcessor for PoiWriter<F, EV, G>
+impl<F> FeatureProcessor for PoiWriter<F>
 where
     F: Fn(&HashMap<String, ColumnValueClonable>) -> bool,
-    G: CoordGraph<EV, NodeValue> + Send,
 {
     fn feature_begin(&mut self, idx: u64) -> geozero::error::Result<()> {
         self.include_feature = true;
@@ -342,33 +346,14 @@ where
             .properties
             .take()
             .ok_or(GeozeroError::Properties("No properties found".to_string()))?;
-        let graph_ref = Arc::clone(&self.graph);
 
-        info!("Processing feature");
-
-        tokio::spawn(async move {
-            if let Some(ref mut graph) = *graph_ref.write().expect("poisoned lock") {
-                let nearest_node = graph.nearest_node(center_coord);
-                let node_coord: Coord = graph
-                    .node_value(nearest_node)
-                    .ok_or(GeozeroError::Property(format!(
-                        "Node {} has no accociated value",
-                        nearest_node
-                    )))
-                    .unwrap()
-                    .as_coord();
-                info!("Found node {} with coords {:?}", &nearest_node, &node_coord);
-
-                if let Some(ColumnValueClonable::String(poi_name)) = properties.get("name") {
-                    let node_value = NodeValue::Poi {
-                        coord: node_coord,
-                        name: poi_name.to_string(),
-                    };
-                    info!("{:?}", &node_value);
-                    graph.set_node_value(nearest_node, node_value);
-                }
-            }
-        });
+        if let Some(ColumnValueClonable::String(poi_name)) = properties.get("name") {
+            let poi = CoordNode::new(
+                center_coord.into(),
+                vec![Poi::new(poi_name.to_string(), Amenity::None)],
+            );
+            self.pois.push(poi);
+        }
 
         Ok(())
     }
@@ -387,10 +372,9 @@ where
     }
 }
 
-impl<F, EV, G> PropertyProcessor for PoiWriter<F, EV, G>
+impl<F> PropertyProcessor for PoiWriter<F>
 where
     F: Fn(&HashMap<String, ColumnValueClonable>) -> bool,
-    G: CoordGraph<EV, NodeValue> + Send,
 {
     fn property(&mut self, i: usize, n: &str, v: &ColumnValue) -> geozero::error::Result<bool> {
         let value = ColumnValueClonable::from(v);
@@ -402,10 +386,9 @@ where
     }
 }
 
-impl<F, EV, G> GeomProcessor for PoiWriter<F, EV, G>
+impl<F> GeomProcessor for PoiWriter<F>
 where
     F: Fn(&HashMap<String, ColumnValueClonable>) -> bool,
-    G: CoordGraph<EV, NodeValue> + Send,
 {
     fn xy(&mut self, x: f64, y: f64, idx: usize) -> geozero::error::Result<()> {
         info!("Processing coord");
@@ -615,10 +598,12 @@ mod test {
             graph.neighbors(0).map(|x| x.target()).collect::<Vec<_>>(),
             vec![1]
         );
-        if let NodeValue::Coord(coord) = graph.node_value(3).unwrap() {
-            assert_eq!(coord.x_y(), (1874440.1778162003, -3271619.4315206874));
+        if let coord = graph.node_value(3).unwrap() {
+            assert_eq!(
+                coord.get_coord().x_y(),
+                (1874440.1778162003, -3271619.4315206874)
+            );
         }
-        assert!(false);
     }
 
     #[test]
