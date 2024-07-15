@@ -54,6 +54,8 @@ pub trait Graph<EV, NV>: Sync {
 
     fn node_value(&self, node: usize) -> Option<&NV>;
 
+    fn node_value_mut(&mut self, node: usize) -> Option<&mut NV>;
+
     fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), GraphError>;
 
     fn to_stable_graph(&self) -> StableGraph<Option<NV>, EV, Directed, usize>;
@@ -74,5 +76,5 @@ pub trait DirectedGraph<EV, NV>: Graph<EV, NV> {
 }
 
 pub trait CoordGraph<EV, NV: Coordinate>: Graph<EV, NV> {
-    fn nearest_node(&self, point: Point) -> usize;
+    fn nearest_node(&self, point: Coord) -> usize;
 }

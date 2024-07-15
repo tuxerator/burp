@@ -101,6 +101,10 @@ where
         self.graph.node_value(node)
     }
 
+    fn node_value_mut(&mut self, node: usize) -> Option<&mut NV> {
+        self.graph.node_value_mut(node)
+    }
+
     fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), crate::GraphError> {
         self.graph.set_node_value(node, value)
     }
@@ -147,8 +151,9 @@ where
     EV: Sync + Send,
     NV: Coordinate + Sync + Debug,
 {
-    fn nearest_node(&self, point: Point) -> usize {
-        info!("Searching neighbour for: {:?}", point);
+    fn nearest_node(&self, coord: Coord) -> usize {
+        info!("Searching neighbour for: {:?}", coord);
+        let point: Point = coord.into();
         let mut p1 = point.haversine_destination(315., 100.);
         let mut p2 = point.haversine_destination(135., 100.);
         let mut res = self
@@ -382,7 +387,7 @@ mod test {
 
         let quad_graph = QuadGraph::new_from_graph(graph);
 
-        let nearest_node = quad_graph.nearest_node(p_1);
+        let nearest_node = quad_graph.nearest_node(p_1.into());
 
         assert_relative_eq!(
             Point::new(13.355102, 52.5364593),
@@ -418,7 +423,7 @@ mod test {
 
         let quad_graph = QuadGraph::new_from_graph(graph);
 
-        let nearest_node = quad_graph.nearest_node(p_1);
+        let nearest_node = quad_graph.nearest_node(p_1.into());
 
         assert_relative_eq!(
             Point::new(13.4864, 52.5659),

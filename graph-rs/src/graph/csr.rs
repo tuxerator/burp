@@ -134,6 +134,10 @@ where
         self.node_values.get(node)
     }
 
+    fn node_value_mut(&mut self, node: usize) -> Option<&mut NV> {
+        self.node_values.get_mut(node)
+    }
+
     fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), crate::GraphError> {
         let node_value = self
             .node_values
