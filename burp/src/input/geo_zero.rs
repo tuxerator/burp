@@ -282,7 +282,7 @@ where
     collections: Vec<Vec<Geometry<f64>>>,
     polygons: Option<Vec<Polygon>>,
     property_filter: F,
-    properties: Arc<RwLock<HashMap<String, ColumnValueClonable>>>,
+    properties: Option<HashMap<String, ColumnValueClonable>>,
     include_feature: bool,
     _marker: PhantomData<EV>,
 }
@@ -303,7 +303,7 @@ where
             collections: Vec::default(),
             polygons: None,
             property_filter,
-            properties: Arc::new(RwLock::new(HashMap::default())),
+            properties: None,
             include_feature: true,
             _marker: PhantomData,
         }
@@ -332,15 +332,19 @@ where
     }
 
     fn feature_end(&mut self, idx: u64) -> geozero::error::Result<()> {
-        let geom = self.geom.take().ok_or(GeozeroError::FeatureGeometry(
-            "No Geometry for this Feature".to_string(),
-        ))?;
+        let geom = GeometryCollection(self.geoms.to_vec());
+        self.geoms = Vec::default();
         let center_coord = geom.centroid().ok_or(GeozeroError::FeatureGeometry(
             "Could not compute centroid for this Feature".to_string(),
         ))?;
 
-        let properties = Arc::clone(&self.properties);
+        let properties = self
+            .properties
+            .take()
+            .ok_or(GeozeroError::Properties("No properties found".to_string()))?;
         let graph_ref = Arc::clone(&self.graph);
+
+        info!("Processing feature");
 
         tokio::spawn(async move {
             if let Some(ref mut graph) = *graph_ref.write().expect("poisoned lock") {
@@ -353,14 +357,14 @@ where
                     )))
                     .unwrap()
                     .as_coord();
+                info!("Found node {} with coords {:?}", &nearest_node, &node_coord);
 
-                if let Some(ColumnValueClonable::String(poi_name)) =
-                    properties.read().expect("poisoned lock").get("name")
-                {
+                if let Some(ColumnValueClonable::String(poi_name)) = properties.get("name") {
                     let node_value = NodeValue::Poi {
                         coord: node_coord,
                         name: poi_name.to_string(),
                     };
+                    info!("{:?}", &node_value);
                     graph.set_node_value(nearest_node, node_value);
                 }
             }
@@ -369,9 +373,16 @@ where
         Ok(())
     }
 
+    fn properties_begin(&mut self) -> geozero::error::Result<()> {
+        debug_assert!(self.properties.is_none());
+        self.properties = Some(HashMap::default());
+        Ok(())
+    }
+
     fn properties_end(&mut self) -> geozero::error::Result<()> {
-        self.include_feature =
-            (self.property_filter)(&self.properties.read().expect("poisoned lock"));
+        if let Some(ref properties) = self.properties {
+            self.include_feature = (self.property_filter)(properties);
+        }
         Ok(())
     }
 }
@@ -383,11 +394,10 @@ where
 {
     fn property(&mut self, i: usize, n: &str, v: &ColumnValue) -> geozero::error::Result<bool> {
         let value = ColumnValueClonable::from(v);
+        if let Some(ref mut properties) = self.properties {
+            properties.insert(n.to_string(), value);
+        }
 
-        self.properties
-            .write()
-            .expect("poisoned lock")
-            .insert(n.to_string(), value);
         Ok(false) // don't abort
     }
 }
@@ -398,6 +408,7 @@ where
     G: CoordGraph<EV, NodeValue> + Send,
 {
     fn xy(&mut self, x: f64, y: f64, idx: usize) -> geozero::error::Result<()> {
+        info!("Processing coord");
         if !self.include_feature {
             return Ok(());
         }
@@ -425,9 +436,7 @@ where
 
         debug_assert!(coords.len() == 1);
 
-        self.finish_geometry(Point(coords[0]).into());
-
-        Ok(())
+        self.finish_geometry(Point(coords[0]).into())
     }
 
     fn multipoint_begin(&mut self, size: usize, _idx: usize) -> geozero::error::Result<()> {
@@ -499,9 +508,7 @@ where
         size: usize,
         idx: usize,
     ) -> geozero::error::Result<()> {
-        debug_assert!(self.coords.is_none());
         debug_assert!(self.line_strings.is_none());
-        self.coords = Some(Vec::with_capacity(size));
         self.line_strings = Some(Vec::with_capacity(size));
 
         Ok(())
@@ -509,7 +516,7 @@ where
 
     fn polygon_end(&mut self, tagged: bool, idx: usize) -> geozero::error::Result<()> {
         if !self.include_feature {
-            self.coords.take();
+            self.line_strings.take();
             return Ok(());
         }
 

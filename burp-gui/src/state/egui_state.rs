@@ -51,7 +51,6 @@ impl EguiState {
         if self.context.wants_pointer_input() {
             response.consumed = true;
         }
-
         response
     }
 

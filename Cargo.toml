@@ -1,5 +1,5 @@
 [workspace]
-members = ["burp", "graph-rs"]
+members = ["burp", "burp-gui", "graph-rs"]
 resolver = "2"
 
 [workspace.package]

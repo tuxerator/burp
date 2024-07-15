@@ -7,28 +7,31 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
 
 use egui::{Context, Id};
+use egui_graphs::Node;
 use galileo_types::geo::impls::GeoPoint2d;
 use galileo_types::geo::GeoPoint;
-use geo::Coord;
+use geo::{Area, Coord};
+use geozero::geojson::read_geojson;
 use graph_rs::graph::csr::DirectedCsrGraph;
 use graph_rs::graph::quad_tree::QuadGraph;
-use graph_rs::input::geo_zero::geozero::geojson::read_geojson;
-use graph_rs::input::geo_zero::{ColumnValueClonable, GraphWriter};
-use graph_rs::{DirectedGraph, Graph};
+use graph_rs::{CoordGraph, DirectedGraph, Graph};
+use log::info;
 use ordered_float::OrderedFloat;
 use rfd::FileDialog;
 
+use crate::input::geo_zero::{ColumnValueClonable, GraphWriter, PoiWriter};
+use crate::input::NodeValue;
 use crate::state::Events;
 
 pub struct UiState {
     pub positions: Positions,
-    pub graph: Arc<RwLock<Option<QuadGraph<f64, DirectedCsrGraph<f64, Coord<f64>>>>>>,
+    pub graph: Arc<RwLock<Option<QuadGraph<f64, NodeValue, DirectedCsrGraph<f64, NodeValue>>>>>,
     pub sender: Sender<Events>,
 }
 
 impl UiState {
     pub fn new(
-        graph: Arc<RwLock<Option<QuadGraph<f64, DirectedCsrGraph<f64, Coord<f64>>>>>>,
+        graph: Arc<RwLock<Option<QuadGraph<f64, NodeValue, DirectedCsrGraph<f64, NodeValue>>>>>,
         sender: Sender<Events>,
     ) -> Self {
         Self {
@@ -74,7 +77,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
     });
 
     egui::SidePanel::right("Left panel").show(ctx, |ui| {
-        if ui.add(egui::Button::new("Load")).clicked() {
+        if ui.add(egui::Button::new("Load graph")).clicked() {
             let graph_ref = Arc::clone(&state.graph);
             let sender_clone = state.sender.clone();
             let file_path = FileDialog::new().set_directory("~/").pick_file().unwrap();
@@ -87,13 +90,16 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
                     let footway = p.get("footway");
                     let highway = p.get("highway");
 
-                    if highway.is_none() {
-                        return false;
+                    match highway {
+                        None => return false,
+                        Some(ColumnValueClonable::String(s)) if s == "null" => return false,
+                        _ => (),
                     }
 
                     match footway {
+                        None => true,
                         Some(ColumnValueClonable::String(s)) => s == "null",
-                        _ => true,
+                        _ => false,
                     }
                 };
                 let mut graph_writer = GraphWriter::new(filter);
@@ -104,6 +110,21 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
                 sender_clone
                     .send(Events::BuildGraphLayer)
                     .expect("reciever was deallocated");
+            });
+        }
+
+        if ui.add(egui::Button::new("Load POIs")).clicked() {
+            let sender_clone = state.sender.clone();
+            let file_path = FileDialog::new().set_directory("~/").pick_file().unwrap();
+            let graph_ref = Arc::clone(&state.graph);
+
+            tokio::spawn(async move {
+                let file = File::open(file_path).unwrap();
+                let buf_reader = BufReader::new(file);
+
+                let mut poi_writer = PoiWriter::new(|_| true, graph_ref);
+                read_geojson(buf_reader, &mut poi_writer);
+                info!("Loaded Pois");
             });
         }
     });

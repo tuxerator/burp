@@ -2,6 +2,7 @@ use core::panic;
 use std::f64;
 use std::sync::{Arc, RwLock};
 
+use crate::input::NodeValue;
 use crate::run_ui::Positions;
 use crate::state::WgpuFrame;
 use ::geo_types::Geometry::{self, GeometryCollection, LineString, Point};
@@ -9,7 +10,8 @@ use ::geo_types::{coord, LineString as LineLineString, Point as PointPoint};
 use galileo::control::{EventPropagation, MouseButton, MouseEvent, UserEvent};
 use galileo::layer::feature_layer::{self, Feature, FeatureStore};
 use galileo::layer::FeatureLayer;
-use galileo::symbol::ArbitraryGeometrySymbol;
+use galileo::symbol::{ArbitraryGeometrySymbol, SimpleContourSymbol};
+use galileo::Color;
 use galileo::{
     control::{EventProcessor, MapController},
     render::WgpuRenderer,
@@ -21,6 +23,7 @@ use galileo_types::cartesian::{CartesianPoint2d, Point2d};
 use galileo_types::geo::impls::GeoPoint2d;
 use galileo_types::geo::{Crs, GeoPoint, NewGeoPoint};
 use galileo_types::geometry_type::GeoSpace2d;
+use galileo_types::impls::Contour;
 use galileo_types::{cartesian::Size, latlon};
 use galileo_types::{Disambig, Disambiguate};
 use geo::Coord;
@@ -30,7 +33,7 @@ use graph_rs::graph::csr::DirectedCsrGraph;
 use graph_rs::graph::quad_tree::QuadGraph;
 use graph_rs::input::geo_zero::geozero::geojson::read_geojson;
 use graph_rs::input::geo_zero::GraphWriter;
-use graph_rs::{CoordGraph, DirectedGraph, Graph};
+use graph_rs::{CoordGraph, Coordinate, DirectedGraph, Graph};
 use log::info;
 use ordered_float::OrderedFloat;
 use wgpu::{Device, Queue, Surface, SurfaceConfiguration};
@@ -44,7 +47,7 @@ pub struct GalileoState {
     map: Arc<RwLock<galileo::Map>>,
     pointer_position: Arc<RwLock<Point2d>>,
     click_position: Arc<RwLock<Point2d>>,
-    graph: Arc<RwLock<Option<QuadGraph<f64, DirectedCsrGraph<f64, Coord<f64>>>>>>,
+    graph: Arc<RwLock<Option<QuadGraph<f64, NodeValue, DirectedCsrGraph<f64, NodeValue>>>>>,
     hidden: bool,
 }
 
@@ -55,7 +58,7 @@ impl GalileoState {
         surface: Arc<Surface<'static>>,
         queue: Arc<Queue>,
         config: SurfaceConfiguration,
-        graph: Arc<RwLock<Option<QuadGraph<f64, DirectedCsrGraph<f64, Coord<f64>>>>>>,
+        graph: Arc<RwLock<Option<QuadGraph<f64, NodeValue, DirectedCsrGraph<f64, NodeValue>>>>>,
     ) -> Self {
         let messenger = galileo::winit::WinitMessenger::new(window);
 
@@ -97,35 +100,64 @@ impl GalileoState {
                         ..
                     },
                 ) => {
+                    *click_position_clone.write().expect("poisoned lock") =
+                        *screen_pointer_position;
+
                     let geo_pos = map
                         .view()
                         .screen_to_map_geo(*screen_pointer_position)
                         .expect("Point is not on map");
 
-                    let feature_layer = map.layers_mut().get_mut(1).and_then(|layer| {
-                        layer.as_any_mut().downcast_mut::<FeatureLayer<
-                            _,
-                            GeoPoint2d,
-                            ArbitraryGeometrySymbol,
-                            GeoSpace2d,
-                        >>()
-                    });
+                    if let Some(ref graph_ref) = *graph_clone.read().expect("poisoned lock") {
+                        let node =
+                            graph_ref.nearest_node(PointPoint::new(geo_pos.lon(), geo_pos.lat()));
+                        info!("{:?}", graph_ref.node_value(node));
+                        let node_geo = graph_ref
+                            .graph()
+                            .node_value(node)
+                            .expect("node not in grpah")
+                            .as_coord();
 
-                    *click_position_clone.write().expect("poisoned lock") =
-                        *screen_pointer_position;
+                        let layers = map.layers_mut();
 
-                    if let Some(layer) = feature_layer {
-                        let features = layer.features_mut();
-                        features.insert(geo_pos);
+                        {
+                            let point_layer = layers.get_mut(1).and_then(|layer| {
+                                layer.as_any_mut().downcast_mut::<FeatureLayer<
+                                    _,
+                                    GeoPoint2d,
+                                    ArbitraryGeometrySymbol,
+                                    GeoSpace2d,
+                                >>()
+                            });
+                            if let Some(layer) = point_layer {
+                                let point_features = layer.features_mut();
+                                point_features.insert(geo_pos);
 
-                        if let Some(ref graph_ref) = *graph_clone.read().expect("poisoned lock") {
-                            let node = graph_ref
-                                .nearest_node(PointPoint::new(geo_pos.lon(), geo_pos.lat()));
-                            let node_geo = graph_ref
-                                .graph()
-                                .node_value(node)
-                                .expect("node not in grpah");
-                            features.insert(NewGeoPoint::latlon(node_geo.lat(), node_geo.lon()));
+                                point_features
+                                    .insert(NewGeoPoint::latlon(node_geo.lat(), node_geo.lon()));
+                            }
+                        }
+
+                        {
+                            let contour_layer = layers.get_mut(2).and_then(|layer| {
+                                layer.as_any_mut().downcast_mut::<FeatureLayer<
+                                    _,
+                                    Contour<PointPoint>,
+                                    SimpleContourSymbol,
+                                    GeoSpace2d,
+                                >>()
+                            });
+
+                            if let Some(layer) = contour_layer {
+                                let contour_features = layer.features_mut();
+                                contour_features.insert(Contour::new(
+                                    vec![
+                                        PointPoint::new(geo_pos.lon(), geo_pos.lat()),
+                                        PointPoint::from(node_geo.x_y()),
+                                    ],
+                                    false,
+                                ));
+                            }
                         }
                     }
                 }
@@ -153,17 +185,24 @@ impl GalileoState {
             TileSchema::web(18),
         ));
 
-        let interaction_layer: Box<
-            FeatureLayer<_, GeoPoint2d, ArbitraryGeometrySymbol, GeoSpace2d>,
+        let point_layer: Box<FeatureLayer<_, GeoPoint2d, ArbitraryGeometrySymbol, GeoSpace2d>> =
+            Box::new(FeatureLayer::new(
+                vec![],
+                ArbitraryGeometrySymbol::default(),
+                Crs::WGS84,
+            ));
+
+        let contour_layer: Box<
+            FeatureLayer<_, Contour<PointPoint>, SimpleContourSymbol, GeoSpace2d>,
         > = Box::new(FeatureLayer::new(
             vec![],
-            ArbitraryGeometrySymbol::default(),
+            SimpleContourSymbol::new(Color::rgba(0, 255, 255, 255), 2.0),
             Crs::WGS84,
         ));
 
         let map = Arc::new(RwLock::new(galileo::Map::new(
             view,
-            vec![map_layer, interaction_layer],
+            vec![map_layer, point_layer, contour_layer],
             Some(messenger),
         )));
 
@@ -179,7 +218,7 @@ impl GalileoState {
         }
     }
 
-    pub fn build_graph_layer<T: CoordGraph<f64> + Send + 'static>(
+    pub fn build_graph_layer<T: CoordGraph<f64, NodeValue> + Send + 'static>(
         &self,
         graph: Arc<RwLock<Option<T>>>,
     ) {
@@ -192,8 +231,8 @@ impl GalileoState {
                 for node in 0..g.node_count() {
                     for edge in g.neighbors(node) {
                         let line = LineLineString::new(vec![
-                            *g.node_value(node).unwrap(),
-                            *g.node_value(edge.target()).unwrap(),
+                            g.node_value(node).unwrap().as_coord(),
+                            g.node_value(edge.target()).unwrap().as_coord(),
                         ]);
                         lines.push(line.to_geo2d());
                     }

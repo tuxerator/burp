@@ -6,7 +6,10 @@ use std::{
     },
 };
 
-use crate::run_ui::{run_ui, UiState};
+use crate::{
+    input::NodeValue,
+    run_ui::{run_ui, UiState},
+};
 
 use geo::Coord;
 use graph_rs::graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph};
@@ -41,7 +44,7 @@ pub struct State {
     pub egui_state: EguiState,
     pub galileo_state: GalileoState,
     pub ui_state: UiState,
-    pub graph: Arc<RwLock<Option<QuadGraph<f64, DirectedCsrGraph<f64, Coord<f64>>>>>>,
+    pub graph: Arc<RwLock<Option<QuadGraph<f64, NodeValue, DirectedCsrGraph<f64, NodeValue>>>>>,
     pub reciever: Receiver<Events>,
 }
 
