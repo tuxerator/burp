@@ -78,7 +78,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
         if ui.add(egui::Button::new("Load graph")).clicked() {
             let oracle_ref = Arc::clone(&state.oracle);
             let sender_clone = state.sender.clone();
-            let file_path = FileDialog::new().set_directory("~/").pick_file().unwrap();
+            let file_path = FileDialog::new().pick_file().unwrap();
 
             tokio::spawn(async move {
                 let file = File::open(file_path).unwrap();

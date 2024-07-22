@@ -117,7 +117,7 @@ impl GalileoState {
                                 "node_value: {:?}",
                                 oracle.get_node_value_at(
                                     PointPoint::new(geo_pos.lon(), geo_pos.lat()),
-                                    20.0
+                                    map.view().resolution() * 2.0
                                 )
                             )
                         }

@@ -220,12 +220,15 @@ where
 {
     fn feature_begin(&mut self, idx: u64) -> geozero::error::Result<()> {
         self.include_feature = true;
+        self.properties = HashMap::default();
 
         Ok(())
     }
 
     fn properties_end(&mut self) -> geozero::error::Result<()> {
         self.include_feature = (self.property_filter)(&self.properties);
+        println!("reached");
+        info!("{:?},{:?}", &self.include_feature, &self.properties);
         Ok(())
     }
 }
