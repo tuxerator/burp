@@ -241,7 +241,7 @@ mod test {
         }]
         }"#;
 
-        let mut graph_writer = GraphWriter::new(|_| true);
+        let mut graph_writer = GraphWriter::new_from_filter(|_| true);
         assert!(read_geojson(geojson.as_bytes(), &mut graph_writer).is_ok());
         let graph = graph_writer.get_graph();
         let oracle = Oracle::from(QuadGraph::new_from_graph(graph));

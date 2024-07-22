@@ -43,14 +43,14 @@ use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
 pub struct GalileoState {
-    input_handler: WinitInputHandler,
-    event_processor: EventProcessor,
-    renderer: Arc<RwLock<WgpuRenderer>>,
-    map: Arc<RwLock<galileo::Map>>,
-    pointer_position: Arc<RwLock<Point2d>>,
-    click_position: Arc<RwLock<Point2d>>,
-    oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
-    hidden: bool,
+    pub input_handler: WinitInputHandler,
+    pub event_processor: EventProcessor,
+    pub renderer: Arc<RwLock<WgpuRenderer>>,
+    pub map: Arc<RwLock<galileo::Map>>,
+    pub pointer_position: Arc<RwLock<Point2d>>,
+    pub click_position: Arc<RwLock<Point2d>>,
+    pub oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
+    pub hidden: bool,
 }
 
 impl GalileoState {

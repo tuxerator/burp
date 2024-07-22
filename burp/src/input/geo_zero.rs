@@ -13,7 +13,9 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use geo::{coord, point, Centroid, EuclideanDistance, GeodesicDistance, HaversineDistance};
+use geo::{
+    coord, line_string, point, Centroid, EuclideanDistance, GeodesicDistance, HaversineDistance,
+};
 use geo_types::{
     Coord, Geometry, GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon,
     Point, Polygon,
@@ -28,6 +30,7 @@ use graph_rs::{graph::csr::DirectedCsrGraph, CoordGraph, Coordinate, DirectedGra
 use graph_rs::input::edgelist::EdgeList;
 
 use crate::{
+    galileo::GalileoMap,
     oracle::Oracle,
     types::{Amenity, CoordNode, Poi},
 };
@@ -47,6 +50,7 @@ where
     property_filter: F,
     properties: HashMap<String, ColumnValueClonable>,
     include_feature: bool,
+    map: Option<GalileoMap>,
 }
 
 pub fn read_geojson<R, P>(reader: R, processor: &mut P) -> Result<(), GeozeroError>
@@ -61,7 +65,7 @@ impl<F> GraphWriter<F>
 where
     F: Fn(&HashMap<String, ColumnValueClonable>) -> bool,
 {
-    pub fn new(property_filter: F) -> Self {
+    pub fn new(property_filter: F, map: Option<GalileoMap>) -> Self {
         GraphWriter {
             node_map: HashMap::default(),
             nodes: Vec::default(),
@@ -72,7 +76,12 @@ where
             property_filter,
             properties: HashMap::default(),
             include_feature: true,
+            map,
         }
+    }
+
+    pub fn new_from_filter(property_filter: F) -> Self {
+        GraphWriter::new(property_filter, None)
     }
 
     pub fn new_from(graph_writer: Self) -> Self {
@@ -174,6 +183,10 @@ where
             let d = p_a.haversine_distance(&p_b);
 
             self.edges.push((*node_a, *node_b, d));
+
+            if let Some(ref map) = self.map {
+                map.draw_line(line_string![p_a.into(), p_b.into()]);
+            }
 
             coord_a = coord_b;
         }
@@ -591,7 +604,7 @@ mod test {
                 [1875038.447610231,-3269648.6879248763],[1874359.641504197,-3270196.812984864],[1874141.0428635243,-3270953.7840121365],[1874440.1778162003,-3271619.4315206874],[1876396.0598222911,-3274138.747656357],[1876442.0805243007,-3275052.60551469],[1874739.312657555,-3275457.333765534]
             ]
         }"#;
-        let mut graph_writer = GraphWriter::new(|_| true);
+        let mut graph_writer = GraphWriter::new_from_filter(|_| true);
         assert!(read_geojson(geojson.as_bytes(), &mut graph_writer).is_ok());
         let graph = graph_writer.get_graph();
 
@@ -617,7 +630,7 @@ mod test {
                 [174.612009,-36.156397],[175.336616,-37.209098],[175.357596,-36.526194],[175.808887,-36.798942],[175.95849,-37.555382],[176.763195,-37.881253],[177.438813,-37.961248],[178.010354,-37.579825],[178.517094,-37.695373],[178.274731,-38.582813],[177.97046,-39.166343],[177.206993,-39.145776],[176.939981,-39.449736],[177.032946,-39.879943],[176.885824,-40.065978],[176.508017,-40.604808],[176.01244,-41.289624],[175.239567,-41.688308],[175.067898,-41.425895],[174.650973,-41.281821],[175.22763,-40.459236],[174.900157,-39.908933],[173.824047,-39.508854],[173.852262,-39.146602],[174.574802,-38.797683],[174.743474,-38.027808],[174.697017,-37.381129],[174.292028,-36.711092],[174.319004,-36.534824],[173.840997,-36.121981],[173.054171,-35.237125],[172.636005,-34.529107],[173.007042,-34.450662],[173.551298,-35.006183],[174.32939,-35.265496],[174.612009,-36.156397]
             ]]]
         }"#;
-        let mut graph_writer = GraphWriter::new(|_| true);
+        let mut graph_writer = GraphWriter::new_from_filter(|_| true);
         assert!(read_geojson(geojson.as_bytes(), &mut graph_writer).is_ok());
         let graph = graph_writer.get_graph();
 
@@ -680,7 +693,7 @@ mod test {
 
         let filter =
             |p: &HashMap<String, ColumnValueClonable>| p.contains_key(&"highway".to_string());
-        let mut graph_writer = GraphWriter::new(filter);
+        let mut graph_writer = GraphWriter::new_from_filter(filter);
         assert!(read_geojson(geojson.as_bytes(), &mut graph_writer).is_ok());
         let graph = graph_writer.get_graph();
 

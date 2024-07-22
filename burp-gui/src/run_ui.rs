@@ -76,41 +76,9 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
 
     egui::SidePanel::right("Left panel").show(ctx, |ui| {
         if ui.add(egui::Button::new("Load graph")).clicked() {
-            let oracle_ref = Arc::clone(&state.oracle);
-            let sender_clone = state.sender.clone();
             let file_path = FileDialog::new().pick_file().unwrap();
 
-            tokio::spawn(async move {
-                let file = File::open(file_path).unwrap();
-                let buf_reader = BufReader::new(file);
-
-                let filter = |p: &HashMap<String, ColumnValueClonable>| {
-                    let footway = p.get("footway");
-                    let highway = p.get("highway");
-
-                    match highway {
-                        None => return false,
-                        Some(ColumnValueClonable::String(s)) if s == "null" => return false,
-                        _ => (),
-                    }
-
-                    match footway {
-                        None => true,
-                        Some(ColumnValueClonable::String(s)) => s == "null",
-                        _ => false,
-                    }
-                };
-                let mut graph_writer = GraphWriter::new(filter);
-
-                read_geojson(buf_reader, &mut graph_writer);
-                let mut oracle = oracle_ref.write().expect("poisoned lock");
-                let graph = QuadGraph::new_from_graph(graph_writer.get_graph());
-                *oracle = Some(Oracle::from(graph));
-
-                sender_clone
-                    .send(Events::BuildGraphLayer)
-                    .expect("reciever was deallocated");
-            });
+            state.sender.send(Events::LoadGraphFromPath(file_path));
         }
 
         if ui.add(egui::Button::new("Load POIs")).clicked() {

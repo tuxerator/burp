@@ -94,7 +94,7 @@ impl GalileoMap {
         Ok(())
     }
 
-    pub fn draw_edge(&self, edge: geo_types::LineString) -> Result<(), GalileoError> {
+    pub fn draw_line(&self, edge: geo_types::LineString) -> Result<(), GalileoError> {
         let mut graph_layer = self.graph_layer.write().expect("poisoned lock");
 
         graph_layer.features_mut().insert(edge.to_geo2d());
