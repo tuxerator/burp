@@ -1,8 +1,9 @@
 [workspace]
-members = ["burp", "burp-gui", "graph-rs"]
+members = ["burp", "burp-gui", "graph-rs", "workspace-hack"]
 resolver = "2"
 
 [workspace.package]
+name = "burp"
 authors = ["Jakob Sanowski <jakob.sanowski@sanbach.de>"]
 categories = ["science::geo"]
 edition = "2021"
@@ -10,3 +11,5 @@ keywords = ["gis", "map"]
 license = "GPL-3"
 repository = "https://gitlab.inf.uni-konstanz.de/jakob.sanowski/bachelor-projekt"
 version = "0.1.0"
+[workspace.metadata]
+crane.name = "burp"
