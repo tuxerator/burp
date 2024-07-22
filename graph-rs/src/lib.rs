@@ -6,6 +6,7 @@ use petgraph::{stable_graph::StableGraph, Directed};
 
 pub use geozero::{FeatureProcessor, GeomProcessor, PropertyProcessor};
 
+pub mod algorithms;
 pub mod builder;
 pub mod geo_types;
 pub mod graph;
