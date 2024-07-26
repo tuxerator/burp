@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::run_ui::Positions;
 use crate::state::WgpuFrame;
+use crate::types::PointerPos;
 use ::geo_types::Geometry::{self, GeometryCollection, LineString, Point};
 use ::geo_types::{coord, LineString as LineLineString, Point as PointPoint};
 use burp::oracle::Oracle;
@@ -43,14 +44,14 @@ use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
 pub struct GalileoState {
-    pub input_handler: WinitInputHandler,
-    pub event_processor: EventProcessor,
-    pub renderer: Arc<RwLock<WgpuRenderer>>,
-    pub map: Arc<RwLock<galileo::Map>>,
-    pub pointer_position: Arc<RwLock<Point2d>>,
-    pub click_position: Arc<RwLock<Point2d>>,
-    pub oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
-    pub hidden: bool,
+    input_handler: WinitInputHandler,
+    event_processor: EventProcessor,
+    renderer: Arc<RwLock<WgpuRenderer>>,
+    map: Arc<RwLock<galileo::Map>>,
+    pointer_position: Arc<RwLock<PointerPos>>,
+    click_position: Arc<RwLock<PointerPos>>,
+    oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
+    hidden: bool,
 }
 
 impl GalileoState {
@@ -68,67 +69,6 @@ impl GalileoState {
         let renderer = Arc::new(RwLock::new(renderer));
 
         let input_handler = WinitInputHandler::default();
-
-        let pointer_position = Arc::new(RwLock::new(Point2d::default()));
-        let pointer_position_clone = pointer_position.clone();
-
-        let click_position = Arc::new(RwLock::new(Point2d::default()));
-        let click_position_clone = click_position.clone();
-
-        let mut event_processor = EventProcessor::default();
-
-        let oracle_ref = oracle.clone();
-        event_processor.add_handler(move |ev: &UserEvent, map: &mut Map| {
-            if let UserEvent::PointerMoved(MouseEvent {
-                screen_pointer_position,
-                ..
-            }) = ev
-            {
-                *pointer_position_clone.write().expect("poisoned lock") = *screen_pointer_position;
-            }
-
-            match ev {
-                UserEvent::PointerMoved(MouseEvent {
-                    screen_pointer_position,
-                    ..
-                }) => {
-                    *pointer_position_clone.write().expect("poisoned lock") =
-                        *screen_pointer_position;
-                }
-                UserEvent::Click(
-                    MouseButton::Left,
-                    MouseEvent {
-                        screen_pointer_position,
-                        ..
-                    },
-                ) => {
-                    *click_position_clone.write().expect("poisoned lock") =
-                        *screen_pointer_position;
-
-                    let geo_pos = map
-                        .view()
-                        .screen_to_map_geo(*screen_pointer_position)
-                        .expect("Point is not on map");
-
-                    {
-                        let oracle_ref = oracle_ref.read().expect("poisoned lock");
-                        if let Some(ref oracle) = *oracle_ref {
-                            println!(
-                                "node_value: {:?}",
-                                oracle.get_node_value_at(
-                                    PointPoint::new(geo_pos.lon(), geo_pos.lat()),
-                                    map.view().resolution() * 2.0
-                                )
-                            )
-                        }
-                    }
-                }
-                _ => (),
-            }
-
-            EventPropagation::Propagate
-        });
-        event_processor.add_handler(MapController::default());
 
         let view = MapView::new(
             &latlon!(37.566, 126.9784),
@@ -160,6 +100,61 @@ impl GalileoState {
             Some(messenger),
         )));
 
+        let pointer_position = Arc::new(RwLock::new(PointerPos::new_from_screen_pos(
+            Point2d::default(),
+            map.clone(),
+        )));
+        let pointer_position_clone = pointer_position.clone();
+
+        let click_position = Arc::new(RwLock::new(PointerPos::new_from_screen_pos(
+            Point2d::default(),
+            map.clone(),
+        )));
+        let click_position_clone = click_position.clone();
+
+        let mut event_processor = EventProcessor::default();
+
+        let oracle_ref = oracle.clone();
+        event_processor.add_handler(move |ev: &UserEvent, map: &mut Map| {
+            match ev {
+                UserEvent::PointerMoved(MouseEvent {
+                    screen_pointer_position,
+                    ..
+                }) => pointer_position_clone
+                    .write()
+                    .expect("poisoned lock")
+                    .set_screen_pos(*screen_pointer_position),
+                UserEvent::Click(
+                    MouseButton::Left,
+                    MouseEvent {
+                        screen_pointer_position,
+                        ..
+                    },
+                ) => {
+                    let mut click_pos = click_position_clone.write().expect("poisoned lock");
+
+                    click_pos.set_screen_pos(*screen_pointer_position);
+
+                    if let Some(geo_pos) = click_pos.geo_pos() {
+                        let oracle_ref = oracle_ref.read().expect("poisoned lock");
+                        if let Some(ref oracle) = *oracle_ref {
+                            println!(
+                                "node_value: {:?}",
+                                oracle.get_node_value_at(
+                                    PointPoint::new(geo_pos.lon(), geo_pos.lat()),
+                                    20.0
+                                )
+                            )
+                        }
+                    }
+                }
+                _ => (),
+            }
+
+            EventPropagation::Propagate
+        });
+        event_processor.add_handler(MapController::default());
+
         GalileoState {
             input_handler,
             event_processor,
@@ -177,6 +172,18 @@ impl GalileoState {
 
         if let Some(ref mut oracle) = *oracle {
             oracle.draw_to_map(self.map.clone());
+        }
+    }
+
+    pub fn map(&self) -> Arc<RwLock<Map>> {
+        self.map.clone()
+    }
+
+    /// Returns pointers to current pointer position and last click position.
+    pub fn positions(&self) -> MapPositions {
+        MapPositions {
+            pointer_pos: self.pointer_position.clone(),
+            click_pos: self.click_position.clone(),
         }
     }
 
@@ -227,17 +234,11 @@ impl GalileoState {
             self.event_processor.handle(raw_event, &mut map);
         }
     }
+}
 
-    pub fn positions(&self) -> Positions {
-        let pointer_position = *self.pointer_position.read().expect("poisoned lock");
-        let click_position = *self.click_position.read().expect("poisoned lock");
-        let view = self.map.read().expect("poisoned lock").view().clone();
-        Positions {
-            pointer_position: view.screen_to_map_geo(pointer_position),
-            click_position: view.screen_to_map_geo(click_position),
-            map_center_position: view.position(),
-        }
-    }
+pub struct MapPositions {
+    pub pointer_pos: Arc<RwLock<PointerPos>>,
+    pub click_pos: Arc<RwLock<PointerPos>>,
 }
 
 fn get_layer_style() -> VectorTileStyle {

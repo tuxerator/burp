@@ -10,7 +10,7 @@ use std::{
     },
 };
 
-use crate::run_ui::{run_ui, UiState};
+// use crate::run_ui::{run_ui, UiState};
 
 use burp::{
     galileo::GalileoMap,
@@ -21,6 +21,7 @@ use burp::{
 use geo::Coord;
 use geozero::geojson::read_geojson;
 use graph_rs::graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph};
+use ui_state::{StateData, UiState};
 use wgpu::TextureView;
 use winit::{event::*, window::Window};
 
@@ -28,6 +29,7 @@ use self::{egui_state::EguiState, galileo_state::GalileoState};
 
 mod egui_state;
 mod galileo_state;
+mod ui_state;
 
 pub struct WgpuFrame<'frame> {
     device: &'frame wgpu::Device,
@@ -135,6 +137,10 @@ impl State {
             Arc::clone(&graph),
         );
 
+        let positions = galileo_state.positions();
+
+        let ui_state = UiState::new(galileo_state.map(), positions.pointer_pos);
+
         Self {
             surface,
             device,
@@ -144,7 +150,7 @@ impl State {
             window,
             egui_state,
             galileo_state,
-            ui_state: UiState::new(Arc::clone(&graph), sender.clone()),
+            ui_state,
             oracle: graph,
             reciever,
         }
@@ -179,8 +185,6 @@ impl State {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        self.ui_state.positions = self.galileo_state.positions();
-
         if let Ok(event) = self.reciever.try_recv() {
             self.process_event(event);
         }
@@ -216,8 +220,9 @@ impl State {
 
             self.galileo_state.render(&wgpu_frame);
 
-            self.egui_state
-                .render(&mut wgpu_frame, |ui| run_ui(&mut self.ui_state, ui));
+            self.egui_state.render(&mut wgpu_frame, |ctx| {
+                self.ui_state.run_ui(ctx);
+            });
         }
 
         self.queue.submit(iter::once(encoder.finish()));
