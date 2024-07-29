@@ -35,9 +35,10 @@ where
     ) -> Result<HashMap<usize, Path<T>>, &str> {
         let mut frontier = PriorityQueue::new();
         let mut result = HashMap::new();
+        //TODO: Use tree structure for path tracking
         frontier.push(Path::new(start_node, Vec::default()), Reverse(T::zero()));
 
-        while !target_set.is_empty() {
+        while !target_set.is_empty() || !frontier.is_empty() {
             let mut node = frontier.pop().ok_or("frontier is empty")?.0;
 
             if target_set
