@@ -22,35 +22,44 @@ use ordered_float::OrderedFloat;
 use rfd::FileDialog;
 
 use crate::state::Events;
+use crate::types::MapPositions;
 use burp::input::geo_zero::{ColumnValueClonable, GraphWriter, PoiWriter};
 
 pub struct UiState {
-    pub positions: Positions,
-    pub oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
-    pub sender: Sender<Events>,
+    positions: Arc<RwLock<MapPositions>>,
+    oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
+    sender: Sender<Events>,
+    state: State,
+}
+
+#[derive(PartialEq)]
+enum State {
+    Init,
+    LoadedGraph,
+    LoadedPois,
+    Dijkstra,
 }
 
 impl UiState {
-    pub fn new(oracle: Arc<RwLock<Option<Oracle<Poi>>>>, sender: Sender<Events>) -> Self {
+    pub fn new(
+        oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
+        positions: Arc<RwLock<MapPositions>>,
+        sender: Sender<Events>,
+    ) -> Self {
         Self {
-            positions: Positions::default(),
+            positions,
             oracle,
             sender,
+            state: State::Init,
         }
     }
-}
-
-#[derive(Clone, Default, Debug)]
-pub struct Positions {
-    pub pointer_position: Option<GeoPoint2d>,
-    pub click_position: Option<GeoPoint2d>,
-    pub map_center_position: Option<GeoPoint2d>,
 }
 
 pub fn run_ui(state: &mut UiState, ctx: &Context) {
     egui::Window::new("Galileo map").show(ctx, |ui| {
         ui.label("Pointer position:");
-        if let Some(pointer_position) = state.positions.pointer_position {
+        if let Some(pointer_position) = state.positions.read().expect("poisoned lock").pointer_pos()
+        {
             ui.label(format!(
                 "Lat: {:.4} Lon: {:.4}",
                 pointer_position.lat(),
@@ -63,7 +72,12 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
         ui.separator();
 
         ui.label("Map center position:");
-        if let Some(map_center_position) = state.positions.map_center_position {
+        if let Some(map_center_position) = state
+            .positions
+            .read()
+            .expect("poisoned lock")
+            .map_center_pos()
+        {
             ui.label(format!(
                 "Lat: {:.4} Lon: {:.4}",
                 map_center_position.lat(),
@@ -79,9 +93,17 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
             let file_path = FileDialog::new().pick_file().unwrap();
 
             state.sender.send(Events::LoadGraphFromPath(file_path));
+
+            state.state = State::LoadedGraph;
         }
 
-        if ui.add(egui::Button::new("Load POIs")).clicked() {
+        if ui
+            .add_enabled(
+                state.state == State::LoadedGraph,
+                egui::Button::new("Load POIs"),
+            )
+            .clicked()
+        {
             let sender_clone = state.sender.clone();
             let file_path = FileDialog::new().set_directory("~/").pick_file().unwrap();
             let oracle_ref = Arc::clone(&state.oracle);
@@ -98,6 +120,8 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
                 }
                 info!("Loaded Pois");
             });
+
+            state.state = State::LoadedPois;
         }
     });
 }

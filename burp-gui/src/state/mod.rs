@@ -21,15 +21,15 @@ use burp::{
 use geo::Coord;
 use geozero::geojson::read_geojson;
 use graph_rs::graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph};
-use ui_state::Ui;
 use wgpu::TextureView;
 use winit::{event::*, window::Window};
+
+use crate::run_ui::{run_ui, UiState};
 
 use self::{egui_state::EguiState, galileo_state::GalileoState};
 
 mod egui_state;
 mod galileo_state;
-mod ui_state;
 
 pub struct WgpuFrame<'frame> {
     device: &'frame wgpu::Device,
@@ -54,7 +54,7 @@ pub struct State {
     pub window: Arc<Window>,
     pub egui_state: EguiState,
     pub galileo_state: GalileoState,
-    pub ui_state: Ui,
+    pub ui_state: UiState,
     pub oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
     pub reciever: Receiver<Events>,
 }
@@ -139,7 +139,11 @@ impl State {
 
         let positions = galileo_state.positions();
 
-        let ui_state = Ui::new(galileo_state.map(), positions.pointer_pos);
+        let ui_state = UiState::new(
+            Arc::new(RwLock::new(None)),
+            galileo_state.positions(),
+            sender,
+        );
 
         Self {
             surface,
@@ -220,9 +224,8 @@ impl State {
 
             self.galileo_state.render(&wgpu_frame);
 
-            // self.egui_state.render(&mut wgpu_frame, |ctx| {
-            //     self.ui_state.run_ui(ctx);
-            // });
+            self.egui_state
+                .render(&mut wgpu_frame, |ctx| run_ui(&mut self.ui_state, ctx));
         }
 
         self.queue.submit(iter::once(encoder.finish()));

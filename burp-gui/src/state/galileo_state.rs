@@ -2,9 +2,8 @@ use core::panic;
 use std::f64;
 use std::sync::{Arc, RwLock};
 
-use crate::run_ui::Positions;
 use crate::state::WgpuFrame;
-use crate::types::PointerPos;
+use crate::types::MapPositions;
 use ::geo_types::Geometry::{self, GeometryCollection, LineString, Point};
 use ::geo_types::{coord, LineString as LineLineString, Point as PointPoint};
 use burp::oracle::Oracle;
@@ -48,8 +47,7 @@ pub struct GalileoState {
     event_processor: EventProcessor,
     renderer: Arc<RwLock<WgpuRenderer>>,
     map: Arc<RwLock<galileo::Map>>,
-    pointer_position: Arc<RwLock<PointerPos>>,
-    click_position: Arc<RwLock<PointerPos>>,
+    map_positions: Arc<RwLock<MapPositions>>,
     oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
     hidden: bool,
 }
@@ -100,17 +98,8 @@ impl GalileoState {
             Some(messenger),
         )));
 
-        let pointer_position = Arc::new(RwLock::new(PointerPos::new_from_screen_pos(
-            Point2d::default(),
-            map.clone(),
-        )));
-        let pointer_position_clone = pointer_position.clone();
-
-        let click_position = Arc::new(RwLock::new(PointerPos::new_from_screen_pos(
-            Point2d::default(),
-            map.clone(),
-        )));
-        let click_position_clone = click_position.clone();
+        let map_positions = Arc::new(RwLock::new(MapPositions::new(map.clone())));
+        let map_positions_clone = map_positions.clone();
 
         let mut event_processor = EventProcessor::default();
 
@@ -120,10 +109,10 @@ impl GalileoState {
                 UserEvent::PointerMoved(MouseEvent {
                     screen_pointer_position,
                     ..
-                }) => pointer_position_clone
+                }) => map_positions_clone
                     .write()
                     .expect("poisoned lock")
-                    .set_screen_pos(*screen_pointer_position),
+                    .set_pointer_pos(*screen_pointer_position),
                 UserEvent::Click(
                     MouseButton::Left,
                     MouseEvent {
@@ -131,11 +120,15 @@ impl GalileoState {
                         ..
                     },
                 ) => {
-                    let mut click_pos = click_position_clone.write().expect("poisoned lock");
+                    {
+                        map_positions_clone
+                            .write()
+                            .expect("poisoned lock")
+                            .set_click_pos(*screen_pointer_position);
+                    }
+                    let map_positions = map_positions_clone.read().expect("poisoned lock");
 
-                    click_pos.set_screen_pos(*screen_pointer_position);
-
-                    if let Some(geo_pos) = click_pos.geo_pos() {
+                    if let Some(geo_pos) = map_positions.click_pos() {
                         let oracle_ref = oracle_ref.read().expect("poisoned lock");
                         if let Some(ref oracle) = *oracle_ref {
                             println!(
@@ -160,8 +153,7 @@ impl GalileoState {
             event_processor,
             renderer,
             map,
-            pointer_position,
-            click_position,
+            map_positions,
             oracle,
             hidden: false,
         }
@@ -180,11 +172,8 @@ impl GalileoState {
     }
 
     /// Returns pointers to current pointer position and last click position.
-    pub fn positions(&self) -> MapPositions {
-        MapPositions {
-            pointer_pos: self.pointer_position.clone(),
-            click_pos: self.click_position.clone(),
-        }
+    pub fn positions(&self) -> Arc<RwLock<MapPositions>> {
+        self.map_positions.clone()
     }
 
     pub fn about_to_wait(&self) {
@@ -234,11 +223,6 @@ impl GalileoState {
             self.event_processor.handle(raw_event, &mut map);
         }
     }
-}
-
-pub struct MapPositions {
-    pub pointer_pos: Arc<RwLock<PointerPos>>,
-    pub click_pos: Arc<RwLock<PointerPos>>,
 }
 
 fn get_layer_style() -> VectorTileStyle {
