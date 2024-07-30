@@ -143,10 +143,7 @@ where
     where
         NV: 'a,
     {
-        self.node_values
-            .iter()
-            .enumerate()
-            .map(|(index, node)| (index, node))
+        self.node_values.iter().enumerate()
     }
 
     fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), crate::GraphError> {

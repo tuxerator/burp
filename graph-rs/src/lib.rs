@@ -6,6 +6,7 @@ use petgraph::{stable_graph::StableGraph, Directed};
 
 pub use geozero::{FeatureProcessor, GeomProcessor, PropertyProcessor};
 
+pub mod algorithms;
 pub mod builder;
 pub mod geo_types;
 pub mod graph;
@@ -65,7 +66,7 @@ pub trait Graph<EV, NV> {
     fn to_stable_graph(&self) -> StableGraph<Option<NV>, EV, Directed, usize>;
 }
 
-pub trait DirectedGraph<EV, NV>: for<'a> Graph<EV, NV> {
+pub trait DirectedGraph<EV, NV>: Graph<EV, NV> {
     fn out_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
     where
         EV: 'a;
