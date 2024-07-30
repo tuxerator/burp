@@ -3,6 +3,7 @@ use std::{
     fs::File,
     future::Future,
     io::BufReader,
+    mem,
     sync::{Arc, RwLock},
 };
 
@@ -16,44 +17,103 @@ use galileo::Map;
 use galileo_types::geo::{impls::GeoPoint2d, GeoPoint};
 use geozero::geojson::read_geojson;
 use graph_rs::graph::quad_tree::QuadGraph;
+use petgraph::EdgeType;
 use rfd::FileDialog;
-use tokio::task::JoinHandle;
+use tokio::{
+    runtime::Handle,
+    task::{block_in_place, JoinHandle},
+};
 
 use crate::types::PointerPos;
 
 use super::{galileo_state::GalileoState, Events};
 
-macro_rules! impl_state {
-    ($($struct:ty), + ) => {
-        $(
-            impl State for $struct {}
-        )*
-    };
+trait RunnableUi {
+    fn side_panel(&mut self, ctx: &Context);
 }
 
-pub trait Ui: Sized {
-    fn side_panel(state_data: StateData<Self>, ui: &mut EguiUi) -> State;
+pub struct Ui {
+    map: Arc<RwLock<Map>>,
+    pointer_pos: Arc<RwLock<PointerPos>>,
+    load_oracle: Option<JoinHandle<Oracle<Poi>>>,
+    oracle: Option<Oracle<Poi>>,
 }
 
-#[derive(Clone)]
-pub struct Init {}
-
-impl Ui for Init {
-    fn side_panel(state_data: StateData<Init>, ui: &mut EguiUi) -> State {
-        if ui.add(egui::Button::new("Load graph")).clicked() {
-            return State::LoadOracle(state_data.change_state(LoadingOracle {
-                oracle_join_hanle: Init::load_oracle(),
-            }));
+impl Ui {
+    pub fn new(map: Arc<RwLock<Map>>, pointer_pos: Arc<RwLock<PointerPos>>) -> Self {
+        Self {
+            map,
+            pointer_pos,
+            load_oracle: None,
+            oracle: None,
         }
-        State::Init(state_data)
     }
-}
 
-impl Init {
+    pub fn run_ui(&mut self, ctx: &Context) {
+        self.map_window(ctx);
+        if self.oracle.is_none() {
+            self.init(ctx);
+            return;
+        }
+    }
+
+    fn init(&mut self, ctx: &Context) {
+        self.load_oracle = if let Some(join_handle) = self.load_oracle.take() {
+            if join_handle.is_finished() {
+                let oracle = Handle::current().block_on(join_handle);
+                if let Ok(oracle) = oracle {
+                    self.oracle = Some(oracle);
+                }
+                None
+            } else {
+                Some(join_handle)
+            }
+        } else {
+            egui::SidePanel::right("right_panel").show(ctx, |ui| {
+                if ui.button("Load Graph").clicked() {
+                    self.load_oracle = Some(Ui::load_oracle());
+                }
+            });
+            None
+        }
+    }
+
+    fn map_window(&self, ctx: &Context) {
+        egui::Window::new("Galileo map").show(ctx, |ui| {
+            ui.label("Pointer position:");
+            if let Some(pointer_position) =
+                self.pointer_pos.read().expect("poisoned lock").geo_pos()
+            {
+                ui.label(format!(
+                    "Lat: {:.4} Lon: {:.4}",
+                    pointer_position.lat(),
+                    pointer_position.lon()
+                ));
+            } else {
+                ui.label("<unavaliable>");
+            }
+
+            ui.separator();
+
+            ui.label("Map center position:");
+            if let Some(map_center_position) =
+                self.map.read().expect("poisoned lock").view().position()
+            {
+                ui.label(format!(
+                    "Lat: {:.4} Lon: {:.4}",
+                    map_center_position.lat(),
+                    map_center_position.lon()
+                ));
+            } else {
+                ui.label("<unavaliable>");
+            }
+        });
+    }
+
     fn load_oracle() -> JoinHandle<Oracle<Poi>> {
         let file_path = FileDialog::new().set_directory("~/").pick_file().unwrap();
 
-        tokio::spawn(async move {
+        let joind_handle = tokio::spawn(async move {
             let file = File::open(file_path).unwrap();
             let buf_reader = BufReader::new(file);
 
@@ -73,157 +133,85 @@ impl Init {
                     _ => false,
                 }
             };
-            let mut graph_writer = GraphWriter::new(filter);
+            let mut graph_writer = GraphWriter::new(filter, None);
 
             read_geojson(buf_reader, &mut graph_writer);
             let graph = QuadGraph::new_from_graph(graph_writer.get_graph());
             Oracle::from(graph)
-        })
-    }
-}
-
-struct LoadingOracle {
-    oracle_join_hanle: JoinHandle<Oracle<Poi>>,
-}
-
-impl Ui for LoadingOracle {
-    fn side_panel(state_data: StateData<Self>, ui: &mut EguiUi) -> State {
-        State::LoadOracle(state_data)
-    }
-}
-
-#[derive(Clone)]
-pub struct StateData<T: Ui> {
-    pub map: Arc<RwLock<Map>>,
-    pub state: T,
-    pub pointer_pos: Arc<RwLock<PointerPos>>,
-}
-
-impl<T: Ui> StateData<T> {
-    fn change_state<V: Ui>(self, new_state: V) -> StateData<V> {
-        StateData {
-            map: self.map,
-            state: new_state,
-            pointer_pos: self.pointer_pos,
-        }
-    }
-}
-
-impl StateData<Init> {
-    pub fn new(map: Arc<RwLock<Map>>, pointer_pos: Arc<RwLock<PointerPos>>) -> Self {
-        StateData {
-            map,
-            pointer_pos,
-            state: Init {},
-        }
-    }
-}
-
-pub struct UiState {
-    state: State,
-    map: Arc<RwLock<Map>>,
-    pointer_pos: Arc<RwLock<PointerPos>>,
-}
-
-impl UiState {
-    pub fn new(map: Arc<RwLock<Map>>, pointer_pos: Arc<RwLock<PointerPos>>) -> Self {
-        Self {
-            state: State::Init(StateData::new(map, pointer_pos)),
-        }
-    }
-    pub fn run_ui(&mut self, ctx: &Context) {
-        self.state = self.state.run_ui(ctx);
+        });
+        joind_handle
     }
 }
 
 enum State {
-    Init(Init),
-    LoadOracle(LoadingOracle),
-    Default(Init),
-    Dijkstra(Init),
+    Init,
+    LoadOracle,
+    Default,
+    Dijkstra,
 }
 
-impl State {
-    fn ui<T: Ui>(state_data: StateData<T>, ctx: &Context) -> State {
-        State::map_window(&state_data, ctx);
-        State::side_panel(state_data, ctx)
-    }
+#[derive(Debug, Default)]
+pub struct Init {
+    load_graph: bool,
+}
 
-    fn side_panel<T: Ui>(state_data: StateData<T>, ctx: &Context) -> State {
-        SidePanel::right("right_panel")
-            .show(ctx, |ui| T::side_panel(state_data, ui))
-            .inner
-    }
-
-    fn map_window<T: Ui>(state_data: &StateData<T>, ctx: &Context) {
-        egui::Window::new("Galileo map").show(ctx, |ui| {
-            ui.label("Pointer position:");
-            if let Some(pointer_position) = state_data
-                .pointer_pos
-                .read()
-                .expect("poisoned lock")
-                .geo_pos()
-            {
-                ui.label(format!(
-                    "Lat: {:.4} Lon: {:.4}",
-                    pointer_position.lat(),
-                    pointer_position.lon()
-                ));
-            } else {
-                ui.label("<unavaliable>");
-            }
-
-            ui.separator();
-
-            ui.label("Map center position:");
-            if let Some(map_center_position) = state_data
-                .map
-                .read()
-                .expect("poisoned lock")
-                .view()
-                .position()
-            {
-                ui.label(format!(
-                    "Lat: {:.4} Lon: {:.4}",
-                    map_center_position.lat(),
-                    map_center_position.lon()
-                ));
-            } else {
-                ui.label("<unavaliable>");
-            }
+impl RunnableUi for Init {
+    fn side_panel(&mut self, ctx: &Context) {
+        egui::SidePanel::right("right_panel").show(ctx, |ui| {
+            self.load_graph = ui.button("Load Graph").clicked();
         });
     }
 }
 
-// impl Ui<Box<InitState>> {
-//     fn load_oracle(&self) -> JoinHandle<Oracle<Poi>> {
-//         let file_path = FileDialog::new().set_directory("~/").pick_file().unwrap();
-//
-//         tokio::spawn(async move {
-//             let file = File::open(file_path).unwrap();
-//             let buf_reader = BufReader::new(file);
-//
-//             let filter = |p: &HashMap<String, ColumnValueClonable>| {
-//                 let footway = p.get("footway");
-//                 let highway = p.get("highway");
-//
-//                 match highway {
-//                     None => return false,
-//                     Some(ColumnValueClonable::String(s)) if s == "null" => return false,
-//                     _ => (),
-//                 }
-//
-//                 match footway {
-//                     None => true,
-//                     Some(ColumnValueClonable::String(s)) => s == "null",
-//                     _ => false,
-//                 }
-//             };
-//             let mut graph_writer = GraphWriter::new(filter);
-//
-//             read_geojson(buf_reader, &mut graph_writer);
-//             let graph = QuadGraph::new_from_graph(graph_writer.get_graph());
-//             Oracle::from(graph)
-//         })
-//     }
-// }
+impl Init {
+    fn load_oracle(&self) -> LoadGraph {
+        let file_path = FileDialog::new().set_directory("~/").pick_file().unwrap();
+
+        let joind_handle = tokio::spawn(async move {
+            let file = File::open(file_path).unwrap();
+            let buf_reader = BufReader::new(file);
+
+            let filter = |p: &HashMap<String, ColumnValueClonable>| {
+                let footway = p.get("footway");
+                let highway = p.get("highway");
+
+                match highway {
+                    None => return false,
+                    Some(ColumnValueClonable::String(s)) if s == "null" => return false,
+                    _ => (),
+                }
+
+                match footway {
+                    None => true,
+                    Some(ColumnValueClonable::String(s)) => s == "null",
+                    _ => false,
+                }
+            };
+            let mut graph_writer = GraphWriter::new(filter, None);
+
+            read_geojson(buf_reader, &mut graph_writer);
+            let graph = QuadGraph::new_from_graph(graph_writer.get_graph());
+            Oracle::from(graph)
+        });
+        LoadGraph {
+            oracle_join_hanle: joind_handle,
+        }
+    }
+}
+
+struct LoadGraph {
+    oracle_join_hanle: JoinHandle<Oracle<Poi>>,
+}
+
+struct DefaultState {
+    oracle: Oracle<Poi>,
+    loaded_pois: bool,
+}
+
+impl RunnableUi for DefaultState {
+    fn side_panel(&mut self, ctx: &Context) {
+        egui::SidePanel::right("right_panel").show(ctx, |ui| {
+            self.loaded_pois = ui.button("Load Pois").clicked();
+        });
+    }
+}

@@ -21,7 +21,7 @@ use burp::{
 use geo::Coord;
 use geozero::geojson::read_geojson;
 use graph_rs::graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph};
-use ui_state::{StateData, UiState};
+use ui_state::Ui;
 use wgpu::TextureView;
 use winit::{event::*, window::Window};
 
@@ -54,7 +54,7 @@ pub struct State {
     pub window: Arc<Window>,
     pub egui_state: EguiState,
     pub galileo_state: GalileoState,
-    pub ui_state: UiState,
+    pub ui_state: Ui,
     pub oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
     pub reciever: Receiver<Events>,
 }
@@ -139,7 +139,7 @@ impl State {
 
         let positions = galileo_state.positions();
 
-        let ui_state = UiState::new(galileo_state.map(), positions.pointer_pos);
+        let ui_state = Ui::new(galileo_state.map(), positions.pointer_pos);
 
         Self {
             surface,
@@ -220,9 +220,9 @@ impl State {
 
             self.galileo_state.render(&wgpu_frame);
 
-            self.egui_state.render(&mut wgpu_frame, |ctx| {
-                self.ui_state.run_ui(ctx);
-            });
+            // self.egui_state.render(&mut wgpu_frame, |ctx| {
+            //     self.ui_state.run_ui(ctx);
+            // });
         }
 
         self.queue.submit(iter::once(encoder.finish()));
@@ -242,7 +242,7 @@ impl State {
 
     fn load_graph_from_path(&self, path: PathBuf) {
         let oracle_ref = Arc::clone(&self.oracle);
-        let map = self.galileo_state.map.clone();
+        let map = self.galileo_state.map();
 
         tokio::spawn(async move {
             let file = File::open(path).unwrap();
