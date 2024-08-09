@@ -21,7 +21,7 @@ use galileo::{
     winit::WinitInputHandler,
     Map, MapBuilder, MapView, TileSchema,
 };
-use galileo_types::cartesian::{CartesianPoint2d, Point2d};
+use galileo_types::cartesian::{CartesianPoint2d, NewCartesianPoint2d, Point2d};
 use galileo_types::geo::impls::GeoPoint2d;
 use galileo_types::geo::{Crs, GeoPoint, NewGeoPoint};
 use galileo_types::geometry_type::GeoSpace2d;
@@ -69,7 +69,7 @@ impl GalileoState {
         let input_handler = WinitInputHandler::default();
 
         let view = MapView::new(
-            &latlon!(37.566, 126.9784),
+            &latlon!(52.5, 13.3),
             TileSchema::web(18).lod_resolution(8).unwrap(),
         );
 
@@ -134,7 +134,7 @@ impl GalileoState {
                             println!(
                                 "node_value: {:?}",
                                 oracle.get_node_value_at(
-                                    PointPoint::new(geo_pos.lon(), geo_pos.lat()),
+                                    Coord::lonlat(geo_pos.lon(), geo_pos.lat()),
                                     20.0
                                 )
                             )

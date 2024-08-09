@@ -1,9 +1,11 @@
 use core::fmt;
 use std::{
-    f64::consts::E,
+    collections::HashSet,
+    f64::{self, consts::E},
     fmt::Debug,
+    hash::Hash,
     io::Read,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, RwLock, RwLockReadGuard},
 };
 
 use galileo::{
@@ -13,17 +15,21 @@ use galileo::{
     },
     Map,
 };
-use geo::Point;
+use geo::{Coord, Point};
 use graph_rs::{
+    algorithms::dijkstra::{Dijkstra, ResultNode},
     graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph},
     CoordGraph, Coordinate, DirectedGraph, Graph,
 };
 use log::info;
+use num_traits::Num;
+use ordered_float::OrderedFloat;
 use rayon::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 
 use crate::{
     galileo::{GalileoMap, NodeMarker},
+    serde::OrderedFloatDef,
     types::{CoordNode, Poi},
 };
 
@@ -90,21 +96,27 @@ where
         Ok(())
     }
 
-    pub fn get_node_value_at(&self, point: Point, tolerance: f64) -> Result<CoordNode<T>, Error> {
+    pub fn get_node_value_at(
+        &self,
+        coord: Coord,
+        tolerance: f64,
+    ) -> Result<(usize, CoordNode<T>), Error> {
         let graph = self.graph.read().expect("poisoned lock");
 
         let node_id = graph
-            .nearest_node_bound(point.into(), tolerance)
+            .nearest_node_bound(coord, tolerance)
             .ok_or(Error::NoValue(format!(
                 "no node at {:?} with tolerance {}",
-                &point.x_y(),
+                &coord.x_y(),
                 tolerance
             )))?;
 
-        graph
+        let node_value = graph
             .node_value(node_id)
             .cloned()
-            .ok_or(Error::NoValue(format!("no node with id {}", node_id)))
+            .ok_or(Error::NoValue(format!("no node with id {}", node_id)))?;
+
+        Ok((node_id, node_value))
     }
 
     pub fn add_pois(&mut self, pois: &[CoordNode<T>]) -> Result<(), Vec<Error>> {
@@ -135,6 +147,27 @@ where
 
         map.draw_coord_graph(&*graph);
         self.map = Some(map);
+    }
+}
+
+impl<T: NodeTrait> Oracle<T> {
+    pub fn graph(&self) -> RwLockReadGuard<QuadGraphType<T>> {
+        self.graph.read().expect("poisoned lock")
+    }
+
+    pub fn dijkstra(
+        &self,
+        start_node: usize,
+        targets: HashSet<usize>,
+    ) -> Result<HashSet<ResultNode<OrderedFloat<f64>>>, String> {
+        self.graph().dijkstra(start_node, targets)
+    }
+
+    pub fn dijkstra_full(
+        &self,
+        start_node: usize,
+    ) -> Result<HashSet<ResultNode<OrderedFloat<f64>>>, String> {
+        self.graph().dijkstra_full(start_node)
     }
 }
 

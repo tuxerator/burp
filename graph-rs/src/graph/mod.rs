@@ -12,7 +12,7 @@ pub struct Target<EV> {
     value: EV,
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Path<EV> {
     pub start: Option<Target<EV>>,
     pub path: Vec<Target<EV>>,

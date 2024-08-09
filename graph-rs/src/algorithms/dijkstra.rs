@@ -1,73 +1,141 @@
 use std::{
-    cmp::Reverse,
+    cmp::{Ordering, Reverse},
     collections::{HashMap, HashSet},
     error::Error,
     fmt::Debug,
     hash::Hash,
-    usize,
+    mem, usize,
 };
 
+use log::info;
 use num_traits::Num;
+use ordered_float::{FloatCore, OrderedFloat};
 use priority_queue::PriorityQueue;
 use rayon::iter::ParallelIterator;
 
 use crate::{graph::Path, DirectedGraph};
 
-pub trait Dijkstra<T: Num + Ord, V> {
+pub trait Dijkstra<T, V> {
     fn dijkstra(
         &self,
         start_node: usize,
         target_set: HashSet<usize>,
-    ) -> Result<HashMap<usize, Path<T>>, &str>;
+    ) -> Result<HashSet<ResultNode<T>>, String>;
 
-    fn dijkstra_full(&self, start_node: usize) -> Result<HashMap<usize, Path<T>>, &str>;
+    fn dijkstra_full(&self, start_node: usize) -> Result<HashSet<ResultNode<T>>, String>;
 }
 
-impl<T, V, U> Dijkstra<T, V> for U
+impl<T, V, U> Dijkstra<OrderedFloat<T>, V> for U
 where
-    T: Num + Ord + Copy + Default + Hash,
+    T: FloatCore + Copy + Default,
     U: DirectedGraph<T, V>,
 {
     fn dijkstra(
         &self,
         start_node: usize,
         mut target_set: HashSet<usize>,
-    ) -> Result<HashMap<usize, Path<T>>, &str> {
+    ) -> Result<HashSet<ResultNode<OrderedFloat<T>>>, String> {
         let mut frontier = PriorityQueue::new();
-        let mut result = HashMap::new();
+        let mut result = HashSet::new();
+        let mut visited = HashSet::new();
         //TODO: Use tree structure for path tracking
-        frontier.push(Path::new(start_node, Vec::default()), Reverse(T::zero()));
+        frontier.push(
+            ResultNode::new(start_node, None, OrderedFloat(T::zero())),
+            Reverse(OrderedFloat(T::zero())),
+        );
 
-        while !target_set.is_empty() || !frontier.is_empty() {
-            let mut node = frontier.pop().ok_or("frontier is empty")?.0;
-
-            if target_set
-                .take(&node.last_node().ok_or("path is empty")?)
-                .is_some()
-            {
-                result.insert(node.last_node().ok_or("path is empty")?, node.clone());
+        while !target_set.is_empty() && !frontier.is_empty() {
+            let node = frontier.pop().ok_or("frontier is empty".to_string())?.0;
+            if visited.contains(&node.node_id()) {
+                continue;
             }
+            info!("Processing node {:?}", &node.node_id());
 
-            let neighbours = self.neighbors(node.last_node().ok_or("path is empty")?);
+            let neighbours = self.neighbors(node.node_id());
 
             neighbours.for_each(|n| {
-                let mut path = node.clone();
-                path.push(*n);
-                let path_cost = path.cost();
-                if !frontier.change_priority_by(&path, |p| {
+                let path_cost = *node.cost() + *n.value();
+                let new_node = ResultNode::new(n.target(), Some(node.node_id()), path_cost);
+                if !frontier.change_priority_by(&new_node, |p| {
                     if p.0 > path_cost {
                         p.0 = path_cost
                     }
                 }) {
-                    frontier.push(path.clone(), Reverse(path_cost));
+                    frontier.push(new_node, Reverse(path_cost));
                 }
-            })
+            });
+
+            visited.insert(node.node_id());
+
+            if target_set.take(&node.node_id()).is_some() {
+                result.insert(node);
+            }
         }
 
         Ok(result)
     }
 
-    fn dijkstra_full(&self, start_node: usize) -> Result<HashMap<usize, Path<T>>, &str> {
+    fn dijkstra_full(
+        &self,
+        start_node: usize,
+    ) -> Result<HashSet<ResultNode<OrderedFloat<T>>>, String> {
         self.dijkstra(start_node, HashSet::from_iter(0..self.node_count()))
+    }
+}
+
+#[derive(Debug)]
+pub struct ResultNode<T> {
+    node_id: usize,
+    prev_node_id: Option<usize>,
+    cost: T,
+}
+
+impl<T: Num + Ord> ResultNode<T> {
+    pub fn new(node_id: usize, prev_node_id: Option<usize>, cost: T) -> Self {
+        Self {
+            node_id,
+            prev_node_id,
+            cost,
+        }
+    }
+
+    pub fn node_id(&self) -> usize {
+        self.node_id
+    }
+
+    pub fn prev_node_id(&self) -> Option<usize> {
+        self.prev_node_id
+    }
+
+    pub fn cost(&self) -> &T {
+        &self.cost
+    }
+}
+
+impl<T: Num + Ord> PartialEq for ResultNode<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cost.eq(other.cost())
+            && self.node_id == other.node_id
+            && self.prev_node_id == other.prev_node_id
+    }
+}
+
+impl<T: Num + Ord> PartialOrd for ResultNode<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T: Num + Ord> Eq for ResultNode<T> {}
+
+impl<T: Num + Ord> Ord for ResultNode<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.cost.cmp(&other.cost)
+    }
+}
+
+impl<T: Num + Ord> Hash for ResultNode<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.node_id.hash(state);
     }
 }

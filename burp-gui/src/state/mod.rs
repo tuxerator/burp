@@ -139,11 +139,7 @@ impl State {
 
         let positions = galileo_state.positions();
 
-        let ui_state = UiState::new(
-            Arc::new(RwLock::new(None)),
-            galileo_state.positions(),
-            sender,
-        );
+        let ui_state = UiState::new(graph.clone(), galileo_state.positions(), sender);
 
         Self {
             surface,

@@ -4,6 +4,7 @@ use std::fmt::Debug;
 use crate::{oracle::NodeTrait, serde::CoordDef};
 use geo_types::Coord;
 use graph_rs::Coordinate;
+use num_traits::Num;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]

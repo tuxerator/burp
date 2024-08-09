@@ -8,6 +8,7 @@ use geo::{
     HaversineDestination, HaversineDistance, Point, RhumbDestination, Translate, VincentyDistance,
 };
 use log::info;
+use num_traits::Float;
 use ordered_float::OrderedFloat;
 use qutee::{Boundary, DynCap, QuadTree};
 use serde::{
