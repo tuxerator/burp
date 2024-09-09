@@ -55,6 +55,8 @@ pub trait Graph<EV, NV> {
     where
         EV: 'a;
 
+    fn edges(&self) -> impl Iterator<Item = (usize, usize)> + '_;
+
     fn degree(&self, node: usize) -> usize;
 
     fn node_value(&self, node: usize) -> Option<&NV>;

@@ -223,6 +223,11 @@ impl GalileoState {
             self.event_processor.handle(raw_event, &mut map);
         }
     }
+
+    pub fn draw_path(self, path: Vec<usize>) {
+        let oracel = self.oracle.read().expect("poisoned lock");
+        let map = self.map.write().expect("poisoned lock");
+    }
 }
 
 fn get_layer_style() -> VectorTileStyle {

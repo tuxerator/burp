@@ -49,7 +49,6 @@ where
             if visited.contains(&node.node_id()) {
                 continue;
             }
-            info!("Processing node {:?}", &node.node_id());
 
             let neighbours = self.neighbors(node.node_id());
 

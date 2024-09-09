@@ -110,6 +110,10 @@ where
         self.graph.iter()
     }
 
+    fn edges(&self) -> impl Iterator<Item = (usize, usize)> {
+        self.graph.edges()
+    }
+
     fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), crate::GraphError> {
         self.graph.set_node_value(node, value)
     }

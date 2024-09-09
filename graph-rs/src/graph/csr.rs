@@ -1,6 +1,6 @@
 use std::{
-    collections::HashSet, fmt::Debug, hash::Hash, io::Read, marker::PhantomData,
-    sync::atomic::AtomicI8, usize, vec,
+    cell::RefCell, collections::HashSet, fmt::Debug, hash::Hash, io::Read, marker::PhantomData,
+    rc::Rc, sync::atomic::AtomicI8, usize, vec,
 };
 
 use log::info;
@@ -124,6 +124,25 @@ where
                     false
                 }
             })
+    }
+
+    fn edges(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
+        let mut visited: Rc<RefCell<HashSet<usize>>> = Rc::new(RefCell::new(HashSet::new()));
+
+        self.iter().flat_map(move |node| {
+            let node_id = node.0;
+            {
+                visited.borrow_mut().insert(node_id);
+            }
+            let visited_ref = visited.clone();
+            self.neighbors(node_id).filter_map(move |neighbor| {
+                if !visited_ref.borrow().contains(&neighbor.target()) {
+                    Some((node_id, neighbor.target()))
+                } else {
+                    None
+                }
+            })
+        })
     }
 
     // TODO: Use Result<usize> as return value.

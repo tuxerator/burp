@@ -6,6 +6,7 @@ use std::{
     hash::Hash,
     io::Read,
     sync::{Arc, Mutex, RwLock, RwLockReadGuard},
+    usize,
 };
 
 use galileo::{
@@ -44,22 +45,15 @@ where
     T: NodeTrait,
 {
     graph: RwLockGraph<T>,
-
-    #[serde(skip)]
-    map: Option<GalileoMap>,
 }
 
 impl<T> Oracle<T>
 where
     T: NodeTrait + Serialize + DeserializeOwned,
 {
-    pub fn new(graph: QuadGraphType<T>, map: Arc<RwLock<Map>>) -> Self {
-        let map = GalileoMap::new(map);
-        map.draw_coord_graph(&graph);
-
+    pub fn new(graph: QuadGraphType<T>) -> Self {
         Self {
             graph: RwLock::new(graph),
-            map: Some(map),
         }
     }
 
@@ -82,15 +76,6 @@ where
             info!("Found node: {}", &node);
 
             node.append_data(poi.data_mut());
-
-            if let Some(ref map) = self.map {
-                let feature = NodeMarker::new(
-                    NewGeoPoint::latlon(node.get_coord().lat(), node.get_coord().lon()),
-                    nearest_node,
-                );
-
-                map.draw_node(feature);
-            }
         }
 
         Ok(())
@@ -140,14 +125,6 @@ where
 
         Self::deserialize(reader).unwrap()
     }
-
-    pub fn draw_to_map(&mut self, map: Arc<RwLock<Map>>) {
-        let map = GalileoMap::new(map);
-        let graph = self.graph.read().expect("poisoned lock");
-
-        map.draw_coord_graph(&*graph);
-        self.map = Some(map);
-    }
 }
 
 impl<T: NodeTrait> Oracle<T> {
@@ -193,7 +170,6 @@ where
     fn from(graph: QuadGraphType<T>) -> Self {
         Self {
             graph: RwLock::new(graph),
-            map: None,
         }
     }
 }
