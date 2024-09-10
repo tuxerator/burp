@@ -6,7 +6,7 @@ use winit::{
     window::Window,
 };
 
-// mod map;
+mod map;
 mod run_ui;
 mod state;
 mod types;

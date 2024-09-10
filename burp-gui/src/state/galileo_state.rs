@@ -159,13 +159,7 @@ impl GalileoState {
         }
     }
 
-    pub fn build_map_layer(&self) {
-        let mut oracle = self.oracle.write().expect("poisoned lock");
-
-        if let Some(ref mut oracle) = *oracle {
-            oracle.draw_to_map(self.map.clone());
-        }
-    }
+    pub fn build_map_layer(&self) {}
 
     pub fn map(&self) -> Arc<RwLock<Map>> {
         self.map.clone()

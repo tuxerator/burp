@@ -82,6 +82,25 @@ where
     }
 }
 
+pub struct DijkstraResult<T: FloatCore>(HashSet<ResultNode<OrderedFloat<T>>>);
+
+impl<T: FloatCore> DijkstraResult<T> {
+    pub fn path(&self, node_id: usize) -> Option<Vec<&ResultNode<OrderedFloat<T>>>> {
+        let node_id = Some(node_id);
+        let mut path = vec![];
+        while let Some(node) = self
+            .0
+            .get(&ResultNode::new(node_id?, None, OrderedFloat(T::zero())))
+        {
+            path.push(node);
+
+            let node_id = node.prev_node_id();
+        }
+
+        None
+    }
+}
+
 #[derive(Debug)]
 pub struct ResultNode<T> {
     node_id: usize,

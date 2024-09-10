@@ -11,6 +11,7 @@ use galileo::{
 use galileo_types::geometry::Geom;
 use image::GenericImageView;
 use nalgebra::{dimension, Vector2};
+use num_traits::AsPrimitive;
 
 use super::layers::NodeMarker;
 
