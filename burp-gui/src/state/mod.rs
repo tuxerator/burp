@@ -124,7 +124,6 @@ impl State {
         let surface = Arc::new(surface);
         let device = Arc::new(device);
         let queue = Arc::new(queue);
-        let graph = Arc::new(RwLock::new(None));
 
         let (sender, reciever) = mpsc::channel();
 
@@ -134,10 +133,7 @@ impl State {
             Arc::clone(&surface),
             Arc::clone(&queue),
             config.clone(),
-            Arc::clone(&graph),
         );
-
-        let positions = galileo_state.positions();
 
         let ui_state = UiState::new(graph.clone(), galileo_state.positions(), sender);
 
@@ -151,7 +147,6 @@ impl State {
             egui_state,
             galileo_state,
             ui_state,
-            oracle: graph,
             reciever,
         }
     }
@@ -233,7 +228,6 @@ impl State {
 
     fn process_event(&self, event: Events) {
         match event {
-            Events::BuildGraphLayer => self.galileo_state.build_map_layer(),
             Events::LoadGraphFromPath(path) => self.load_graph_from_path(path),
             _ => (),
         };
@@ -269,7 +263,7 @@ impl State {
             read_geojson(buf_reader, &mut graph_writer);
             let mut oracle = oracle_ref.write().expect("poisoned lock");
             let graph = QuadGraph::new_from_graph(graph_writer.get_graph());
-            *oracle = Some(Oracle::new(graph, map));
+            *oracle = Some(Oracle::new(graph));
         });
     }
 }

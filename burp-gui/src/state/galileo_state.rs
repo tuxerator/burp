@@ -2,6 +2,7 @@ use core::panic;
 use std::f64;
 use std::sync::{Arc, RwLock};
 
+use crate::map::Map;
 use crate::state::WgpuFrame;
 use crate::types::MapPositions;
 use ::geo_types::Geometry::{self, GeometryCollection, LineString, Point};
@@ -19,7 +20,7 @@ use galileo::{
     render::WgpuRenderer,
     tile_scheme::TileIndex,
     winit::WinitInputHandler,
-    Map, MapBuilder, MapView, TileSchema,
+    Map as GalileoMap, MapBuilder, MapView, TileSchema,
 };
 use galileo_types::cartesian::{CartesianPoint2d, NewCartesianPoint2d, Point2d};
 use galileo_types::geo::impls::GeoPoint2d;
@@ -44,12 +45,8 @@ use winit::window::Window;
 
 pub struct GalileoState {
     input_handler: WinitInputHandler,
-    event_processor: EventProcessor,
     renderer: Arc<RwLock<WgpuRenderer>>,
-    map: Arc<RwLock<galileo::Map>>,
-    map_positions: Arc<RwLock<MapPositions>>,
-    oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
-    hidden: bool,
+    map: Map<String>,
 }
 
 impl GalileoState {
@@ -59,7 +56,6 @@ impl GalileoState {
         surface: Arc<Surface<'static>>,
         queue: Arc<Queue>,
         config: SurfaceConfiguration,
-        oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
     ) -> Self {
         let messenger = galileo::winit::WinitMessenger::new(window);
 
@@ -92,86 +88,33 @@ impl GalileoState {
             TileSchema::web(20),
         ));
 
-        let map = Arc::new(RwLock::new(galileo::Map::new(
+        let map = Map::new_empty(Arc::new(RwLock::new(GalileoMap::new(
             view,
             vec![map_layer],
             Some(messenger),
-        )));
+        ))));
 
-        let map_positions = Arc::new(RwLock::new(MapPositions::new(map.clone())));
+        let map_positions = Arc::new(RwLock::new(MapPositions::new(map.map_ref())));
         let map_positions_clone = map_positions.clone();
-
-        let mut event_processor = EventProcessor::default();
-
-        let oracle_ref = oracle.clone();
-        event_processor.add_handler(move |ev: &UserEvent, map: &mut Map| {
-            match ev {
-                UserEvent::PointerMoved(MouseEvent {
-                    screen_pointer_position,
-                    ..
-                }) => map_positions_clone
-                    .write()
-                    .expect("poisoned lock")
-                    .set_pointer_pos(*screen_pointer_position),
-                UserEvent::Click(
-                    MouseButton::Left,
-                    MouseEvent {
-                        screen_pointer_position,
-                        ..
-                    },
-                ) => {
-                    {
-                        map_positions_clone
-                            .write()
-                            .expect("poisoned lock")
-                            .set_click_pos(*screen_pointer_position);
-                    }
-                    let map_positions = map_positions_clone.read().expect("poisoned lock");
-
-                    if let Some(geo_pos) = map_positions.click_pos() {
-                        let oracle_ref = oracle_ref.read().expect("poisoned lock");
-                        if let Some(ref oracle) = *oracle_ref {
-                            println!(
-                                "node_value: {:?}",
-                                oracle.get_node_value_at(
-                                    Coord::lonlat(geo_pos.lon(), geo_pos.lat()),
-                                    20.0
-                                )
-                            )
-                        }
-                    }
-                }
-                _ => (),
-            }
-
-            EventPropagation::Propagate
-        });
-        event_processor.add_handler(MapController::default());
 
         GalileoState {
             input_handler,
-            event_processor,
             renderer,
             map,
-            map_positions,
-            oracle,
-            hidden: false,
         }
     }
 
-    pub fn build_map_layer(&self) {}
-
-    pub fn map(&self) -> Arc<RwLock<Map>> {
-        self.map.clone()
+    pub fn map(&self) -> Arc<RwLock<GalileoMap>> {
+        self.map.map_ref()
     }
 
     /// Returns pointers to current pointer position and last click position.
     pub fn positions(&self) -> Arc<RwLock<MapPositions>> {
-        self.map_positions.clone()
+        self.map.map_positions()
     }
 
     pub fn about_to_wait(&self) {
-        self.map.write().unwrap().animate();
+        self.map.map_write_lock().unwrap().animate();
     }
 
     pub fn resize(&self, size: PhysicalSize<u32>) {
@@ -180,25 +123,19 @@ impl GalileoState {
             .expect("poisoned lock")
             .resize(Size::new(size.width, size.height));
         self.map
-            .write()
+            .map_write_lock()
             .expect("poisoned lock")
             .set_size(Size::new((size.width) as f64, (size.height) as f64));
     }
 
-    pub fn hide(&mut self, hidden: bool) {
-        self.hidden = hidden;
-    }
-
     pub fn render(&self, wgpu_frame: &WgpuFrame<'_>) {
-        if !self.hidden {
-            let galileo_map = self.map.read().unwrap();
-            galileo_map.load_layers();
+        let galileo_map = self.map.map_read_lock().unwrap();
+        galileo_map.load_layers();
 
-            self.renderer
-                .write()
-                .expect("poisoned lock")
-                .render_to_texture_view(&galileo_map, wgpu_frame.texture_view);
-        }
+        self.renderer
+            .write()
+            .expect("poisoned lock")
+            .render_to_texture_view(&galileo_map, wgpu_frame.texture_view);
     }
 
     pub fn handle_event(&mut self, event: &winit::event::WindowEvent) {
@@ -213,20 +150,13 @@ impl GalileoState {
         let scale = 1.0;
 
         if let Some(raw_event) = self.input_handler.process_user_input(event, scale) {
-            let mut map = self.map.write().expect("poisoned lock");
-            self.event_processor.handle(raw_event, &mut map);
+            self.map.handle_event(raw_event);
         }
-    }
-
-    pub fn draw_path(self, path: Vec<usize>) {
-        let oracel = self.oracle.read().expect("poisoned lock");
-        let map = self.map.write().expect("poisoned lock");
     }
 }
 
 fn get_layer_style() -> VectorTileStyle {
     const STYLE: &str = "resources/map_styles/bright.json";
-    println!("Reached!");
     let file = std::fs::File::open(STYLE).unwrap();
     serde_json::from_reader(file).unwrap()
 }

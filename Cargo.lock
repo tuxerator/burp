@@ -590,7 +590,7 @@ dependencies = [
  "image 0.25.2",
  "log",
  "maybe-sync",
- "nalgebra 0.33.0",
+ "nalgebra",
  "num-traits",
  "ordered-float",
  "petgraph",
@@ -1680,7 +1680,7 @@ dependencies = [
  "log",
  "lyon",
  "maybe-sync",
- "nalgebra 0.32.6",
+ "nalgebra",
  "num-traits",
  "quick_cache",
  "raw-window-handle 0.6.2",
@@ -1709,7 +1709,7 @@ dependencies = [
  "galileo-types",
  "geozero 0.13.0",
  "log",
- "nalgebra 0.32.6",
+ "nalgebra",
  "prost 0.12.6",
  "prost-build 0.12.6",
  "serde",
@@ -1723,7 +1723,7 @@ source = "git+https://github.com/Maximkaaa/galileo.git#3bff75febc9314f654f28d0ff
 dependencies = [
  "geo-types",
  "geodesy",
- "nalgebra 0.32.6",
+ "nalgebra",
  "num-traits",
  "serde",
  "thiserror",
@@ -2731,23 +2731,7 @@ dependencies = [
  "num-rational",
  "num-traits",
  "serde",
- "simba 0.8.1",
- "typenum",
-]
-
-[[package]]
-name = "nalgebra"
-version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c4b5f057b303842cf3262c27e465f4c303572e7f6b0648f60e16248ac3397f4"
-dependencies = [
- "approx",
- "matrixmultiply",
- "nalgebra-macros",
- "num-complex",
- "num-rational",
- "num-traits",
- "simba 0.9.0",
+ "simba",
  "typenum",
 ]
 
@@ -4246,19 +4230,6 @@ name = "simba"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "061507c94fc6ab4ba1c9a0305018408e312e17c041eb63bef8aa726fa33aceae"
-dependencies = [
- "approx",
- "num-complex",
- "num-traits",
- "paste",
- "wide",
-]
-
-[[package]]
-name = "simba"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3a386a501cd104797982c15ae17aafe8b9261315b5d07e3ec803f2ea26be0fa"
 dependencies = [
  "approx",
  "num-complex",

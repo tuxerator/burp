@@ -22,13 +22,14 @@ use log::info;
 use ordered_float::OrderedFloat;
 use rfd::FileDialog;
 
+use crate::map::Map;
 use crate::state::Events;
 use crate::types::MapPositions;
 use burp::input::geo_zero::{ColumnValueClonable, GraphWriter, PoiWriter};
 
 pub struct UiState {
-    positions: Arc<RwLock<MapPositions>>,
     oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
+    map: Arc<RwLock<Map<String>>>,
     sender: Sender<Events>,
     state: State,
 }
@@ -44,12 +45,12 @@ enum State {
 impl UiState {
     pub fn new(
         oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
-        positions: Arc<RwLock<MapPositions>>,
+        map: Arc<RwLock<Map<String>>>,
         sender: Sender<Events>,
     ) -> Self {
         Self {
-            positions,
             oracle,
+            map,
             sender,
             state: State::Init,
         }
@@ -211,8 +212,6 @@ fn dijkstra(state: &mut UiState) {
         let mut target = HashSet::new();
         target.insert(end.0);
         let result = oracle.dijkstra(start.0, target);
-
-        dbg!(result);
     } else {
         info!("Couldn't get a lock on oracle");
     }

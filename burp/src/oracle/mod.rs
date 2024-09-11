@@ -18,7 +18,7 @@ use galileo::{
 };
 use geo::{Coord, Point};
 use graph_rs::{
-    algorithms::dijkstra::{Dijkstra, ResultNode},
+    algorithms::dijkstra::{Dijkstra, DijkstraResult, ResultNode},
     graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph},
     CoordGraph, Coordinate, DirectedGraph, Graph,
 };
@@ -136,14 +136,11 @@ impl<T: NodeTrait> Oracle<T> {
         &self,
         start_node: usize,
         targets: HashSet<usize>,
-    ) -> Result<HashSet<ResultNode<OrderedFloat<f64>>>, String> {
+    ) -> Result<DijkstraResult<f64>, String> {
         self.graph().dijkstra(start_node, targets)
     }
 
-    pub fn dijkstra_full(
-        &self,
-        start_node: usize,
-    ) -> Result<HashSet<ResultNode<OrderedFloat<f64>>>, String> {
+    pub fn dijkstra_full(&self, start_node: usize) -> Result<DijkstraResult<f64>, String> {
         self.graph().dijkstra_full(start_node)
     }
 }

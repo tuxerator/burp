@@ -19,7 +19,7 @@ pub struct NodeMarker<T> {
 }
 
 impl<T> NodeMarker<T> {
-    pub fn new(point: GeoPoint2d, node: usize, data: Option<T>) -> Self {
+    pub fn new(point: GeoPoint2d, node: usize, data: Option<Vec<T>>) -> Self {
         Self { point, node, data }
     }
 
@@ -56,15 +56,15 @@ where
         }
     }
 
-    pub fn insert_node(&self, node: NodeMarker<T>) {
+    pub fn insert_node(&mut self, node: NodeMarker<T>) {
         self.layer.features_mut().insert(node);
     }
 }
 
 impl<S, T> GalileoLayer for NodeLayer<S, T>
 where
-    S: Symbol<NodeMarker<T>> + MaybeSend + MaybeSync,
-    T: MaybeSend + MaybeSync,
+    S: Symbol<NodeMarker<T>> + MaybeSend + MaybeSync + 'static,
+    T: MaybeSend + MaybeSync + 'static,
 {
     fn render(&self, view: &galileo::MapView, canvas: &mut dyn galileo::render::Canvas) {
         self.layer.render(view, canvas)
@@ -104,11 +104,17 @@ where
         }
     }
 
-    pub fn insert_line(&self, line: LineString) {
+    pub fn insert_line(&mut self, line: LineString) {
         self.layer.features_mut().insert(line.to_geo2d());
     }
 
-    pub fn insert_coord_graph<T, EV, NV>(&self, graph: &T)
+    pub fn insert_lines(&mut self, lines: Vec<LineString>) {
+        lines
+            .into_iter()
+            .for_each(|line| self.layer.features_mut().insert(line.to_geo2d()));
+    }
+
+    pub fn insert_coord_graph<T, EV, NV>(&mut self, graph: &T)
     where
         T: CoordGraph<EV, NV>,
         NV: Coordinate<f64>,
@@ -131,7 +137,7 @@ where
 
 impl<S> GalileoLayer for LineLayer<S>
 where
-    S: Symbol<Disambig<LineString, GeoSpace2d>> + MaybeSend + MaybeSync,
+    S: Symbol<Disambig<LineString, GeoSpace2d>> + MaybeSend + MaybeSync + 'static,
 {
     fn render(&self, view: &galileo::MapView, canvas: &mut dyn galileo::render::Canvas) {
         self.layer.render(view, canvas)
