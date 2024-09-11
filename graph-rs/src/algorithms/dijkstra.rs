@@ -20,12 +20,12 @@ pub trait Dijkstra<T, V> {
         &self,
         start_node: usize,
         target_set: HashSet<usize>,
-    ) -> Result<HashSet<ResultNode<T>>, String>;
+    ) -> Result<DijkstraResult<T>, String>;
 
-    fn dijkstra_full(&self, start_node: usize) -> Result<HashSet<ResultNode<T>>, String>;
+    fn dijkstra_full(&self, start_node: usize) -> Result<DijkstraResult<T>, String>;
 }
 
-impl<T, V, U> Dijkstra<OrderedFloat<T>, V> for U
+impl<T, V, U> Dijkstra<T, V> for U
 where
     T: FloatCore + Copy + Default,
     U: DirectedGraph<T, V>,
@@ -34,11 +34,10 @@ where
         &self,
         start_node: usize,
         mut target_set: HashSet<usize>,
-    ) -> Result<HashSet<ResultNode<OrderedFloat<T>>>, String> {
+    ) -> Result<DijkstraResult<T>, String> {
         let mut frontier = PriorityQueue::new();
         let mut result = HashSet::new();
         let mut visited = HashSet::new();
-        //TODO: Use tree structure for path tracking
         frontier.push(
             ResultNode::new(start_node, None, OrderedFloat(T::zero())),
             Reverse(OrderedFloat(T::zero())),
@@ -71,22 +70,23 @@ where
             }
         }
 
-        Ok(result)
+        Ok(DijkstraResult::new(result))
     }
 
-    fn dijkstra_full(
-        &self,
-        start_node: usize,
-    ) -> Result<HashSet<ResultNode<OrderedFloat<T>>>, String> {
+    fn dijkstra_full(&self, start_node: usize) -> Result<DijkstraResult<T>, String> {
         self.dijkstra(start_node, HashSet::from_iter(0..self.node_count()))
     }
 }
 
-pub struct DijkstraResult<T: FloatCore>(HashSet<ResultNode<OrderedFloat<T>>>);
+pub struct DijkstraResult<T>(HashSet<ResultNode<OrderedFloat<T>>>);
 
 impl<T: FloatCore> DijkstraResult<T> {
+    pub fn new(hash_set: HashSet<ResultNode<OrderedFloat<T>>>) -> Self {
+        Self(hash_set)
+    }
+
     pub fn path(&self, node_id: usize) -> Option<Vec<&ResultNode<OrderedFloat<T>>>> {
-        let node_id = Some(node_id);
+        let mut node_id = Some(node_id);
         let mut path = vec![];
         while let Some(node) = self
             .0
@@ -94,10 +94,12 @@ impl<T: FloatCore> DijkstraResult<T> {
         {
             path.push(node);
 
-            let node_id = node.prev_node_id();
+            node_id = node.prev_node_id();
         }
 
-        None
+        path.reverse();
+
+        Some(path)
     }
 }
 
