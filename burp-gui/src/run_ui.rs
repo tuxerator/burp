@@ -1,6 +1,7 @@
 extern crate geozero;
 
 use std::collections::{HashMap, HashSet};
+use std::error::Error;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::mpsc::Sender;
@@ -8,7 +9,7 @@ use std::sync::{Arc, RwLock};
 
 use burp::oracle::{self, Oracle};
 use burp::types::{CoordNode, Poi};
-use egui::{Context, Id};
+use egui::{Context, Id, InnerResponse};
 use egui_graphs::Node;
 use galileo_types::geo::impls::GeoPoint2d;
 use galileo_types::geo::{GeoPoint, NewGeoPoint};
@@ -28,7 +29,7 @@ use crate::types::MapPositions;
 use burp::input::geo_zero::{ColumnValueClonable, GraphWriter, PoiWriter};
 
 pub struct UiState {
-    oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
+    oracle: Option<Oracle<Poi>>,
     map: Arc<RwLock<Map<String>>>,
     sender: Sender<Events>,
     state: State,
@@ -43,13 +44,9 @@ enum State {
 }
 
 impl UiState {
-    pub fn new(
-        oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
-        map: Arc<RwLock<Map<String>>>,
-        sender: Sender<Events>,
-    ) -> Self {
+    pub fn new(map: Arc<RwLock<Map<String>>>, sender: Sender<Events>) -> Self {
         Self {
-            oracle,
+            oracle: None,
             map,
             sender,
             state: State::Init,
@@ -57,122 +54,127 @@ impl UiState {
     }
 }
 
-pub fn run_ui(state: &mut UiState, ctx: &Context) {
+pub fn run_ui(state: &mut UiState, ctx: &Context) -> Result<(), Box<dyn Error>> {
     match state.state {
         State::Dijkstra(_) => dijkstra(state),
         _ => (),
     };
 
-    egui::Window::new("Galileo map").show(ctx, |ui| {
-        ui.label("Pointer position:");
-        if let Some(pointer_position) = state.positions.read().expect("poisoned lock").pointer_pos()
-        {
-            ui.label(format!(
-                "Lat: {:.4} Lon: {:.4}",
-                pointer_position.lat(),
-                pointer_position.lon()
-            ));
-        } else {
-            ui.label("<unavaliable>");
-        }
+    egui::Window::new("Galileo map")
+        .show(ctx, |ui| -> Result<(), Box<dyn Error>> {
+            let test = state.map.read()?;
+            test.pointer_pos()?;
+            ui.label("Pointer position:");
+            if let Some(pointer_position) = match state.map.read() {
+                Ok(guard) => guard,
+                Err(e) => return Err(Box::new(e)),
+            }
+            .pointer_pos()?
+            {
+                ui.label(format!(
+                    "Lat: {:.4} Lon: {:.4}",
+                    pointer_position.lat(),
+                    pointer_position.lon()
+                ));
+            } else {
+                ui.label("<unavaliable>");
+            }
 
-        ui.separator();
+            ui.separator();
 
-        ui.label("Map center position:");
-        if let Some(map_center_position) = state
-            .positions
-            .read()
-            .expect("poisoned lock")
-            .map_center_pos()
-        {
-            ui.label(format!(
-                "Lat: {:.4} Lon: {:.4}",
-                map_center_position.lat(),
-                map_center_position.lon()
-            ));
-        } else {
-            ui.label("<unavaliable>");
-        }
-    });
+            ui.label("Map center position:");
+            if let Some(map_center_position) = state.map.read()?.map_center_pos()? {
+                ui.label(format!(
+                    "Lat: {:.4} Lon: {:.4}",
+                    map_center_position.lat(),
+                    map_center_position.lon()
+                ));
+            } else {
+                ui.label("<unavaliable>");
+            }
 
-    egui::SidePanel::right("Left panel").show(ctx, |ui| {
-        if ui.add(egui::Button::new("Load graph")).clicked() {
-            let file_path = FileDialog::new().pick_file().unwrap();
+            Ok(())
+        })
+        .map_or(Ok(()), |inner_response| {
+            inner_response.inner.map_or(Ok(()), |res| res)
+        })?;
 
-            state.sender.send(Events::LoadGraphFromPath(file_path));
+    egui::SidePanel::right("Left panel")
+        .show(ctx, |ui| -> Result<(), Box<dyn Error>> {
+            if ui.add(egui::Button::new("Load graph")).clicked() {
+                let file_path = FileDialog::new().pick_file().unwrap();
 
-            state.state = State::LoadedGraph;
-        }
+                state.sender.send(Events::LoadGraphFromPath(file_path));
 
-        if ui
-            .add_enabled(
-                state.state == State::LoadedGraph,
-                egui::Button::new("Load POIs"),
-            )
-            .clicked()
-        {
-            let sender_clone = state.sender.clone();
-            let file_path = FileDialog::new().set_directory("~/").pick_file().unwrap();
-            let oracle_ref = Arc::clone(&state.oracle);
+                state.state = State::LoadedGraph;
+            }
 
-            tokio::spawn(async move {
+            if ui
+                .add_enabled(
+                    state.state == State::LoadedGraph,
+                    egui::Button::new("Load POIs"),
+                )
+                .clicked()
+            {
+                let sender_clone = state.sender.clone();
+                let file_path = FileDialog::new().set_directory("~/").pick_file().unwrap();
+
                 let file = File::open(file_path).unwrap();
                 let buf_reader = BufReader::new(file);
 
                 let mut poi_writer = PoiWriter::new(|_| true);
                 read_geojson(buf_reader, &mut poi_writer);
 
-                if let Some(ref mut oracel) = *oracle_ref.write().expect("poisoned lock") {
+                if let Some(ref mut oracel) = state.oracle {
                     oracel.add_pois(poi_writer.pois());
 
                     info!("Loaded Pois");
                 }
-            });
 
-            state.state = State::LoadedPois;
-        }
+                state.state = State::LoadedPois;
+            }
 
-        if ui
-            .add_enabled(
-                state.state == State::LoadedPois,
-                egui::Button::new("Dijkstra"),
-            )
-            .clicked()
-        {
-            state
-                .positions
-                .write()
-                .expect("poisoned lock")
-                .take_click_pos();
-            state.state = State::Dijkstra(None);
-        }
+            if ui
+                .add_enabled(
+                    state.state == State::LoadedPois,
+                    egui::Button::new("Dijkstra"),
+                )
+                .clicked()
+            {
+                state.map.write()?.take_click_pos()?;
+                state.state = State::Dijkstra(None);
+            }
 
-        if ui.button("Save").clicked() {
-            if let Some(path) = FileDialog::new().save_file() {
-                if let Ok(file) = File::create(path) {
-                    if let Some(ref oracle) = *state.oracle.read().expect("poisoned lock") {
-                        let mut buf_writer = BufWriter::new(file);
-                        let _ = buf_writer.write(oracle.to_flexbuffer().as_slice());
+            if ui.button("Save").clicked() {
+                if let Some(path) = FileDialog::new().save_file() {
+                    if let Ok(file) = File::create(path) {
+                        if let Some(ref oracle) = state.oracle {
+                            let mut buf_writer = BufWriter::new(file);
+                            let _ = buf_writer.write(oracle.to_flexbuffer().as_slice());
+                        };
                     };
                 };
-            };
-        }
+            }
 
-        if ui.button("Load").clicked() {
-            if let Some(path) = FileDialog::new().pick_file() {
-                if let Ok(file) = File::open(path) {
-                    let mut oracle = state.oracle.write().expect("poisoned lock");
-                    let mut buf_reader = BufReader::new(file);
+            if ui.button("Load").clicked() {
+                if let Some(path) = FileDialog::new().pick_file() {
+                    if let Ok(file) = File::open(path) {
+                        let mut buf_reader = BufReader::new(file);
 
-                    let mut flexbuffer = Vec::default();
+                        let mut flexbuffer = Vec::default();
 
-                    buf_reader.read_to_end(&mut flexbuffer);
-                    *oracle = Some(Oracle::read_flexbuffer(flexbuffer.as_slice()));
-                    state.state = State::LoadedPois;
+                        buf_reader.read_to_end(&mut flexbuffer);
+                        state.oracle = Some(Oracle::read_flexbuffer(flexbuffer.as_slice()));
+                        state.state = State::LoadedPois;
+                    }
                 }
             }
-        }
-    });
+
+            Ok(())
+        })
+        .inner?;
+
+    Ok(())
 }
 
 fn dijkstra(state: &mut UiState) {
@@ -215,4 +217,12 @@ fn dijkstra(state: &mut UiState) {
     } else {
         info!("Couldn't get a lock on oracle");
     }
+}
+
+fn unwrap_error(
+    response: Option<InnerResponse<Option<Result<(), Box<dyn Error>>>>>,
+) -> Result<(), Box<dyn Error>> {
+    response.map_or(Ok(()), |inner_response| {
+        inner_response.inner.map_or(Ok(()), |res| res)
+    })
 }

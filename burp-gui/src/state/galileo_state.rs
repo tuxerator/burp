@@ -46,7 +46,7 @@ use winit::window::Window;
 pub struct GalileoState {
     input_handler: WinitInputHandler,
     renderer: Arc<RwLock<WgpuRenderer>>,
-    map: Map<String>,
+    map: Arc<RwLock<Map<String>>>,
 }
 
 impl GalileoState {
@@ -88,14 +88,13 @@ impl GalileoState {
             TileSchema::web(20),
         ));
 
-        let map = Map::new_empty(Arc::new(RwLock::new(GalileoMap::new(
-            view,
-            vec![map_layer],
-            Some(messenger),
-        ))));
+        let map = Arc::new(RwLock::new(Map::new_empty(Arc::new(RwLock::new(
+            GalileoMap::new(view, vec![map_layer], Some(messenger)),
+        )))));
 
-        let map_positions = Arc::new(RwLock::new(MapPositions::new(map.map_ref())));
-        let map_positions_clone = map_positions.clone();
+        let map_positions = Arc::new(RwLock::new(MapPositions::new(
+            map.read().expect("poisoned lock").map_ref(),
+        )));
 
         GalileoState {
             input_handler,
@@ -104,17 +103,22 @@ impl GalileoState {
         }
     }
 
-    pub fn map(&self) -> Arc<RwLock<GalileoMap>> {
-        self.map.map_ref()
+    pub fn map(&self) -> Arc<RwLock<Map<String>>> {
+        self.map.clone()
     }
 
     /// Returns pointers to current pointer position and last click position.
     pub fn positions(&self) -> Arc<RwLock<MapPositions>> {
-        self.map.map_positions()
+        self.map.read().expect("poisoned lock").map_positions()
     }
 
     pub fn about_to_wait(&self) {
-        self.map.map_write_lock().unwrap().animate();
+        self.map
+            .read()
+            .expect("poisoned lock")
+            .map_write_lock()
+            .unwrap()
+            .animate();
     }
 
     pub fn resize(&self, size: PhysicalSize<u32>) {
@@ -123,13 +127,16 @@ impl GalileoState {
             .expect("poisoned lock")
             .resize(Size::new(size.width, size.height));
         self.map
+            .read()
+            .expect("poisoned lock")
             .map_write_lock()
             .expect("poisoned lock")
             .set_size(Size::new((size.width) as f64, (size.height) as f64));
     }
 
     pub fn render(&self, wgpu_frame: &WgpuFrame<'_>) {
-        let galileo_map = self.map.map_read_lock().unwrap();
+        let galileo_map = self.map.read().expect("poisoned lock");
+        let galileo_map = galileo_map.map_read_lock().unwrap();
         galileo_map.load_layers();
 
         self.renderer
@@ -150,7 +157,10 @@ impl GalileoState {
         let scale = 1.0;
 
         if let Some(raw_event) = self.input_handler.process_user_input(event, scale) {
-            self.map.handle_event(raw_event);
+            self.map
+                .write()
+                .expect("poisoned lock")
+                .handle_event(raw_event);
         }
     }
 }

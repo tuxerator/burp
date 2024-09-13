@@ -52,13 +52,10 @@ impl<K: Hash + Eq> Map<K> {
                         ..
                     },
                 ) => {
-                    {
-                        map_positions_clone
-                            .write()
-                            .expect("poisoned lock")
-                            .set_click_pos(*screen_pointer_position);
-                    }
-                    let map_positions = map_positions_clone.read().expect("poisoned lock");
+                    map_positions_clone
+                        .write()
+                        .expect("poisoned lock")
+                        .set_click_pos(*screen_pointer_position);
                 }
                 _ => (),
             }
@@ -105,6 +102,14 @@ impl<K: Hash + Eq> Map<K> {
         let map_positions = self.map_positions.read()?;
 
         Ok(map_positions.pointer_pos())
+    }
+
+    pub fn map_center_pos(
+        &self,
+    ) -> Result<Option<GeoPoint2d>, PoisonError<RwLockReadGuard<'_, MapPositions>>> {
+        let map_positions = self.map_positions.read()?;
+
+        Ok(map_positions.map_center_pos())
     }
 
     pub fn click_pos(

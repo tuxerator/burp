@@ -55,7 +55,6 @@ pub struct State {
     pub egui_state: EguiState,
     pub galileo_state: GalileoState,
     pub ui_state: UiState,
-    pub oracle: Arc<RwLock<Option<Oracle<Poi>>>>,
     pub reciever: Receiver<Events>,
 }
 
@@ -135,7 +134,7 @@ impl State {
             config.clone(),
         );
 
-        let ui_state = UiState::new(graph.clone(), galileo_state.positions(), sender);
+        let ui_state = UiState::new(galileo_state.map(), sender);
 
         Self {
             surface,
