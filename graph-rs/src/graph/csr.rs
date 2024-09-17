@@ -158,6 +158,10 @@ where
         self.node_values.get_mut(node)
     }
 
+    /// Returns an Iterator over all nodes.
+    ///
+    /// The Iterator yields pairs `(i, val)`, where `i` is the index
+    /// of the node and `val` the data accociated with that node.
     fn iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
     where
         NV: 'a,

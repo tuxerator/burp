@@ -227,42 +227,7 @@ impl State {
 
     fn process_event(&self, event: Events) {
         match event {
-            Events::LoadGraphFromPath(path) => self.load_graph_from_path(path),
             _ => (),
         };
-    }
-
-    fn load_graph_from_path(&self, path: PathBuf) {
-        let oracle_ref = Arc::clone(&self.oracle);
-        let map = self.galileo_state.map();
-
-        tokio::spawn(async move {
-            let file = File::open(path).unwrap();
-            let buf_reader = BufReader::new(file);
-
-            let filter = |p: &HashMap<String, ColumnValueClonable>| {
-                let footway = p.get("footway");
-                let highway = p.get("highway");
-
-                match highway {
-                    None => return false,
-                    Some(ColumnValueClonable::String(s)) if s == "null" => return false,
-                    _ => (),
-                }
-
-                match footway {
-                    None => true,
-                    Some(ColumnValueClonable::String(s)) => s == "null",
-                    _ => false,
-                }
-            };
-            let galileo_map = GalileoMap::new(map.clone());
-            let mut graph_writer = GraphWriter::new(filter, Some(galileo_map));
-
-            read_geojson(buf_reader, &mut graph_writer);
-            let mut oracle = oracle_ref.write().expect("poisoned lock");
-            let graph = QuadGraph::new_from_graph(graph_writer.get_graph());
-            *oracle = Some(Oracle::new(graph));
-        });
     }
 }

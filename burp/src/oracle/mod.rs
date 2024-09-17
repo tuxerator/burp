@@ -1,6 +1,6 @@
 use core::fmt;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     f64::{self, consts::E},
     fmt::Debug,
     hash::Hash,
@@ -24,7 +24,7 @@ use graph_rs::{
 };
 use log::info;
 use num_traits::Num;
-use ordered_float::OrderedFloat;
+use ordered_float::{FloatCore, OrderedFloat};
 use rayon::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 
@@ -45,6 +45,7 @@ where
     T: NodeTrait,
 {
     graph: RwLockGraph<T>,
+    poi_nodes: HashSet<usize>,
 }
 
 impl<T> Oracle<T>
@@ -52,12 +53,21 @@ where
     T: NodeTrait + Serialize + DeserializeOwned,
 {
     pub fn new(graph: QuadGraphType<T>) -> Self {
+        let poi_nodes = graph
+            .iter()
+            .fold(HashSet::default(), |mut poi_nodes, node| {
+                if node.1.has_data() {
+                    poi_nodes.insert(node.0);
+                }
+                poi_nodes
+            });
         Self {
             graph: RwLock::new(graph),
+            poi_nodes,
         }
     }
 
-    pub fn add_poi(&self, mut poi: CoordNode<T>) -> Result<(), Error> {
+    pub fn add_poi(&mut self, mut poi: CoordNode<T>) -> Result<(), Error> {
         let nearest_node;
         {
             nearest_node = self
@@ -76,6 +86,7 @@ where
             info!("Found node: {}", &node);
 
             node.append_data(poi.data_mut());
+            self.poi_nodes.insert(nearest_node);
         }
 
         Ok(())
@@ -105,9 +116,8 @@ where
     }
 
     pub fn add_pois(&mut self, pois: &[CoordNode<T>]) -> Result<(), Vec<Error>> {
-        let self_arc = Arc::new(self);
-        pois.par_iter().for_each(|poi| {
-            self_arc.add_poi(poi.to_owned());
+        pois.iter().for_each(|poi| {
+            self.add_poi(poi.to_owned());
         });
 
         Ok(())
@@ -143,6 +153,27 @@ impl<T: NodeTrait> Oracle<T> {
     pub fn dijkstra_full(&self, start_node: usize) -> Result<DijkstraResult<f64>, String> {
         self.graph().dijkstra_full(start_node)
     }
+
+    pub fn beer_path_dijkstra(
+        &self,
+        start_node: usize,
+        end_node: usize,
+    ) -> Result<BeerPathResult<f64>, String> {
+        info!(
+            "Calculating {} beer paths between nodes {}, {}",
+            self.poi_nodes.len(),
+            &start_node,
+            &end_node
+        );
+        let start_result = self.dijkstra(start_node, self.poi_nodes.clone())?;
+        let end_result = self.dijkstra(end_node, self.poi_nodes.clone())?;
+
+        Ok(BeerPathResult {
+            start_result,
+            end_result,
+            pois: self.poi_nodes.clone(),
+        })
+    }
 }
 
 impl<T: Debug + NodeTrait> Debug for Oracle<T> {
@@ -165,9 +196,62 @@ where
     T: NodeTrait,
 {
     fn from(graph: QuadGraphType<T>) -> Self {
+        let poi_nodes = graph
+            .iter()
+            .fold(HashSet::default(), |mut poi_nodes, node| {
+                if node.1.has_data() {
+                    poi_nodes.insert(node.0);
+                }
+                poi_nodes
+            });
         Self {
             graph: RwLock::new(graph),
+            poi_nodes,
         }
+    }
+}
+
+pub struct BeerPathResult<T> {
+    start_result: DijkstraResult<T>,
+    end_result: DijkstraResult<T>,
+    pois: HashSet<usize>,
+}
+
+impl<T: FloatCore + Debug> BeerPathResult<T> {
+    pub fn len(&self) -> usize {
+        self.pois.len()
+    }
+    pub fn path(&self, node: usize) -> Option<Vec<&ResultNode<OrderedFloat<T>>>> {
+        if !self.pois.contains(&node) {
+            return None;
+        }
+
+        let mut start_path = self.start_result.path(node)?;
+        let mut end_path = self.end_result.path(node)?;
+
+        end_path.reverse();
+        start_path.append(&mut end_path);
+
+        Some(start_path)
+    }
+
+    pub fn shortest_path(&self) -> Option<Vec<&ResultNode<OrderedFloat<T>>>> {
+        let shortest = self
+            .pois
+            .iter()
+            .fold((0, OrderedFloat(T::zero())), |shortest, poi| {
+                if let Some(start) = self.start_result.get(*poi) {
+                    if let Some(end) = self.end_result.get(*poi) {
+                        let cost = *start.cost() + *end.cost();
+                        if shortest.1 > cost {
+                            return (*poi, cost);
+                        }
+                    }
+                }
+                shortest
+            });
+
+        self.path(shortest.0)
     }
 }
 

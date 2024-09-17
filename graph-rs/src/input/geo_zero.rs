@@ -227,7 +227,6 @@ where
 
     fn properties_end(&mut self) -> geozero::error::Result<()> {
         self.include_feature = (self.property_filter)(&self.properties);
-        println!("reached");
         info!("{:?},{:?}", &self.include_feature, &self.properties);
         Ok(())
     }

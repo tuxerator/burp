@@ -33,6 +33,7 @@ impl NodeTrait for Poi {}
 pub enum Amenity {
     None,
     Bar,
+    Biergarten,
     Cafe,
     FastFood,
     FoodCourt,
@@ -79,6 +80,10 @@ impl<T> CoordNode<T> {
 
     pub fn data_mut(&mut self) -> &mut Vec<T> {
         &mut self.data
+    }
+
+    pub fn has_data(&self) -> bool {
+        !self.data.is_empty()
     }
 }
 

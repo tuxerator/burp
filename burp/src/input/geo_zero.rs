@@ -362,9 +362,25 @@ where
             .ok_or(GeozeroError::Properties("No properties found".to_string()))?;
 
         if let Some(ColumnValueClonable::String(poi_name)) = properties.get("name") {
+            let amenity =
+                if let Some(ColumnValueClonable::String(amenity)) = properties.get("amenity") {
+                    match amenity.as_str() {
+                        "bar" => Amenity::Bar,
+                        "biergarten" => Amenity::Biergarten,
+                        "cafe" => Amenity::Cafe,
+                        "fast_food" => Amenity::FastFood,
+                        "food_court" => Amenity::FoodCourt,
+                        "pub" => Amenity::Pub,
+                        "ice_cream" => Amenity::IceCream,
+                        "restaurant" => Amenity::Restaurant,
+                        _ => Amenity::None,
+                    }
+                } else {
+                    Amenity::None
+                };
             let poi = CoordNode::new(
                 center_coord.into(),
-                vec![Poi::new(poi_name.to_string(), Amenity::None)],
+                vec![Poi::new(poi_name.to_string(), amenity)],
             );
             self.pois.push(poi);
         }

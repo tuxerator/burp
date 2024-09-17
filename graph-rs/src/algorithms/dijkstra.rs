@@ -27,7 +27,7 @@ pub trait Dijkstra<T, V> {
 
 impl<T, V, U> Dijkstra<T, V> for U
 where
-    T: FloatCore + Copy + Default,
+    T: FloatCore + Copy + Default + Debug,
     U: DirectedGraph<T, V>,
 {
     fn dijkstra(
@@ -65,9 +65,8 @@ where
 
             visited.insert(node.node_id());
 
-            if target_set.take(&node.node_id()).is_some() {
-                result.insert(node);
-            }
+            target_set.take(&node.node_id());
+            result.insert(node);
         }
 
         Ok(DijkstraResult::new(result))
@@ -78,23 +77,49 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct DijkstraResult<T>(HashSet<ResultNode<OrderedFloat<T>>>);
 
-impl<T: FloatCore> DijkstraResult<T> {
+impl<T: FloatCore + Debug> DijkstraResult<T> {
     pub fn new(hash_set: HashSet<ResultNode<OrderedFloat<T>>>) -> Self {
         Self(hash_set)
     }
 
-    pub fn path(&self, node_id: usize) -> Option<Vec<&ResultNode<OrderedFloat<T>>>> {
-        let mut node_id = Some(node_id);
+    pub fn path(&self, mut node_id: usize) -> Option<Vec<&ResultNode<OrderedFloat<T>>>> {
         let mut path = vec![];
         while let Some(node) = self
             .0
-            .get(&ResultNode::new(node_id?, None, OrderedFloat(T::zero())))
+            .get(&ResultNode::new(node_id, None, OrderedFloat(T::zero())))
         {
+            dbg!(node);
             path.push(node);
 
+            if let Some(prev_node_id) = node.prev_node_id() {
+                node_id = prev_node_id;
+            } else {
+                break;
+            }
+        }
+
+        path.reverse();
+
+        Some(path)
+    }
+
+    pub fn get(&self, node_id: usize) -> Option<&ResultNode<OrderedFloat<T>>> {
+        self.0
+            .get(&ResultNode::new(node_id, None, OrderedFloat(T::zero())))
+    }
+
+    pub fn convert_to_path(mut self, node_id: usize) -> Option<Vec<ResultNode<OrderedFloat<T>>>> {
+        let mut node_id = Some(node_id);
+        let mut path = vec![];
+        while let Some(node) =
+            self.0
+                .take(&ResultNode::new(node_id?, None, OrderedFloat(T::zero())))
+        {
             node_id = node.prev_node_id();
+            path.push(node);
         }
 
         path.reverse();
@@ -134,9 +159,7 @@ impl<T: Num + Ord> ResultNode<T> {
 
 impl<T: Num + Ord> PartialEq for ResultNode<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.cost.eq(other.cost())
-            && self.node_id == other.node_id
-            && self.prev_node_id == other.prev_node_id
+        self.node_id == other.node_id
     }
 }
 
@@ -154,8 +177,28 @@ impl<T: Num + Ord> Ord for ResultNode<T> {
     }
 }
 
-impl<T: Num + Ord> Hash for ResultNode<T> {
+impl<T> Hash for ResultNode<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.node_id.hash(state);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+
+    use num_traits::Zero;
+    use ordered_float::OrderedFloat;
+
+    use crate::algorithms::dijkstra::ResultNode;
+
+    #[test]
+    fn result_node_hash() {
+        let mut h_1 = DefaultHasher::new();
+        let mut h_2 = DefaultHasher::new();
+
+        ResultNode::new(34, None, OrderedFloat(0.0)).hash(&mut h_1);
+        ResultNode::new(34, Some(45), OrderedFloat(4.9)).hash(&mut h_2);
+        assert_eq!(h_1.finish(), h_2.finish());
     }
 }

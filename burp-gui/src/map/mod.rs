@@ -17,8 +17,8 @@ use galileo_types::geo::{self, impls::GeoPoint2d};
 
 use crate::types::MapPositions;
 
-mod layers;
-mod symbols;
+pub mod layers;
+pub mod symbols;
 
 pub struct Map<K>
 where
@@ -128,21 +128,22 @@ impl<K: Hash + Eq> Map<K> {
         Ok(map_positions.take_click_pos())
     }
 
-    pub fn insert(&mut self, key: K, layer: impl Layer + 'static) {
+    pub fn or_insert(&mut self, key: K, layer: impl Layer + 'static) -> &mut Box<dyn Layer> {
         let mut map = self.map.write().expect("poisoned lock");
         let layer_col = map.layers_mut();
         let layer = Arc::new(RwLock::new(layer));
 
         layer_col.push(layer.clone());
-        self.layers.insert(key, Box::new(layer));
+        layer_col.show(layer_col.len() - 1);
+        self.layers.entry(key).or_insert(Box::new(layer))
     }
 
-    pub fn get_layer(&self, key: K) -> Option<&Box<dyn Layer>> {
-        self.layers.get(&key)
+    pub fn get_layer(&self, key: &K) -> Option<&Box<dyn Layer>> {
+        self.layers.get(key)
     }
 
-    pub fn get_layer_mut(&mut self, key: K) -> Option<&mut Box<dyn Layer>> {
-        self.layers.get_mut(&key)
+    pub fn get_layer_mut(&mut self, key: &K) -> Option<&mut Box<dyn Layer>> {
+        self.layers.get_mut(key)
     }
 
     pub fn handle_event(

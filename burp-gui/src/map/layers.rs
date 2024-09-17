@@ -6,11 +6,13 @@ use galileo::{
 use galileo_types::{
     geo::{impls::GeoPoint2d, Crs},
     geometry_type::GeoSpace2d,
-    Disambig, Disambiguate,
+    Contour, Disambig, Disambiguate,
 };
 use geo::{Coord, LineString};
 use graph_rs::{CoordGraph, Coordinate};
+use log::info;
 use maybe_sync::{MaybeSend, MaybeSync};
+use wgpu::hal::auxil::db;
 
 pub struct NodeMarker<T> {
     point: GeoPoint2d,
@@ -105,7 +107,12 @@ where
     }
 
     pub fn insert_line(&mut self, line: LineString) {
-        self.layer.features_mut().insert(line.to_geo2d());
+        let disambig = line.to_geo2d();
+        dbg!(
+            disambig.geometry().iter_points().collect::<Vec<_>>(),
+            disambig.is_closed()
+        );
+        self.layer.features_mut().insert(disambig);
     }
 
     pub fn insert_lines(&mut self, lines: Vec<LineString>) {
@@ -152,10 +159,10 @@ where
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
-        self.layer.as_any()
+        self
     }
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self.layer.as_any_mut()
+        self
     }
 }
