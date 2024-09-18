@@ -102,16 +102,12 @@ where
 {
     pub fn new(style: S) -> Self {
         Self {
-            layer: FeatureLayer::new(vec![], style, Crs::WGS84),
+            layer: FeatureLayer::with_lods(vec![], style, Crs::WGS84, &[8000.0, 1000.0, 1.0]),
         }
     }
 
     pub fn insert_line(&mut self, line: LineString) {
         let disambig = line.to_geo2d();
-        dbg!(
-            disambig.geometry().iter_points().collect::<Vec<_>>(),
-            disambig.is_closed()
-        );
         self.layer.features_mut().insert(disambig);
     }
 

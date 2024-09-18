@@ -1,7 +1,13 @@
-use std::{hash::Hash, usize};
+use std::{
+    hash::Hash,
+    sync::{Arc, RwLock},
+    usize,
+};
 
 use num_traits::Num;
 use serde::{Deserialize, Serialize};
+
+use crate::{CoordGraph, Coordinate, Graph};
 
 pub mod csr;
 pub mod quad_tree;

@@ -555,7 +555,7 @@ dependencies = [
  "criterion",
  "env_logger 0.11.5",
  "flexbuffers",
- "galileo",
+ "galileo 0.1.1 (git+https://github.com/Maximkaaa/galileo.git)",
  "geo",
  "geo-types",
  "geozero 0.13.0",
@@ -581,8 +581,8 @@ dependencies = [
  "egui-winit",
  "egui_graphs",
  "env_logger 0.11.5",
- "galileo",
- "galileo-types",
+ "galileo 0.1.1 (git+https://github.com/tuxerator/galileo.git?branch=fix-contour-projection)",
+ "galileo-types 0.1.1 (git+https://github.com/tuxerator/galileo.git?branch=fix-contour-projection)",
  "geo",
  "geo-types",
  "geozero 0.13.0",
@@ -1660,6 +1660,49 @@ dependencies = [
 [[package]]
 name = "galileo"
 version = "0.1.1"
+source = "git+https://github.com/tuxerator/galileo.git?branch=fix-contour-projection#b0736cff4c46f716b170990305852c66448ce02a"
+dependencies = [
+ "async-trait",
+ "bincode",
+ "bytemuck",
+ "bytes",
+ "cfg-if 1.0.0",
+ "console_error_panic_hook",
+ "console_log",
+ "futures 0.3.30",
+ "futures-intrusive",
+ "galileo-mvt 0.1.1 (git+https://github.com/tuxerator/galileo.git?branch=fix-contour-projection)",
+ "galileo-types 0.1.1 (git+https://github.com/tuxerator/galileo.git?branch=fix-contour-projection)",
+ "geozero 0.13.0",
+ "getrandom",
+ "image 0.24.9",
+ "js-sys",
+ "log",
+ "lyon",
+ "maybe-sync",
+ "nalgebra",
+ "num-traits",
+ "quick_cache",
+ "raw-window-handle 0.6.2",
+ "rayon",
+ "reqwest",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_bytes",
+ "thiserror",
+ "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-derive",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "web-time 1.1.0",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
+name = "galileo"
+version = "0.1.1"
 source = "git+https://github.com/Maximkaaa/galileo.git#3bff75febc9314f654f28d0ff3b4dfd96df002ba"
 dependencies = [
  "async-trait",
@@ -1671,8 +1714,8 @@ dependencies = [
  "console_log",
  "futures 0.3.30",
  "futures-intrusive",
- "galileo-mvt",
- "galileo-types",
+ "galileo-mvt 0.1.1 (git+https://github.com/Maximkaaa/galileo.git)",
+ "galileo-types 0.1.1 (git+https://github.com/Maximkaaa/galileo.git)",
  "geozero 0.13.0",
  "getrandom",
  "image 0.24.9",
@@ -1703,15 +1746,44 @@ dependencies = [
 [[package]]
 name = "galileo-mvt"
 version = "0.1.1"
-source = "git+https://github.com/Maximkaaa/galileo.git#3bff75febc9314f654f28d0ff3b4dfd96df002ba"
+source = "git+https://github.com/tuxerator/galileo.git?branch=fix-contour-projection#b0736cff4c46f716b170990305852c66448ce02a"
 dependencies = [
  "bytes",
- "galileo-types",
+ "galileo-types 0.1.1 (git+https://github.com/tuxerator/galileo.git?branch=fix-contour-projection)",
  "geozero 0.13.0",
  "log",
  "nalgebra",
  "prost 0.12.6",
  "prost-build 0.12.6",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "galileo-mvt"
+version = "0.1.1"
+source = "git+https://github.com/Maximkaaa/galileo.git#3bff75febc9314f654f28d0ff3b4dfd96df002ba"
+dependencies = [
+ "bytes",
+ "galileo-types 0.1.1 (git+https://github.com/Maximkaaa/galileo.git)",
+ "geozero 0.13.0",
+ "log",
+ "nalgebra",
+ "prost 0.12.6",
+ "prost-build 0.12.6",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "galileo-types"
+version = "0.1.1"
+source = "git+https://github.com/tuxerator/galileo.git?branch=fix-contour-projection#b0736cff4c46f716b170990305852c66448ce02a"
+dependencies = [
+ "geo-types",
+ "geodesy",
+ "nalgebra",
+ "num-traits",
  "serde",
  "thiserror",
 ]

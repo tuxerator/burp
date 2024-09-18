@@ -25,13 +25,13 @@ where
     K: Hash + Eq,
 {
     map: Arc<RwLock<GalileoMap>>,
-    layers: HashMap<K, Box<dyn Layer>>,
+    layers: HashMap<K, (Box<dyn Layer>, usize)>,
     map_positions: Arc<RwLock<MapPositions>>,
     event_processor: EventProcessor,
 }
 
 impl<K: Hash + Eq> Map<K> {
-    pub fn new(map: Arc<RwLock<GalileoMap>>, layers: HashMap<K, Box<dyn Layer>>) -> Self {
+    pub fn new(map: Arc<RwLock<GalileoMap>>, layers: HashMap<K, (Box<dyn Layer>, usize)>) -> Self {
         let map_positions = Arc::new(RwLock::new(MapPositions::new(map.clone())));
         let map_positions_clone = map_positions.clone();
         let mut event_processor = EventProcessor::default();
@@ -134,16 +134,64 @@ impl<K: Hash + Eq> Map<K> {
         let layer = Arc::new(RwLock::new(layer));
 
         layer_col.push(layer.clone());
-        layer_col.show(layer_col.len() - 1);
-        self.layers.entry(key).or_insert(Box::new(layer))
+        &mut self
+            .layers
+            .entry(key)
+            .or_insert((Box::new(layer), layer_col.len() - 1))
+            .0
     }
 
     pub fn get_layer(&self, key: &K) -> Option<&Box<dyn Layer>> {
-        self.layers.get(key)
+        self.layers.get(key).map(|layer| &layer.0)
     }
 
     pub fn get_layer_mut(&mut self, key: &K) -> Option<&mut Box<dyn Layer>> {
-        self.layers.get_mut(key)
+        self.layers.get_mut(key).map(|layer| &mut layer.0)
+    }
+
+    pub fn show_layer(&self, key: &K) -> Result<(), String> {
+        let index = self
+            .layers
+            .get(&key)
+            .ok_or("Layer not found".to_string())?
+            .1;
+        self.map_write_lock()
+            .expect("poisoned lock")
+            .layers_mut()
+            .show(index);
+
+        Ok(())
+    }
+
+    pub fn hide_layer(&self, key: &K) -> Result<(), String> {
+        let index = self
+            .layers
+            .get(&key)
+            .ok_or("Layer not found".to_string())?
+            .1;
+        self.map_write_lock()
+            .expect("poisoned lock")
+            .layers_mut()
+            .hide(index);
+
+        Ok(())
+    }
+
+    pub fn toggle_layer(&self, key: &K) -> Result<(), String> {
+        let index = self
+            .layers
+            .get(&key)
+            .ok_or("Layer not found".to_string())?
+            .1;
+        let mut layers = self.map_write_lock().expect("poisoned lock");
+        let layers = layers.layers_mut();
+        if layers.is_visible(index) {
+            layers.hide(index)
+        } else {
+            layers.show(index)
+        };
+
+        Ok(())
     }
 
     pub fn handle_event(

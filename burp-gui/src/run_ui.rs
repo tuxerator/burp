@@ -22,7 +22,7 @@ use graph_rs::algorithms::dijkstra::Dijkstra;
 use graph_rs::graph::csr::DirectedCsrGraph;
 use graph_rs::graph::quad_tree::QuadGraph;
 use graph_rs::{CoordGraph, DirectedGraph, Graph};
-use log::info;
+use log::{info, warn};
 use ordered_float::OrderedFloat;
 use rfd::FileDialog;
 
@@ -116,6 +116,11 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
                 match highway {
                     None => return false,
                     Some(ColumnValueClonable::String(s)) if s == "null" => return false,
+                    Some(ColumnValueClonable::String(s)) if s == "cycleway" => return false,
+                    Some(ColumnValueClonable::String(s)) if s == "path" => return false,
+                    Some(ColumnValueClonable::String(s)) if s == "footway" => return false,
+                    Some(ColumnValueClonable::String(s)) if s == "steps" => return false,
+                    Some(ColumnValueClonable::String(s)) if s == "corridor" => return false,
                     _ => (),
                 }
 
@@ -157,6 +162,32 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
             }
 
             state.state = State::LoadedPois;
+        }
+
+        if ui
+            .add_enabled(state.oracle.is_some(), egui::Button::new("Toggle graph"))
+            .clicked()
+        {
+            let mut map = state.map.write().expect("poisoned lock");
+
+            map.toggle_layer(&String::from("graph"))
+                .or_else(|_| -> Result<(), String> {
+                    let layer: &mut Arc<RwLock<LineLayer<SimpleContourSymbol>>> = map
+                        .or_insert(
+                            "graph".to_string(),
+                            LineLayer::new(SimpleContourSymbol::new(Color::GREEN, 2.0)),
+                        )
+                        .as_any_mut()
+                        .downcast_mut()
+                        .ok_or("Couldn't downcast layer".to_string())?;
+
+                    layer
+                        .write()
+                        .expect("poisoned lock")
+                        .insert_coord_graph(&*state.oracle.as_ref().unwrap().graph());
+
+                    Ok(())
+                });
         }
 
         if ui
@@ -244,13 +275,7 @@ fn dijkstra(state: &mut UiState) {
 
         let mut layer = state.map.write().expect("poisoned lock");
 
-        dbg!(&result);
-
-        dbg!(result.get(end.0));
-
         let path = result.path(end.0).unwrap();
-
-        dbg!(&path);
 
         let coords = path
             .into_iter()
@@ -283,7 +308,7 @@ fn dijkstra(state: &mut UiState) {
             .expect("poisoned lock")
             .insert_line(LineString::new(coords));
     } else {
-        info!("Couldn't get a lock on oracle");
+        warn!("Couldn't get a lock on oracle");
     }
 }
 
