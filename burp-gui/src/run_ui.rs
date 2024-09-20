@@ -11,7 +11,6 @@ use std::sync::{Arc, RwLock};
 use burp::oracle::{self, Oracle};
 use burp::types::{CoordNode, Poi};
 use egui::{Context, Id, InnerResponse};
-use egui_graphs::Node;
 use galileo::symbol::{ArbitraryGeometrySymbol, SimpleContourSymbol};
 use galileo::Color;
 use galileo_types::geo::impls::GeoPoint2d;

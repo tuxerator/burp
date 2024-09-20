@@ -17,14 +17,18 @@ name = "burp-gui"
 
 
 [dependencies]
-egui = "0.27"
-egui-wgpu = "0.27"
-egui-winit = { version = "0.27", default-features = false }
-egui_graphs = "0.20"
+egui = "0.28"
+egui-wgpu = "0.28"
+egui-winit = { version = "0.28", default-features = false, features = [
+  "clipboard",
+  "links",
+  "wayland",
+  "x11",
+] }
 env_logger = { version = "0.11", default-features = false }
-galileo = { git = "https://github.com/tuxerator/galileo.git", branch = "fix-contour-projection" }
-galileo-types = { git = "https://github.com/tuxerator/galileo.git", branch = "fix-contour-projection" }
-wgpu = { version = "0.19", default-features = false }
+galileo = { git = "https://github.com/tuxerator/galileo.git" }
+galileo-types = { git = "https://github.com/tuxerator/galileo.git" }
+wgpu = { version = "0.20", default-features = false }
 winit = { version = "0.29", default-features = false }
 petgraph = "0.6"
 graph-rs = { path = "../graph-rs/" }
@@ -44,11 +48,4 @@ maybe-sync = "0.1"
 nalgebra = "0.32"
 image = "0.25"
 num-traits = "0.2"
-
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1.0", default-features = false, features = ["full"] }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies.egui-winit]
-version = "0.27"
-features = ["clipboard", "links", "wayland", "x11"]

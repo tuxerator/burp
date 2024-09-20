@@ -49,6 +49,7 @@
             xorg.libxcb
             libxkbcommon
             vulkan-loader
+            vulkan-headers
             libGL
           ] ++ lib.optionals stdenv.isDarwin [
             # Additional darwin specific inputs can be set here
@@ -229,6 +230,7 @@
           # Extra inputs can be added here; cargo and rustc are provided by default.
           packages = [
             pkgs.cargo-hakari
+            pkgs.gdb
           ];
         };
       });
