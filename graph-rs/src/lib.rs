@@ -42,7 +42,7 @@ pub trait Coordinate<T: CoordNum = f64> {
     fn as_coord(&self) -> Coord<T>;
 }
 
-pub trait Graph<EV, NV> {
+pub trait Graph<EV: Send + Sync, NV> {
     fn node_count(&self) -> usize;
 
     fn edge_count(&self) -> usize;
@@ -51,7 +51,7 @@ pub trait Graph<EV, NV> {
     where
         NV: 'a;
 
-    fn neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
+    fn neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>> + Send + Sync
     where
         EV: 'a;
 
@@ -68,21 +68,27 @@ pub trait Graph<EV, NV> {
     fn to_stable_graph(&self) -> StableGraph<Option<NV>, EV, Directed, usize>;
 }
 
-pub trait DirectedGraph<EV, NV>: Graph<EV, NV> {
-    fn out_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
+pub trait DirectedGraph<EV: Send + Sync, NV>: Graph<EV, NV> {
+    fn out_neighbors<'a>(
+        &'a self,
+        node: usize,
+    ) -> impl Iterator<Item = &'a Target<EV>> + Send + Sync
     where
-        EV: 'a;
+        EV: 'a + Send + Sync;
 
-    fn in_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
+    fn in_neighbors<'a>(
+        &'a self,
+        node: usize,
+    ) -> impl Iterator<Item = &'a Target<EV>> + Send + Sync
     where
-        EV: 'a;
+        EV: 'a + Send + Sync;
 
     fn out_degree(&self, node: usize) -> usize;
 
     fn in_degree(&self, node: usize) -> usize;
 }
 
-pub trait CoordGraph<EV, NV: Coordinate>: Graph<EV, NV> {
+pub trait CoordGraph<EV: Send + Sync, NV: Coordinate>: Graph<EV, NV> {
     fn nearest_node(&self, point: Coord) -> Option<usize>;
 
     fn nearest_node_bound(&self, point: Coord, tolerance: f64) -> Option<usize>;

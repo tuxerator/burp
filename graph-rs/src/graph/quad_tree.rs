@@ -24,6 +24,7 @@ use super::csr::DirectedCsrGraph;
 pub struct QuadGraph<EV, NV, G>
 where
     G: Graph<EV, NV>,
+    EV: Send + Sync,
     NV: Coordinate + Debug,
 {
     graph: G,
@@ -41,6 +42,7 @@ where
 impl<EV, NV, G> QuadGraph<EV, NV, G>
 where
     G: DirectedGraph<EV, NV>,
+    EV: Send + Sync,
     NV: Coordinate + Debug,
 {
     pub fn new_from_graph(graph: G) -> Self {
@@ -74,6 +76,7 @@ where
 impl<EV, NV, G> Graph<EV, NV> for QuadGraph<EV, NV, G>
 where
     G: Graph<EV, NV>,
+    EV: Send + Sync,
     NV: Coordinate + Debug,
 {
     fn degree(&self, node: usize) -> usize {
@@ -128,6 +131,7 @@ where
 impl<EV, NV, G> DirectedGraph<EV, NV> for QuadGraph<EV, NV, G>
 where
     G: DirectedGraph<EV, NV>,
+    EV: Send + Sync,
     NV: Coordinate + Debug,
 {
     fn in_degree(&self, node: usize) -> usize {
@@ -156,6 +160,7 @@ where
 impl<EV, NV, G> CoordGraph<EV, NV> for QuadGraph<EV, NV, G>
 where
     G: Graph<EV, NV>,
+    EV: Send + Sync,
     NV: Coordinate + Debug,
 {
     fn nearest_node(&self, point: Coord) -> Option<usize> {
@@ -198,7 +203,7 @@ where
 
 impl<'de, EV, NV> Deserialize<'de> for QuadGraph<EV, NV, DirectedCsrGraph<EV, NV>>
 where
-    EV: Copy + Deserialize<'de>,
+    EV: Copy + Deserialize<'de> + Send + Sync,
     NV: Coordinate + Debug + Clone + Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -264,7 +269,7 @@ where
 
         impl<'de, EV, NV> Visitor<'de> for QuadGraphVisitor<EV, NV>
         where
-            EV: Copy + Deserialize<'de>,
+            EV: Copy + Deserialize<'de> + Send + Sync,
             NV: Coordinate + Debug + Clone + Deserialize<'de>,
         {
             type Value = QuadGraph<EV, NV, DirectedCsrGraph<EV, NV>>;

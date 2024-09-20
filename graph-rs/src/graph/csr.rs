@@ -10,6 +10,7 @@ use petgraph::{
     stable_graph::{self, NodeIndex, StableGraph},
     Directed, Undirected,
 };
+use rayon::iter::IntoParallelRefIterator;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -71,7 +72,7 @@ where
 
 impl<EV, NV> DirectedCsrGraph<EV, NV>
 where
-    EV: Copy,
+    EV: Copy + Send + Sync,
     NV: Clone,
 {
     pub fn new(
@@ -95,9 +96,19 @@ where
     }
 }
 
+impl<EV, NV> DirectedCsrGraph<EV, NV>
+where
+    EV: Copy + Send + Sync,
+    NV: Clone,
+{
+    pub fn par_out_neighbors<'a>(&'a self, node_id: usize) -> rayon::slice::Iter<'_, Target<EV>> {
+        self.csr_out.targets(node_id).par_iter()
+    }
+}
+
 impl<EV, NV> Graph<EV, NV> for DirectedCsrGraph<EV, NV>
 where
-    EV: Copy,
+    EV: Copy + Send + Sync,
     NV: Clone,
 {
     fn node_count(&self) -> usize {
@@ -109,7 +120,7 @@ where
     }
 
     // TODO: Use Result<usize> as return value.
-    fn neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
+    fn neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>> + Send + Sync
     where
         EV: 'a,
     {
@@ -206,21 +217,24 @@ where
 
 impl<EV, NV> DirectedGraph<EV, NV> for DirectedCsrGraph<EV, NV>
 where
-    EV: Copy,
+    EV: Copy + Send + Sync,
     NV: Clone,
 {
     // TODO: Use Result<usize> as return value.
-    fn out_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
+    fn out_neighbors<'a>(
+        &'a self,
+        node: usize,
+    ) -> impl Iterator<Item = &'a Target<EV>> + Send + Sync
     where
-        EV: 'a,
+        EV: 'a + Send + Sync,
     {
         self.csr_out.targets(node).iter()
     }
 
     // TODO: Use Result<usize> as return value.
-    fn in_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
+    fn in_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>> + Send + Sync
     where
-        EV: 'a,
+        EV: 'a + Send + Sync,
     {
         self.csr_inc.targets(node).iter()
     }
