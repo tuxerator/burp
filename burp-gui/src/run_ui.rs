@@ -129,7 +129,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
                     _ => false,
                 }
             };
-            let mut graph_writer = GraphWriter::new(filter, None);
+            let mut graph_writer = GraphWriter::new(filter);
 
             read_geojson(buf_reader, &mut graph_writer);
             let graph = QuadGraph::new_from_graph(graph_writer.get_graph());

@@ -120,7 +120,8 @@ where
     pub fn insert_coord_graph<T, EV, NV>(&mut self, graph: &T)
     where
         T: CoordGraph<EV, NV>,
-        NV: Coordinate<f64>,
+        NV: Coordinate<f64> + Send + Sync,
+        EV: Send + Sync,
     {
         let nodes = graph.iter();
 

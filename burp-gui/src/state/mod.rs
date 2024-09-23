@@ -13,7 +13,6 @@ use std::{
 // use crate::run_ui::{run_ui, UiState};
 
 use burp::{
-    galileo::GalileoMap,
     input::geo_zero::{ColumnValueClonable, GraphWriter},
     oracle::Oracle,
     types::Poi,

@@ -12,7 +12,6 @@ use ::galileo::{
     layer::Layer,
     Map as GalileoMap,
 };
-use burp::galileo::{self};
 use galileo_types::geo::{self, impls::GeoPoint2d};
 
 use crate::types::MapPositions;
