@@ -1,7 +1,6 @@
-use core::fmt;
+use core::{f64, fmt};
 use std::{
     collections::{HashMap, HashSet},
-    f64::{self, consts::E},
     fmt::Debug,
     hash::Hash,
     io::Read,
@@ -18,7 +17,7 @@ use galileo::{
 };
 use geo::{Coord, Point};
 use graph_rs::{
-    algorithms::dijkstra::{Dijkstra, DijkstraResult, ResultNode},
+    algorithms::dijkstra::{Dijkstra, DijkstraResult, Direction, ResultNode},
     graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph},
     CoordGraph, Coordinate, DirectedGraph, Graph,
 };
@@ -29,7 +28,6 @@ use rayon::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 
 use crate::{
-    galileo::{GalileoMap, NodeMarker},
     serde::OrderedFloatDef,
     types::{CoordNode, Poi},
 };
@@ -146,33 +144,32 @@ impl<T: NodeTrait> Oracle<T> {
         &self,
         start_node: usize,
         targets: HashSet<usize>,
-    ) -> Result<DijkstraResult<f64>, String> {
-        self.graph().dijkstra(start_node, targets)
+    ) -> Result<DijkstraResult<f64>, Box<dyn std::error::Error>> {
+        self.graph()
+            .dijkstra(start_node, targets, Direction::None, f64::INFINITY)
     }
 
-    pub fn dijkstra_full(&self, start_node: usize) -> Result<DijkstraResult<f64>, String> {
-        self.graph().dijkstra_full(start_node)
+    pub fn dijkstra_full(
+        &self,
+        start_node: usize,
+    ) -> Result<DijkstraResult<f64>, Box<dyn std::error::Error>> {
+        self.graph().dijkstra_full(start_node, Direction::None)
     }
 
     pub fn beer_path_dijkstra(
         &self,
         start_node: usize,
         end_node: usize,
-    ) -> Result<BeerPathResult<f64>, String> {
+    ) -> Result<DijkstraResult<f64>, Box<dyn std::error::Error>> {
         info!(
-            "Calculating {} beer paths between nodes {}, {}",
+            "Calculating {} beer paths between nodes {}, {} with epsilon {}",
             self.poi_nodes.len(),
             &start_node,
-            &end_node
+            &end_node,
+            0.3
         );
-        let start_result = self.dijkstra(start_node, self.poi_nodes.clone())?;
-        let end_result = self.dijkstra(end_node, self.poi_nodes.clone())?;
-
-        Ok(BeerPathResult {
-            start_result,
-            end_result,
-            pois: self.poi_nodes.clone(),
-        })
+        self.graph()
+            .double_dijkstra(start_node, end_node, self.poi_nodes.clone(), 0.3)
     }
 }
 
@@ -208,50 +205,6 @@ where
             graph: RwLock::new(graph),
             poi_nodes,
         }
-    }
-}
-
-pub struct BeerPathResult<T> {
-    start_result: DijkstraResult<T>,
-    end_result: DijkstraResult<T>,
-    pois: HashSet<usize>,
-}
-
-impl<T: FloatCore + Debug> BeerPathResult<T> {
-    pub fn len(&self) -> usize {
-        self.pois.len()
-    }
-    pub fn path(&self, node: usize) -> Option<Vec<&ResultNode<OrderedFloat<T>>>> {
-        if !self.pois.contains(&node) {
-            return None;
-        }
-
-        let mut start_path = self.start_result.path(node)?;
-        let mut end_path = self.end_result.path(node)?;
-
-        end_path.reverse();
-        start_path.append(&mut end_path);
-
-        Some(start_path)
-    }
-
-    pub fn shortest_path(&self) -> Option<Vec<&ResultNode<OrderedFloat<T>>>> {
-        let shortest = self
-            .pois
-            .iter()
-            .fold((0, OrderedFloat(T::zero())), |shortest, poi| {
-                if let Some(start) = self.start_result.get(*poi) {
-                    if let Some(end) = self.end_result.get(*poi) {
-                        let cost = *start.cost() + *end.cost();
-                        if shortest.1 > cost {
-                            return (*poi, cost);
-                        }
-                    }
-                }
-                shortest
-            });
-
-        self.path(shortest.0)
     }
 }
 

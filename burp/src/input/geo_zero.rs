@@ -30,7 +30,6 @@ use graph_rs::{graph::csr::DirectedCsrGraph, CoordGraph, Coordinate, DirectedGra
 use graph_rs::input::edgelist::EdgeList;
 
 use crate::{
-    galileo::GalileoMap,
     oracle::Oracle,
     types::{Amenity, CoordNode, Poi},
 };
@@ -50,7 +49,6 @@ where
     property_filter: F,
     properties: HashMap<String, ColumnValueClonable>,
     include_feature: bool,
-    map: Option<GalileoMap>,
 }
 
 pub fn read_geojson<R, P>(reader: R, processor: &mut P) -> Result<(), GeozeroError>
@@ -65,7 +63,7 @@ impl<F> GraphWriter<F>
 where
     F: Fn(&HashMap<String, ColumnValueClonable>) -> bool,
 {
-    pub fn new(property_filter: F, map: Option<GalileoMap>) -> Self {
+    pub fn new(property_filter: F) -> Self {
         GraphWriter {
             node_map: HashMap::default(),
             nodes: Vec::default(),
@@ -76,12 +74,11 @@ where
             property_filter,
             properties: HashMap::default(),
             include_feature: true,
-            map,
         }
     }
 
     pub fn new_from_filter(property_filter: F) -> Self {
-        GraphWriter::new(property_filter, None)
+        GraphWriter::new(property_filter)
     }
 
     pub fn new_from(graph_writer: Self) -> Self {
@@ -183,10 +180,6 @@ where
             let d = p_a.haversine_distance(&p_b);
 
             self.edges.push((*node_a, *node_b, d));
-
-            if let Some(ref map) = self.map {
-                map.draw_line(line_string![p_a.into(), p_b.into()]);
-            }
 
             coord_a = coord_b;
         }
