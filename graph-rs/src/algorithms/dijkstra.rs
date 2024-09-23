@@ -42,6 +42,7 @@ pub trait Dijkstra<T, V> {
         end_node: usize,
         target_set: HashSet<usize>,
         epsilon: T,
+        directed: bool,
     ) -> Result<DijkstraResult<T>, Box<dyn Error>>;
 }
 
@@ -93,6 +94,7 @@ where
         end_node: usize,
         target_set: HashSet<usize>,
         epsilon: T,
+        directed: bool,
     ) -> Result<DijkstraResult<T>, Box<dyn Error>> {
         let result = Arc::new(RwLock::new(HashSet::default()));
 
@@ -102,7 +104,11 @@ where
                     self,
                     start_node,
                     target_set.clone(),
-                    Direction::Forward,
+                    if directed {
+                        Direction::Forward
+                    } else {
+                        Direction::None
+                    },
                     result.clone(),
                     epsilon,
                 )
@@ -112,7 +118,11 @@ where
                     self,
                     end_node,
                     target_set.clone(),
-                    Direction::Backward,
+                    if directed {
+                        Direction::Backward
+                    } else {
+                        Direction::None
+                    },
                     result.clone(),
                     epsilon,
                 )

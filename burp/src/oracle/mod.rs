@@ -133,6 +133,10 @@ where
 
         Self::deserialize(reader).unwrap()
     }
+
+    pub fn poi_nodes(&self) -> &HashSet<usize> {
+        &self.poi_nodes
+    }
 }
 
 impl<T: NodeTrait> Oracle<T> {
@@ -169,7 +173,7 @@ impl<T: NodeTrait> Oracle<T> {
             0.3
         );
         self.graph()
-            .double_dijkstra(start_node, end_node, self.poi_nodes.clone(), 0.3)
+            .double_dijkstra(start_node, end_node, self.poi_nodes.clone(), 0.3, false)
     }
 }
 
