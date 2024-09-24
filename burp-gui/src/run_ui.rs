@@ -3,13 +3,14 @@ extern crate geozero;
 use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::fmt::Debug;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
 use std::usize;
 
-use burp::oracle::{self, Oracle};
+use burp::oracle::{self, BeerPathResult, Oracle};
 use burp::types::{CoordNode, Poi};
 use egui::{Context, Id, InnerResponse};
 use galileo::symbol::{ArbitraryGeometrySymbol, SimpleContourSymbol};
@@ -42,7 +43,7 @@ pub struct UiState {
     state: State,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq)]
 enum State {
     Init,
     LoadedGraph,
@@ -59,6 +60,20 @@ enum State {
             Option<(usize, CoordNode<Poi>)>,
         ),
     ),
+    DoubleDijkstraResult(BeerPathResult<f64>),
+}
+
+impl Debug for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            State::Init => write!(f, "Init"),
+            State::LoadedGraph => write!(f, "LoadedGraph"),
+            State::LoadedPois => write!(f, "LoadedPois"),
+            State::Dijkstra(points) => write!(f, "Dijkstra({:?})", points),
+            State::DoubleDijkstra(points) => write!(f, "DoubleDijkstra({:?})", points),
+            State::DoubleDijkstraResult(_) => write!(f, "DoubleDijkstraResult"),
+        }
+    }
 }
 
 impl UiState {
@@ -76,6 +91,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
     match state.state {
         State::Dijkstra(_) => dijkstra(state),
         State::DoubleDijkstra(_) => double_dijkstra(state),
+        State::DoubleDijkstraResult(_) => draw_resutl_path(state),
         _ => (),
     };
 
@@ -227,7 +243,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
         }
 
         if ui
-            .add_enabled(
+            .add_visible(
                 state.state == State::LoadedPois,
                 egui::Button::new("Double Dijkstra"),
             )
@@ -240,6 +256,16 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
                 .take_click_pos()
                 .expect("poisoned lock");
             state.state = State::DoubleDijkstra((None, None));
+        }
+
+        if ui
+            .add_visible(
+                matches!(state.state, State::DoubleDijkstraResult(_)),
+                egui::Button::new("Exit DoubleDijkstraResult"),
+            )
+            .clicked()
+        {
+            state.state = State::LoadedPois;
         }
 
         if ui.button("Save").clicked() {
@@ -336,59 +362,64 @@ fn double_dijkstra(state: &mut UiState) {
             *pos = get_start_end_pos(pos.clone(), state.map.clone(), oracle);
             return;
         };
-        info!(
-            "Calculating shortes path from node {:?} to node {:?}",
-            &start, &end
-        );
         let mut target = HashSet::new();
         target.insert(end.0);
         let result = oracle.beer_path_dijkstra(start.0, end.0).unwrap();
 
-        let mut layer = state.map.write().expect("poisoned lock");
+        info!("Finished beer paths");
 
-        let paths = oracle.poi_nodes().iter().map(|poi| result.in_path(*poi));
-
-        let coords = paths.map(|path| {
-            let Some(path) = path else {
-                return vec![];
-            };
-            path.into_iter()
-                .fold(vec![], |mut coords: Vec<Coord>, node| {
-                    coords.push(
-                        *state
-                            .oracle
-                            .as_ref()
-                            .unwrap()
-                            .graph()
-                            .node_value(node.node_id())
-                            .unwrap()
-                            .get_coord(),
-                    );
-                    coords
-                })
-        });
-
-        info!("Path found {:?}", &coords);
-
-        let layer: &mut Arc<RwLock<LineLayer<SimpleContourSymbol>>> = layer
-            .or_insert(
-                "path".to_string(),
-                LineLayer::new(SimpleContourSymbol::new(Color::BLUE, 1.0)),
-            )
-            .as_any_mut()
-            .downcast_mut()
-            .unwrap();
-
-        let mut layer = layer.write().expect("poisoned lock");
-        coords.for_each(|path| {
-            info!("Drew path {:?}", &path);
-            layer.insert_line(LineString::new(path));
-        });
+        state.state = State::DoubleDijkstraResult(result);
     } else {
         warn!("Couldn't get a lock on oracle");
+        state.state = State::LoadedPois;
     }
+}
 
-    state.state = State::LoadedPois;
+fn draw_resutl_path(state: &mut UiState) {
+    let State::DoubleDijkstraResult(ref result) = state.state else {
+        return;
+    };
+    let Some(ref oracle) = state.oracle else {
+        return;
+    };
+    let Some(click_pos) = get_node_click_pos(state.map.clone(), oracle) else {
+        return;
+    };
+    let Ok(node) = oracle.get_node_value_at(click_pos.1.get_coord(), 100.0) else {
+        return;
+    };
+
+    let Some(path) = result.path(node.0) else {
+        info!("Node not in result");
+        return;
+    };
+    let path = path
+        .into_iter()
+        .fold(vec![], |mut coords: Vec<Coord>, node| {
+            coords.push(
+                *state
+                    .oracle
+                    .as_ref()
+                    .unwrap()
+                    .graph()
+                    .node_value(node.node_id())
+                    .unwrap()
+                    .get_coord(),
+            );
+            coords
+        });
+    let mut layer = state.map.write().expect("poisoned lock");
+    let layer: &mut Arc<RwLock<LineLayer<SimpleContourSymbol>>> = layer
+        .or_insert(
+            "path".to_string(),
+            LineLayer::new(SimpleContourSymbol::new(Color::BLUE, 1.0)),
+        )
+        .as_any_mut()
+        .downcast_mut()
+        .unwrap();
+
+    let mut layer = layer.write().expect("poisoned lock");
+    layer.insert_line(LineString::new(path));
 }
 
 fn get_start_end_pos(
@@ -414,7 +445,7 @@ fn get_node_click_pos(
         .expect("poisoned lock");
     click_pos.and_then(|click_pos| {
         oracle
-            .get_node_value_at(geo::Coord::lonlat(click_pos.lon(), click_pos.lat()), 100.0)
+            .get_node_value_at(&geo::Coord::lonlat(click_pos.lon(), click_pos.lat()), 100.0)
             .ok()
     })
 }

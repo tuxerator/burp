@@ -89,7 +89,7 @@ pub trait DirectedGraph<EV: Send + Sync, NV>: Graph<EV, NV> {
 }
 
 pub trait CoordGraph<EV: Send + Sync, NV: Coordinate>: Graph<EV, NV> {
-    fn nearest_node(&self, point: Coord) -> Option<usize>;
+    fn nearest_node(&self, point: &Coord) -> Option<usize>;
 
-    fn nearest_node_bound(&self, point: Coord, tolerance: f64) -> Option<usize>;
+    fn nearest_node_bound(&self, point: &Coord, tolerance: f64) -> Option<usize>;
 }

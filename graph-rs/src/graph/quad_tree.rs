@@ -163,12 +163,12 @@ where
     EV: Send + Sync,
     NV: Coordinate + Debug,
 {
-    fn nearest_node(&self, point: Coord) -> Option<usize> {
+    fn nearest_node(&self, point: &Coord) -> Option<usize> {
         self.nearest_node_bound(point, f64::MAX)
     }
-    fn nearest_node_bound(&self, coord: Coord, tolerance: f64) -> Option<usize> {
+    fn nearest_node_bound(&self, coord: &Coord, tolerance: f64) -> Option<usize> {
         info!("Searching neighbour for: {:?}", coord);
-        let point: Point = coord.into();
+        let point: Point = Point::from(*coord);
         let mut p1 = point.haversine_destination(315., 50.);
         let mut p2 = point.haversine_destination(135., 50.);
         let mut res = self
@@ -399,7 +399,7 @@ mod test {
 
         let quad_graph = QuadGraph::new_from_graph(graph);
 
-        let nearest_node = quad_graph.nearest_node(p_1.into());
+        let nearest_node = quad_graph.nearest_node(&p_1.as_coord());
 
         assert_relative_eq!(
             Point::new(13.355102, 52.5364593),
@@ -441,7 +441,7 @@ mod test {
 
         let quad_graph = QuadGraph::new_from_graph(graph);
 
-        let nearest_node = quad_graph.nearest_node(p_1.into());
+        let nearest_node = quad_graph.nearest_node(&p_1.as_coord());
 
         assert_relative_eq!(
             Point::new(13.4864, 52.5659),

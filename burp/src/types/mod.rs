@@ -118,7 +118,7 @@ impl<T> Coordinate for CoordNode<T> {
         }
     }
 
-    fn as_coord(&self) -> Coord<f64> {
+    fn as_coord(&self) -> Coord {
         self.coord
     }
 }
