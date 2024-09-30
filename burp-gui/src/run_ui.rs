@@ -13,10 +13,11 @@ use std::usize;
 use burp::oracle::{self, BeerPathResult, Oracle};
 use burp::types::{CoordNode, Poi};
 use egui::{Context, Id, InnerResponse};
-use galileo::symbol::{ArbitraryGeometrySymbol, SimpleContourSymbol};
+use galileo::symbol::{ArbitraryGeometrySymbol, CirclePointSymbol, SimpleContourSymbol};
 use galileo::Color;
 use galileo_types::geo::impls::GeoPoint2d;
 use galileo_types::geo::{GeoPoint, NewGeoPoint};
+use galileo_types::Disambiguate;
 use geo::{Area, Coord, LineString};
 use geozero::geojson::read_geojson;
 use graph_rs::algorithms::dijkstra::Dijkstra;
@@ -28,7 +29,7 @@ use ordered_float::OrderedFloat;
 use rfd::FileDialog;
 use serde::de::value::UsizeDeserializer;
 
-use crate::map::layers::LineLayer;
+use crate::map::layers::{LineLayer, NodeLayer, NodeMarker};
 use crate::map::Map;
 use crate::state::Events;
 use crate::types::MapPositions;
@@ -60,7 +61,7 @@ enum State {
             Option<(usize, CoordNode<Poi>)>,
         ),
     ),
-    DoubleDijkstraResult(BeerPathResult<f64>),
+    DoubleDijkstraResult(HashMap<usize, f64>),
 }
 
 impl Debug for State {
@@ -183,7 +184,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
             .clicked()
         {
             let sender_clone = state.sender.clone();
-            let file_path = FileDialog::new().set_directory("~/").pick_file().unwrap();
+            let file_path = FileDialog::new().pick_file().unwrap();
 
             let file = File::open(file_path).unwrap();
             let buf_reader = BufReader::new(file);
@@ -364,7 +365,7 @@ fn double_dijkstra(state: &mut UiState) {
         };
         let mut target = HashSet::new();
         target.insert(end.0);
-        let result = oracle.beer_path_dijkstra(start.0, end.0).unwrap();
+        let result = oracle.beer_path_dijkstra_fast(start.0, end.0, oracle.poi_nodes(), 0.1);
 
         info!("Finished beer paths");
 
@@ -382,44 +383,36 @@ fn draw_resutl_path(state: &mut UiState) {
     let Some(ref oracle) = state.oracle else {
         return;
     };
-    let Some(click_pos) = get_node_click_pos(state.map.clone(), oracle) else {
-        return;
-    };
-    let Ok(node) = oracle.get_node_value_at(click_pos.1.get_coord(), 100.0) else {
-        return;
-    };
 
-    let Some(path) = result.path(node.0) else {
-        info!("Node not in result");
-        return;
-    };
-    let path = path
-        .into_iter()
-        .fold(vec![], |mut coords: Vec<Coord>, node| {
-            coords.push(
-                *state
-                    .oracle
-                    .as_ref()
-                    .unwrap()
-                    .graph()
-                    .node_value(node.node_id())
-                    .unwrap()
-                    .get_coord(),
-            );
+    let pois = result
+        .iter()
+        .fold(vec![], |mut coords: Vec<NodeMarker<Poi>>, node| {
+            if let Some(node_marker) = NodeMarker::new(
+                *oracle.graph().node_value(*node.0).unwrap().get_coord(),
+                *node.0,
+                Some(oracle.graph().node_value(*node.0).unwrap().data().to_vec()),
+            ) {
+                coords.push(node_marker);
+            }
             coords
         });
-    let mut layer = state.map.write().expect("poisoned lock");
-    let layer: &mut Arc<RwLock<LineLayer<SimpleContourSymbol>>> = layer
-        .or_insert(
-            "path".to_string(),
-            LineLayer::new(SimpleContourSymbol::new(Color::BLUE, 1.0)),
-        )
-        .as_any_mut()
-        .downcast_mut()
-        .unwrap();
+    let mut map = state.map.write().expect("poisoned lock");
+    {
+        let layer: &mut Arc<RwLock<NodeLayer<CirclePointSymbol, Poi>>> = map
+            .or_insert(
+                "points".to_string(),
+                NodeLayer::<CirclePointSymbol, Poi>::new(CirclePointSymbol::new(Color::RED, 5.0)),
+            )
+            .as_any_mut()
+            .downcast_mut()
+            .unwrap();
 
-    let mut layer = layer.write().expect("poisoned lock");
-    layer.insert_line(LineString::new(path));
+        let mut layer = layer.write().expect("poisoned lock");
+        layer.insert_nodes(pois);
+    }
+    map.show_layer(&"points".to_string());
+
+    state.state = State::LoadedPois;
 }
 
 fn get_start_end_pos(

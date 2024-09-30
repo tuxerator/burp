@@ -53,7 +53,7 @@ pub fn beer_path_dijkstra_bench(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("beer_path_dijkstra", format!("({}, {})", &path.0, &path.1)),
             &path,
-            |b, n| b.iter(|| oracle.beer_path_dijkstra(n.0, n.1)),
+            |b, n| b.iter(|| oracle.beer_path_dijkstra_base(n.0, n.1, oracle.poi_nodes().clone())),
         );
     }
 }

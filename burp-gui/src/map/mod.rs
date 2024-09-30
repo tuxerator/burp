@@ -13,6 +13,7 @@ use ::galileo::{
     Map as GalileoMap,
 };
 use galileo_types::geo::{self, impls::GeoPoint2d};
+use layers::EventLayer;
 
 use crate::types::MapPositions;
 
@@ -24,23 +25,27 @@ where
     K: Hash + Eq,
 {
     map: Arc<RwLock<GalileoMap>>,
-    layers: HashMap<K, (Box<dyn Layer>, usize)>,
+    layers: HashMap<K, (Box<dyn EventLayer>, usize)>,
     map_positions: Arc<RwLock<MapPositions>>,
     event_processor: EventProcessor,
 }
 
-impl<K: Hash + Eq> Map<K> {
-    pub fn new(map: Arc<RwLock<GalileoMap>>, layers: HashMap<K, (Box<dyn Layer>, usize)>) -> Self {
+impl<K: Hash + Eq + Send + Sync + 'static> Map<K> {
+    pub fn new(
+        map: Arc<RwLock<GalileoMap>>,
+        layers: HashMap<K, (Box<dyn EventLayer>, usize)>,
+    ) -> Self {
         let map_positions = Arc::new(RwLock::new(MapPositions::new(map.clone())));
-        let map_positions_clone = map_positions.clone();
+        let map_positions_ref = map_positions.clone();
         let mut event_processor = EventProcessor::default();
 
         event_processor.add_handler(move |ev: &UserEvent, map: &mut GalileoMap| {
+            let map_positions = map_positions_ref.clone();
             match ev {
                 UserEvent::PointerMoved(MouseEvent {
                     screen_pointer_position,
                     ..
-                }) => map_positions_clone
+                }) => map_positions
                     .write()
                     .expect("poisoned lock")
                     .set_pointer_pos(*screen_pointer_position),
@@ -51,7 +56,7 @@ impl<K: Hash + Eq> Map<K> {
                         ..
                     },
                 ) => {
-                    map_positions_clone
+                    map_positions
                         .write()
                         .expect("poisoned lock")
                         .set_click_pos(*screen_pointer_position);
@@ -61,6 +66,7 @@ impl<K: Hash + Eq> Map<K> {
 
             EventPropagation::Propagate
         });
+
         event_processor.add_handler(MapController::default());
         Self {
             map,
@@ -127,24 +133,36 @@ impl<K: Hash + Eq> Map<K> {
         Ok(map_positions.take_click_pos())
     }
 
-    pub fn or_insert(&mut self, key: K, layer: impl Layer + 'static) -> &mut Box<dyn Layer> {
+    pub fn or_insert(
+        &mut self,
+        key: K,
+        layer: impl EventLayer + 'static,
+    ) -> &mut Box<dyn EventLayer> {
         let mut map = self.map.write().expect("poisoned lock");
         let layer_col = map.layers_mut();
         let layer = Arc::new(RwLock::new(layer));
+        let layer_ref = layer.clone();
 
-        layer_col.push(layer.clone());
         &mut self
             .layers
             .entry(key)
-            .or_insert((Box::new(layer), layer_col.len() - 1))
+            .or_insert_with(|| {
+                layer_col.push(layer.clone());
+                self.event_processor
+                    .add_handler(move |event: &UserEvent, map: &mut GalileoMap| {
+                        layer_ref.handle_event(event, map);
+                        EventPropagation::Propagate
+                    });
+                (Box::new(layer), layer_col.len() - 1)
+            })
             .0
     }
 
-    pub fn get_layer(&self, key: &K) -> Option<&Box<dyn Layer>> {
+    pub fn get_layer(&self, key: &K) -> Option<&Box<dyn EventLayer>> {
         self.layers.get(key).map(|layer| &layer.0)
     }
 
-    pub fn get_layer_mut(&mut self, key: &K) -> Option<&mut Box<dyn Layer>> {
+    pub fn get_layer_mut(&mut self, key: &K) -> Option<&mut Box<dyn EventLayer>> {
         self.layers.get_mut(key).map(|layer| &mut layer.0)
     }
 
@@ -201,5 +219,9 @@ impl<K: Hash + Eq> Map<K> {
         self.event_processor.handle(event, &mut map);
 
         Ok(())
+    }
+
+    pub fn add_handler(&mut self, handler: impl galileo::control::UserEventHandler + 'static) {
+        self.event_processor.add_handler(handler)
     }
 }

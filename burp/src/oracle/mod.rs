@@ -1,12 +1,14 @@
 use core::fmt;
 use std::{
+    cmp::{self, Reverse},
     collections::{HashMap, HashSet},
     f64::{self, consts::E},
     fmt::Debug,
     hash::Hash,
     io::Read,
+    ops::Deref,
     sync::{Arc, Mutex, RwLock, RwLockReadGuard},
-    usize,
+    thread, usize,
 };
 
 use galileo::{
@@ -19,12 +21,12 @@ use galileo::{
 use geo::{Coord, Point};
 use graph_rs::{
     algorithms::dijkstra::{Dijkstra, DijkstraResult, ResultNode},
-    graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph},
+    graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph, Target},
     CoordGraph, Coordinate, DirectedGraph, Graph,
 };
-use log::info;
-use num_traits::Num;
+use log::{info, warn};
 use ordered_float::{FloatCore, OrderedFloat};
+use priority_queue::PriorityQueue;
 use rayon::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 
@@ -157,10 +159,11 @@ impl<T: NodeTrait> Oracle<T> {
         self.graph().dijkstra_full(start_node)
     }
 
-    pub fn beer_path_dijkstra(
+    pub fn beer_path_dijkstra_base(
         &self,
         start_node: usize,
         end_node: usize,
+        pois: HashSet<usize>,
     ) -> Result<BeerPathResult<f64>, String> {
         info!(
             "Calculating {} beer paths between nodes {}, {}",
@@ -168,14 +171,187 @@ impl<T: NodeTrait> Oracle<T> {
             &start_node,
             &end_node
         );
-        let start_result = self.dijkstra(start_node, self.poi_nodes.clone())?;
-        let end_result = self.dijkstra(end_node, self.poi_nodes.clone())?;
+        let start_result = self.dijkstra(start_node, pois.clone())?;
+        let end_result = self.dijkstra(end_node, pois.clone())?;
 
         Ok(BeerPathResult {
             start_result,
             end_result,
-            pois: self.poi_nodes.clone(),
+            pois,
         })
+    }
+
+    pub fn beer_path_dijkstra_fast(
+        &self,
+        start_id: usize,
+        end_id: usize,
+        pois_id: &HashSet<usize>,
+        epsilon: f64,
+    ) -> HashMap<usize, f64> {
+        info!(
+            "Calculating {} beer paths between nodes {}, {}",
+            self.poi_nodes.len(),
+            &start_id,
+            &end_id
+        );
+        let mut frontier = PriorityQueue::new();
+        let result = Arc::new(RwLock::new(HashMap::new()));
+        let visited = Arc::new(RwLock::new(HashMap::new()));
+        let bound = Arc::new(RwLock::new(f64::INFINITY));
+        let Some(_) = self.graph().node_value(start_id) else {
+            warn!("start_id {} not found in graph", start_id);
+            return Arc::into_inner(result)
+                .expect("More than one strong reference")
+                .into_inner()
+                .expect("poisioned lock");
+        };
+        let Some(_) = self.graph().node_value(end_id) else {
+            warn!("end_id {} not found in graph", end_id);
+            return Arc::into_inner(result)
+                .expect("More than one strong reference")
+                .into_inner()
+                .expect("poisioned lock");
+        };
+        frontier.push((start_id, Label::Forward), Reverse(OrderedFloat(0.0)));
+        frontier.push((end_id, Label::Backward), Reverse(OrderedFloat(0.0)));
+
+        let frontier = Arc::new(RwLock::new(frontier));
+
+        thread::scope(|s| {
+            s.spawn(|| {
+                shared_dijkstra(
+                    self.graph().deref(),
+                    start_id,
+                    Label::Forward,
+                    visited.clone(),
+                    pois_id,
+                    result.clone(),
+                    bound.clone(),
+                    epsilon,
+                )
+            });
+
+            s.spawn(|| {
+                shared_dijkstra(
+                    self.graph().deref(),
+                    end_id,
+                    Label::Backward,
+                    visited.clone(),
+                    pois_id,
+                    result.clone(),
+                    bound.clone(),
+                    epsilon,
+                )
+            });
+        });
+        info!("finished beer paths");
+        Arc::into_inner(result)
+            .expect("More than one strong reference")
+            .into_inner()
+            .expect("poisioned lock")
+    }
+}
+#[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
+enum Label {
+    Forward,
+    Backward,
+    Poi,
+}
+
+impl Label {
+    fn inverse(&self) -> Self {
+        match self {
+            Label::Forward => Label::Backward,
+            Label::Backward => Label::Forward,
+            Label::Poi => Label::Poi,
+        }
+    }
+}
+
+fn shared_dijkstra<EV, NV, G>(
+    graph: &G,
+    start_node: usize,
+    direction: Label,
+    visited: Arc<RwLock<HashMap<(usize, Label), OrderedFloat<EV>>>>,
+    targets: &HashSet<usize>,
+    result: Arc<RwLock<HashMap<usize, EV>>>,
+    bound: Arc<RwLock<EV>>,
+    epsilon: EV,
+) where
+    EV: FloatCore + Send + Sync + Debug,
+    NV: Send + Sync,
+    G: DirectedGraph<EV, NV>,
+{
+    let mut frontier = PriorityQueue::new();
+    frontier.push((start_node, direction), Reverse(OrderedFloat(EV::zero())));
+    let mut next_node = frontier.pop();
+    while let Some(node) = next_node.take() {
+        if node.1 .0 .0 > *bound.read().expect("poisoned lock") {
+            info!("Bound exceded. Stoping.");
+            break;
+        }
+
+        if matches!(node.0 .1, Label::Poi) {
+            result
+                .write()
+                .expect("poisoned lock")
+                .insert(node.0 .0, *node.1 .0);
+            next_node = frontier.pop();
+            continue;
+        }
+
+        if visited
+            .read()
+            .expect("poisoned lock")
+            .get(&(node.0 .0, direction))
+            .is_some()
+        {
+            next_node = frontier.pop();
+            continue;
+        }
+        if let Some(visited_node) = visited
+            .read()
+            .expect("poisoned lock")
+            .get(&(node.0 .0, direction.inverse()))
+        {
+            let distance = node.1 .0 + *visited_node;
+            let mut bound = bound.write().expect("poisoned lock");
+
+            *bound = *cmp::min(
+                OrderedFloat(*bound),
+                distance * OrderedFloat(EV::from(1.0).unwrap() + epsilon),
+            );
+
+            if targets.contains(&node.0 .0) {
+                frontier.push((node.0 .0, Label::Poi), Reverse(distance));
+            }
+        }
+
+        visited
+            .write()
+            .expect("poisoned lock")
+            .insert((node.0 .0, direction), node.1 .0);
+
+        let neighbours: Box<dyn Iterator<Item = &Target<EV>>> = match node.0 .1 {
+            Label::Forward => Box::new(graph.neighbors(node.0 .0)),
+            Label::Backward => Box::new(graph.neighbors(node.0 .0)),
+            _ => continue,
+        };
+
+        neighbours.for_each(|n| {
+            let path_cost = OrderedFloat(*node.1 .0 + *n.value());
+            let new_node = (n.target(), node.0 .1);
+            if frontier.change_priority_by(&new_node, |p| {
+                if p.0 > path_cost {
+                    p.0 = path_cost
+                }
+            }) {
+                return;
+            }
+            frontier.push(new_node, Reverse(path_cost));
+        });
+
+        next_node = frontier.pop();
     }
 }
 

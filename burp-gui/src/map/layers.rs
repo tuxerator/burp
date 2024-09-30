@@ -1,28 +1,53 @@
+use std::{
+    fmt::Debug,
+    sync::{Arc, RwLock},
+};
+
 use galileo::{
+    control::{EventPropagation, MouseButton, MouseEvent, UserEvent, UserEventHandler},
     error::GalileoError,
-    layer::{feature_layer::Feature, FeatureLayer, Layer as GalileoLayer},
+    layer::{
+        feature_layer::{Feature, FeatureStore},
+        FeatureLayer, Layer as GalileoLayer,
+    },
     symbol::Symbol,
+    Map,
 };
 use galileo_types::{
-    geo::{impls::GeoPoint2d, Crs},
-    geometry_type::GeoSpace2d,
-    Contour, Disambig, Disambiguate,
+    cartesian::CartesianPoint2d,
+    geo::{
+        impls::{
+            projection::{self, WebMercator},
+            GeoPoint2d,
+        },
+        Crs, Datum, GeoPoint, Projection,
+    },
+    geometry::{Geom, Geometry, GeometrySpecialization},
+    geometry_type::{CartesianSpace2d, GeoSpace2d, GeometryType},
+    impls::Contour,
+    Disambig, Disambiguate,
 };
-use geo::{Coord, LineString};
+use geo::{LineString, Point};
+use geo_types::geometry::Coord;
 use graph_rs::{CoordGraph, Coordinate};
+use lazy_static::lazy_static;
 use log::info;
 use maybe_sync::{MaybeSend, MaybeSync};
-use wgpu::hal::auxil::db;
 
 pub struct NodeMarker<T> {
-    point: GeoPoint2d,
+    coord: Disambig<Coord, CartesianSpace2d>,
     node: usize,
     data: Option<Vec<T>>,
 }
 
 impl<T> NodeMarker<T> {
-    pub fn new(point: GeoPoint2d, node: usize, data: Option<Vec<T>>) -> Self {
-        Self { point, node, data }
+    pub fn new(coord: Coord, node: usize, data: Option<Vec<T>>) -> Option<Self> {
+        let projection = Crs::EPSG3857.get_projection()?;
+        Some(Self {
+            coord: projection.project(&coord)?,
+            node,
+            data,
+        })
     }
 
     pub fn node(&self) -> usize {
@@ -35,9 +60,9 @@ impl<T> NodeMarker<T> {
 }
 
 impl<T> Feature for NodeMarker<T> {
-    type Geom = GeoPoint2d;
+    type Geom = Disambig<Coord, CartesianSpace2d>;
     fn geometry(&self) -> &Self::Geom {
-        &self.point
+        &self.coord
     }
 }
 
@@ -45,7 +70,12 @@ pub struct NodeLayer<S, T>
 where
     S: Symbol<NodeMarker<T>>,
 {
-    layer: FeatureLayer<GeoPoint2d, NodeMarker<T>, S, GeoSpace2d>,
+    layer: FeatureLayer<
+        <Disambig<Coord, CartesianSpace2d> as Geometry>::Point,
+        NodeMarker<T>,
+        S,
+        CartesianSpace2d,
+    >,
 }
 
 impl<S, T> NodeLayer<S, T>
@@ -54,12 +84,16 @@ where
 {
     pub fn new(style: S) -> Self {
         Self {
-            layer: FeatureLayer::new(vec![], style, Crs::WGS84),
+            layer: FeatureLayer::new(vec![], style, Crs::EPSG3857),
         }
     }
 
     pub fn insert_node(&mut self, node: NodeMarker<T>) {
         self.layer.features_mut().insert(node);
+    }
+
+    pub fn insert_nodes(&mut self, nodes: Vec<NodeMarker<T>>) {
+        nodes.into_iter().for_each(|node| self.insert_node(node));
     }
 }
 
@@ -81,40 +115,66 @@ where
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
-        self.layer.as_any()
+        self
     }
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self.layer.as_any_mut()
+        self
+    }
+}
+
+impl<S, T> EventLayer for NodeLayer<S, T>
+where
+    S: Symbol<NodeMarker<T>> + MaybeSend + MaybeSync + 'static,
+    T: MaybeSend + MaybeSync + Debug + 'static,
+{
+    fn handle_event(&self, event: &UserEvent, map: &mut Map) {
+        match event {
+            UserEvent::Click(MouseButton::Left, event_data) => {
+                let Some(position) = map.view().screen_to_map(event_data.screen_pointer_position)
+                else {
+                    return;
+                };
+                for feature in self
+                    .layer
+                    .get_features_at(&position, map.view().resolution() * 20.0)
+                {
+                    info!("Data: {:?}", feature.as_ref().data);
+                }
+            }
+            _ => (),
+        };
     }
 }
 
 pub struct LineLayer<S>
 where
-    S: Symbol<Disambig<LineString, GeoSpace2d>>,
+    S: Symbol<Contour<Coord>>,
 {
-    layer: FeatureLayer<Coord, Disambig<LineString, GeoSpace2d>, S, GeoSpace2d>,
+    layer: FeatureLayer<Coord, Contour<Coord>, S, CartesianSpace2d>,
 }
 
 impl<S> LineLayer<S>
 where
-    S: Symbol<Disambig<LineString, GeoSpace2d>>,
+    S: Symbol<Contour<Coord>>,
 {
     pub fn new(style: S) -> Self {
         Self {
-            layer: FeatureLayer::with_lods(vec![], style, Crs::WGS84, &[8000.0, 1000.0, 1.0]),
+            layer: FeatureLayer::with_lods(vec![], style, Crs::EPSG3857, &[8000.0, 1000.0, 1.0]),
         }
     }
 
     pub fn insert_line(&mut self, line: LineString) {
-        let disambig = line.to_geo2d();
-        self.layer.features_mut().insert(disambig);
+        let projection: WebMercator<Coord, Coord> = WebMercator::new(Datum::WGS84);
+        let line = line.project(&projection).unwrap();
+        let Geom::Contour(contour) = line else {
+            return;
+        };
+        self.layer.features_mut().insert(contour);
     }
 
     pub fn insert_lines(&mut self, lines: Vec<LineString>) {
-        lines
-            .into_iter()
-            .for_each(|line| self.layer.features_mut().insert(line.to_geo2d()));
+        lines.into_iter().for_each(|line| self.insert_line(line));
     }
 
     pub fn insert_coord_graph<T, EV, NV>(&mut self, graph: &T)
@@ -141,7 +201,7 @@ where
 
 impl<S> GalileoLayer for LineLayer<S>
 where
-    S: Symbol<Disambig<LineString, GeoSpace2d>> + MaybeSend + MaybeSync + 'static,
+    S: Symbol<Contour<Coord>> + MaybeSend + MaybeSync + 'static,
 {
     fn render(&self, view: &galileo::MapView, canvas: &mut dyn galileo::render::Canvas) {
         self.layer.render(view, canvas)
@@ -161,5 +221,50 @@ where
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
+    }
+}
+
+impl<S> EventLayer for LineLayer<S>
+where
+    S: Symbol<Contour<Coord>> + MaybeSend + MaybeSync + 'static,
+{
+    fn handle_event(&self, event: &UserEvent, map: &mut Map) {}
+}
+
+impl<S> UserEventHandler for LineLayer<S>
+where
+    S: Symbol<Contour<Coord>> + MaybeSend + MaybeSync + 'static,
+{
+    fn handle(&self, event: &UserEvent, map: &mut Map) -> EventPropagation {
+        self.handle_event(event, map);
+        EventPropagation::Propagate
+    }
+}
+
+pub struct Layer<T>(Arc<RwLock<T>>);
+
+pub trait EventLayer: GalileoLayer {
+    fn handle_event(&self, event: &UserEvent, map: &mut Map);
+}
+
+impl<T> EventLayer for Arc<RwLock<T>>
+where
+    T: EventLayer + 'static,
+{
+    fn handle_event(&self, event: &UserEvent, map: &mut Map) {
+        self.read().expect("poisoned lock").handle_event(event, map)
+    }
+}
+
+impl<T> UserEventHandler for Layer<T>
+where
+    T: EventLayer,
+{
+    fn handle(&self, event: &UserEvent, map: &mut Map) -> EventPropagation {
+        self.0
+            .read()
+            .expect("poisoned lock")
+            .handle_event(event, map);
+        EventPropagation::Propagate
     }
 }
