@@ -30,7 +30,7 @@ use graph_rs::{graph::csr::DirectedCsrGraph, CoordGraph, Coordinate, DirectedGra
 use graph_rs::input::edgelist::EdgeList;
 
 use crate::{
-    oracle::Oracle,
+    oracle::PoiGraph,
     types::{Amenity, CoordNode, Poi},
 };
 

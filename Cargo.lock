@@ -564,6 +564,7 @@ dependencies = [
  "ordered-float",
  "petgraph",
  "priority-queue",
+ "qutee",
  "rand",
  "rayon",
  "rfd",

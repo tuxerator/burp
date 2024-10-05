@@ -6,9 +6,9 @@ use std::{
     path::PathBuf,
 };
 
-use burp::{oracle::Oracle, types::Poi};
+use burp::{oracle::PoiGraph, types::Poi};
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use graph_rs::Graph;
+use graph_rs::{types::Direction, Graph};
 use rand::{
     seq::index::{self, sample},
     thread_rng,
@@ -21,14 +21,14 @@ pub fn dijkstra_full_bench(c: &mut Criterion) {
     let mut file = File::open(path).unwrap();
     let mut f_buf = vec![];
     file.read_to_end(&mut f_buf);
-    let oracle: Oracle<Poi> = Oracle::read_flexbuffer(f_buf.as_slice());
+    let oracle: PoiGraph<Poi> = PoiGraph::read_flexbuffer(f_buf.as_slice());
 
     let nodes = sample(&mut thread_rng(), oracle.graph().node_count(), 100);
 
     for node in nodes {
         group.sample_size(10);
         group.bench_with_input(BenchmarkId::new("dijkstra_full", &node), &node, |b, n| {
-            b.iter(|| oracle.dijkstra_full(*n))
+            b.iter(|| oracle.dijkstra_full(*n, Direction::Outgoing))
         });
     }
 
@@ -42,7 +42,7 @@ pub fn beer_path_dijkstra_bench(c: &mut Criterion) {
     let mut file = File::open(path).unwrap();
     let mut f_buf = vec![];
     file.read_to_end(&mut f_buf);
-    let oracle: Oracle<Poi> = Oracle::read_flexbuffer(f_buf.as_slice());
+    let oracle: PoiGraph<Poi> = PoiGraph::read_flexbuffer(f_buf.as_slice());
 
     let nodes = sample(&mut thread_rng(), oracle.graph().node_count(), 100)
         .into_iter()

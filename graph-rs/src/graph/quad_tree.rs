@@ -1,4 +1,6 @@
+use core::f64;
 use std::{
+    collections::HashSet,
     fmt::{self, Debug},
     marker::PhantomData,
 };
@@ -9,14 +11,16 @@ use geo::{
 };
 use log::info;
 use num_traits::Float;
-use ordered_float::OrderedFloat;
+use ordered_float::{FloatCore, OrderedFloat};
 use qutee::{Boundary, DynCap, QuadTree};
 use serde::{
     de::{self, Visitor},
     Deserialize, Deserializer, Serialize,
 };
 
-use crate::{CoordGraph, Coordinate, DirectedGraph, Graph};
+use crate::{
+    algorithms::dijkstra::Dijkstra, types::Direction, CoordGraph, Coordinate, DirectedGraph, Graph,
+};
 
 use super::csr::DirectedCsrGraph;
 
@@ -70,6 +74,58 @@ where
 
     pub fn graph(&self) -> &G {
         &self.graph
+    }
+
+    pub fn boundary(&self) -> &Boundary<f64> {
+        self.quad_tree.boundary()
+    }
+
+    pub fn query_points<A>(&self, area: A) -> qutee::QueryPoints<'_, f64, A, usize, DynCap>
+    where
+        A: qutee::Area<f64>,
+    {
+        self.quad_tree.query_points(area)
+    }
+
+    pub fn query<A>(&self, area: A) -> qutee::Query<'_, f64, A, usize, DynCap>
+    where
+        A: qutee::Area<f64>,
+    {
+        self.quad_tree.query(area)
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.quad_tree.capacity()
+    }
+}
+
+impl<EV, NV, G> QuadGraph<EV, NV, G>
+where
+    G: DirectedGraph<EV, NV>,
+    EV: FloatCore + Send + Sync,
+    NV: Coordinate + Debug,
+{
+    pub fn raduis<A>(&self, node: usize, area: &A, direction: Direction) -> Option<EV>
+    where
+        A: qutee::Area<f64> + Debug,
+    {
+        let nodes = self.query_points(area.clone()).map(|node| node.1);
+        let nodes = HashSet::from_iter(nodes);
+
+        if !nodes.contains(&node) {
+            return None;
+        }
+
+        let distances = self.dijkstra(node, nodes, direction).ok()?;
+
+        Some(
+            distances
+                .0
+                .into_iter()
+                .max_by(|rhs, lhs| rhs.cost().cmp(lhs.cost()))?
+                .cost()
+                .0,
+        )
     }
 }
 

@@ -1,6 +1,6 @@
 use std::{cmp::max, error::Error, iter::Copied, slice::Iter, str::FromStr, usize};
 
-use super::Direction;
+use crate::types::Direction;
 
 #[derive(Debug)]
 pub struct EdgeList<EV> {

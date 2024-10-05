@@ -14,7 +14,7 @@ use std::{
 
 use burp::{
     input::geo_zero::{ColumnValueClonable, GraphWriter},
-    oracle::Oracle,
+    oracle::PoiGraph,
     types::Poi,
 };
 use geo::Coord;

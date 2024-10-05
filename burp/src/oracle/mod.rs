@@ -22,6 +22,7 @@ use geo::{Coord, Point};
 use graph_rs::{
     algorithms::dijkstra::{Dijkstra, DijkstraResult, ResultNode},
     graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph, Target},
+    types::Direction,
     CoordGraph, Coordinate, DirectedGraph, Graph,
 };
 use log::{info, warn};
@@ -35,13 +36,15 @@ use crate::{
     types::{CoordNode, Poi},
 };
 
+mod oracle;
+
 pub trait NodeTrait: Clone + Debug + Send + Sync {}
 
 type QuadGraphType<T> = QuadGraph<f64, CoordNode<T>, DirectedCsrGraph<f64, CoordNode<T>>>;
 type RwLockGraph<T> = RwLock<QuadGraphType<T>>;
 
 #[derive(Serialize, Deserialize)]
-pub struct Oracle<T>
+pub struct PoiGraph<T>
 where
     T: NodeTrait,
 {
@@ -49,7 +52,7 @@ where
     poi_nodes: HashSet<usize>,
 }
 
-impl<T> Oracle<T>
+impl<T> PoiGraph<T>
 where
     T: NodeTrait + Serialize + DeserializeOwned,
 {
@@ -142,7 +145,7 @@ where
     }
 }
 
-impl<T: NodeTrait> Oracle<T> {
+impl<T: NodeTrait> PoiGraph<T> {
     pub fn graph(&self) -> RwLockReadGuard<QuadGraphType<T>> {
         self.graph.read().expect("poisoned lock")
     }
@@ -151,12 +154,17 @@ impl<T: NodeTrait> Oracle<T> {
         &self,
         start_node: usize,
         targets: HashSet<usize>,
+        direction: Direction,
     ) -> Result<DijkstraResult<f64>, String> {
-        self.graph().dijkstra(start_node, targets)
+        self.graph().dijkstra(start_node, targets, direction)
     }
 
-    pub fn dijkstra_full(&self, start_node: usize) -> Result<DijkstraResult<f64>, String> {
-        self.graph().dijkstra_full(start_node)
+    pub fn dijkstra_full(
+        &self,
+        start_node: usize,
+        direction: Direction,
+    ) -> Result<DijkstraResult<f64>, String> {
+        self.graph().dijkstra_full(start_node, direction)
     }
 
     pub fn beer_path_dijkstra_base(
@@ -171,8 +179,8 @@ impl<T: NodeTrait> Oracle<T> {
             &start_node,
             &end_node
         );
-        let start_result = self.dijkstra(start_node, pois.clone())?;
-        let end_result = self.dijkstra(end_node, pois.clone())?;
+        let start_result = self.dijkstra(start_node, pois.clone(), Direction::Outgoing)?;
+        let end_result = self.dijkstra(end_node, pois.clone(), Direction::Incoming)?;
 
         Ok(BeerPathResult {
             start_result,
@@ -355,13 +363,13 @@ fn shared_dijkstra<EV, NV, G>(
     }
 }
 
-impl<T: Debug + NodeTrait> Debug for Oracle<T> {
+impl<T: Debug + NodeTrait> Debug for PoiGraph<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.graph)
     }
 }
 
-impl<T> PartialEq for Oracle<T>
+impl<T> PartialEq for PoiGraph<T>
 where
     T: NodeTrait + PartialEq,
 {
@@ -370,7 +378,7 @@ where
     }
 }
 
-impl<T> From<QuadGraphType<T>> for Oracle<T>
+impl<T> From<QuadGraphType<T>> for PoiGraph<T>
 where
     T: NodeTrait,
 {
@@ -456,7 +464,7 @@ mod test {
 
     use crate::{
         input::geo_zero::{read_geojson, GraphWriter},
-        oracle::{self, Oracle},
+        oracle::{self, PoiGraph},
         types::Poi,
     };
 
@@ -514,11 +522,11 @@ mod test {
         let mut graph_writer = GraphWriter::new_from_filter(|_| true);
         assert!(read_geojson(geojson.as_bytes(), &mut graph_writer).is_ok());
         let graph = graph_writer.get_graph();
-        let oracle = Oracle::from(QuadGraph::new_from_graph(graph));
+        let oracle = PoiGraph::from(QuadGraph::new_from_graph(graph));
 
         let flexbuff = oracle.to_flexbuffer();
 
-        let oracle2: Oracle<Poi> = Oracle::read_flexbuffer(flexbuff.as_slice());
+        let oracle2: PoiGraph<Poi> = PoiGraph::read_flexbuffer(flexbuff.as_slice());
 
         assert_eq!(oracle, oracle2);
     }

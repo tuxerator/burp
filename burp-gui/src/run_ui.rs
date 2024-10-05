@@ -10,7 +10,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
 use std::usize;
 
-use burp::oracle::{self, BeerPathResult, Oracle};
+use burp::oracle::{self, BeerPathResult, PoiGraph};
 use burp::types::{CoordNode, Poi};
 use egui::{Context, Id, InnerResponse};
 use galileo::symbol::{ArbitraryGeometrySymbol, CirclePointSymbol, SimpleContourSymbol};
@@ -38,7 +38,7 @@ use burp::input::geo_zero::{ColumnValueClonable, GraphWriter, PoiWriter};
 type StartEndPos<T> = (Option<(usize, CoordNode<T>)>, Option<(usize, CoordNode<T>)>);
 
 pub struct UiState {
-    oracle: Option<Oracle<Poi>>,
+    oracle: Option<PoiGraph<Poi>>,
     map: Arc<RwLock<Map<String>>>,
     sender: Sender<Events>,
     state: State,
@@ -171,7 +171,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
 
             read_geojson(buf_reader, &mut graph_writer);
             let graph = QuadGraph::new_from_graph(graph_writer.get_graph());
-            state.oracle = Some(Oracle::new(graph));
+            state.oracle = Some(PoiGraph::new(graph));
 
             state.state = State::LoadedGraph;
         }
@@ -288,7 +288,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
                     let mut flexbuffer = Vec::default();
 
                     buf_reader.read_to_end(&mut flexbuffer);
-                    state.oracle = Some(Oracle::read_flexbuffer(flexbuffer.as_slice()));
+                    state.oracle = Some(PoiGraph::read_flexbuffer(flexbuffer.as_slice()));
                     state.state = State::LoadedPois;
                 }
             }
@@ -418,7 +418,7 @@ fn draw_resutl_path(state: &mut UiState) {
 fn get_start_end_pos(
     pos: StartEndPos<Poi>,
     map: Arc<RwLock<Map<String>>>,
-    oracle: &Oracle<Poi>,
+    oracle: &PoiGraph<Poi>,
 ) -> StartEndPos<Poi> {
     match pos {
         (None, None) => (get_node_click_pos(map, oracle), None),
@@ -429,7 +429,7 @@ fn get_start_end_pos(
 
 fn get_node_click_pos(
     map: Arc<RwLock<Map<String>>>,
-    oracle: &Oracle<Poi>,
+    oracle: &PoiGraph<Poi>,
 ) -> Option<(usize, CoordNode<Poi>)> {
     let click_pos = map
         .write()

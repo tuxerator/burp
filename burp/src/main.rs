@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use burp::oracle::Oracle;
+use burp::oracle::PoiGraph;
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]

@@ -13,11 +13,8 @@ use petgraph::{
 use rayon::iter::IntoParallelRefIterator;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    graph::Target,
-    input::{edgelist::EdgeList, Direction},
-    DirectedGraph, Graph, GraphError,
-};
+use crate::types::Direction;
+use crate::{graph::Target, input::edgelist::EdgeList, DirectedGraph, Graph, GraphError};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Csr<EV> {

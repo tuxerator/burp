@@ -5,6 +5,7 @@ use graph::Target;
 use petgraph::{stable_graph::StableGraph, Directed};
 
 pub use geozero::{FeatureProcessor, GeomProcessor, PropertyProcessor};
+use qutee::Boundary;
 
 pub mod algorithms;
 pub mod builder;
@@ -16,6 +17,7 @@ mod serde;
 
 #[macro_use]
 mod macros;
+pub mod types;
 
 #[derive(Debug)]
 pub enum GraphError {

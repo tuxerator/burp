@@ -13,27 +13,37 @@ use ordered_float::{FloatCore, OrderedFloat};
 use priority_queue::PriorityQueue;
 use rayon::iter::ParallelIterator;
 
-use crate::{graph::Path, DirectedGraph};
+use crate::{
+    graph::{Path, Target},
+    types::Direction,
+    DirectedGraph,
+};
 
 pub trait Dijkstra<T: FloatCore, V> {
     fn dijkstra(
         &self,
         start_node: usize,
         target_set: HashSet<usize>,
+        direction: Direction,
     ) -> Result<DijkstraResult<T>, String>;
 
-    fn dijkstra_full(&self, start_node: usize) -> Result<DijkstraResult<T>, String>;
+    fn dijkstra_full(
+        &self,
+        start_node: usize,
+        direction: Direction,
+    ) -> Result<DijkstraResult<T>, String>;
 }
 
 impl<T, V, U> Dijkstra<T, V> for U
 where
-    T: FloatCore + Copy + Default + Debug + Send + Sync,
+    T: FloatCore + Send + Sync,
     U: DirectedGraph<T, V>,
 {
     fn dijkstra(
         &self,
         start_node: usize,
         mut target_set: HashSet<usize>,
+        direction: Direction,
     ) -> Result<DijkstraResult<T>, String> {
         let mut frontier = PriorityQueue::new();
         let mut result = HashSet::new();
@@ -49,7 +59,11 @@ where
                 continue;
             }
 
-            let neighbours = self.neighbors(node.node_id());
+            let neighbours: Box<dyn Iterator<Item = &Target<T>>> = match direction {
+                Direction::Outgoing => Box::new(self.out_neighbors(node.node_id())),
+                Direction::Incoming => Box::new(self.in_neighbors(node.node_id())),
+                Direction::Undirected => Box::new(self.neighbors(node.node_id())),
+            };
 
             neighbours.for_each(|n| {
                 let path_cost = *node.cost() + *n.value();
@@ -72,15 +86,23 @@ where
         Ok(DijkstraResult::new(result))
     }
 
-    fn dijkstra_full(&self, start_node: usize) -> Result<DijkstraResult<T>, String> {
-        self.dijkstra(start_node, HashSet::from_iter(0..self.node_count()))
+    fn dijkstra_full(
+        &self,
+        start_node: usize,
+        direction: Direction,
+    ) -> Result<DijkstraResult<T>, String> {
+        self.dijkstra(
+            start_node,
+            HashSet::from_iter(0..self.node_count()),
+            direction,
+        )
     }
 }
 
 #[derive(PartialEq, Debug)]
-pub struct DijkstraResult<T: FloatCore>(HashSet<ResultNode<OrderedFloat<T>>>);
+pub struct DijkstraResult<T: FloatCore>(pub HashSet<ResultNode<OrderedFloat<T>>>);
 
-impl<T: FloatCore + Debug> DijkstraResult<T> {
+impl<T: FloatCore> DijkstraResult<T> {
     pub fn new(hash_set: HashSet<ResultNode<OrderedFloat<T>>>) -> Self {
         Self(hash_set)
     }
