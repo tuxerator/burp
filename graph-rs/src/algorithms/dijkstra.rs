@@ -79,7 +79,10 @@ where
 
             visited.insert(node.node_id());
 
-            target_set.take(&node.node_id());
+            target_set.take(&node.node_id()).and_then(|node| {
+                info!("fond path to node {}", node);
+                Some(node)
+            });
             result.insert(node);
         }
 

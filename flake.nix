@@ -231,6 +231,7 @@
           packages = [
             pkgs.cargo-hakari
             pkgs.gdb
+            pkgs.vscode-extensions.vadimcn.vscode-lldb.adapter
           ];
         };
       });

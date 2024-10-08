@@ -33,7 +33,7 @@ enum Commands {
 
 fn main() {
     let cli = Cli::parse();
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     match cli.command {
         Commands::Graph { in_file, out_file } => {

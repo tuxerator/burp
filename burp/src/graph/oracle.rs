@@ -52,14 +52,12 @@ where
                 continue;
             };
 
+            let result_st = graph
+                .dijkstra(s.1, HashSet::from([t.1]), Direction::Outgoing)
+                .unwrap();
+
             let values = Values {
-                d_st: graph
-                    .dijkstra(s.1, HashSet::from([t.1]), Direction::Outgoing)
-                    .unwrap()
-                    .get(t.1)
-                    .unwrap()
-                    .cost()
-                    .0,
+                d_st: result_st.get(t.1).unwrap().cost().0,
                 d_sp: graph
                     .dijkstra(s.1, HashSet::from([poi]), Direction::Outgoing)
                     .unwrap()
