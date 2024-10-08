@@ -102,10 +102,10 @@ where
 impl<EV, NV, G> QuadGraph<EV, NV, G>
 where
     G: DirectedGraph<EV, NV>,
-    EV: FloatCore + Send + Sync,
+    EV: FloatCore + Send + Sync + Debug,
     NV: Coordinate + Debug,
 {
-    pub fn raduis<A>(&self, node: usize, area: &A, direction: Direction) -> Option<EV>
+    pub fn radius<A>(&self, node: usize, area: &A, direction: Direction) -> Option<EV>
     where
         A: qutee::Area<f64> + Debug,
     {
@@ -113,10 +113,11 @@ where
         let nodes = HashSet::from_iter(nodes);
 
         if !nodes.contains(&node) {
+            info!("Node not found");
             return None;
         }
 
-        let distances = self.dijkstra(node, nodes, direction).ok()?;
+        let distances = self.dijkstra(node, nodes, direction).unwrap();
 
         Some(
             distances

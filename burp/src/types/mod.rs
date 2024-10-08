@@ -1,7 +1,7 @@
 use core::fmt;
 use std::fmt::Debug;
 
-use crate::{oracle::NodeTrait, serde::CoordDef};
+use crate::{graph::NodeTrait, serde::CoordDef};
 use geo_types::Coord;
 use graph_rs::Coordinate;
 use num_traits::Num;

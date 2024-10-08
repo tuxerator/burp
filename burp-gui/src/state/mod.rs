@@ -13,8 +13,8 @@ use std::{
 // use crate::run_ui::{run_ui, UiState};
 
 use burp::{
+    graph::PoiGraph,
     input::geo_zero::{ColumnValueClonable, GraphWriter},
-    oracle::PoiGraph,
     types::Poi,
 };
 use geo::Coord;

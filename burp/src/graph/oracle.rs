@@ -6,8 +6,9 @@ use std::{
 
 use graph_rs::{
     algorithms::dijkstra::Dijkstra, graph::quad_tree::QuadGraph, types::Direction, Coordinate,
-    DirectedGraph,
+    DirectedGraph, Graph,
 };
+use indicatif::ProgressBar;
 use log::{info, warn};
 use ordered_float::FloatCore;
 use qutee::{Boundary, DynCap, Point, QueryPoints};
@@ -20,12 +21,22 @@ impl Oracle {
     fn new() {}
 }
 
-fn build<EV, NV, G>(graph: QuadGraph<EV, NV, G>, poi: usize, epsilon: EV)
+pub fn build<EV, NV, G>(
+    graph: &QuadGraph<EV, NV, G>,
+    poi: usize,
+    epsilon: EV,
+) -> Vec<(Boundary<f64>, Boundary<f64>)>
 where
     EV: FloatCore + Default + Debug + Copy + Send + Sync,
     NV: Coordinate + Debug,
     G: DirectedGraph<EV, NV>,
 {
+    let progress_bar = ProgressBar::new(
+        graph
+            .node_count()
+            .try_into()
+            .expect("Value doesn't fit in u64"),
+    );
     let root = graph.boundary().clone();
     let mut queue = VecDeque::new();
 
@@ -34,47 +45,57 @@ where
     queue.push_back((root, root));
 
     while let Some(block) = queue.pop_front() {
-        let mut points = (
-            graph.query_points(block.0).peekable(),
-            graph.query_points(block.1).peekable(),
-        );
-        let (Some(s), Some(t)) = (points.0.peek(), points.1.peek()) else {
-            info!("At least one block is empty. {:?}", &block);
-            continue;
-        };
+        if block.0 != block.1 {
+            let mut points = (graph.query_points(block.0), graph.query_points(block.1));
+            let (Some(s), Some(t)) = (points.0.next(), points.1.next()) else {
+                info!("At least one block is empty. {:?}", &block);
+                continue;
+            };
 
-        let values = Values {
-            d_st: graph
-                .dijkstra(s.1, HashSet::from([t.1]), Direction::Outgoing)
-                .unwrap()
-                .get(t.1)
-                .unwrap()
-                .cost()
-                .0,
-            d_sp: graph
-                .dijkstra(s.1, HashSet::from([poi]), Direction::Outgoing)
-                .unwrap()
-                .get(poi)
-                .unwrap()
-                .cost()
-                .0,
-            d_pt: graph
-                .dijkstra(poi, HashSet::from([t.1]), Direction::Outgoing)
-                .unwrap()
-                .get(t.1)
-                .unwrap()
-                .cost()
-                .0,
-            r_af: graph.raduis(s.1, &block.0, Direction::Outgoing).unwrap(),
-            r_ab: graph.raduis(s.1, &block.0, Direction::Incoming).unwrap(),
-            r_bf: graph.raduis(t.1, &block.1, Direction::Outgoing).unwrap(),
-            r_bb: graph.raduis(t.1, &block.1, Direction::Incoming).unwrap(),
-        };
+            let values = Values {
+                d_st: graph
+                    .dijkstra(s.1, HashSet::from([t.1]), Direction::Outgoing)
+                    .unwrap()
+                    .get(t.1)
+                    .unwrap()
+                    .cost()
+                    .0,
+                d_sp: graph
+                    .dijkstra(s.1, HashSet::from([poi]), Direction::Outgoing)
+                    .unwrap()
+                    .get(poi)
+                    .unwrap()
+                    .cost()
+                    .0,
+                d_pt: graph
+                    .dijkstra(poi, HashSet::from([t.1]), Direction::Outgoing)
+                    .unwrap()
+                    .get(t.1)
+                    .unwrap()
+                    .cost()
+                    .0,
+                r_af: graph.radius(s.1, &block.0, Direction::Outgoing).unwrap(),
+                r_ab: graph.radius(s.1, &block.0, Direction::Incoming).unwrap(),
+                r_bf: graph.radius(t.1, &block.1, Direction::Outgoing).unwrap(),
+                r_bb: graph.radius(t.1, &block.1, Direction::Incoming).unwrap(),
+            };
 
-        if values.in_path(epsilon) {
-            result.push(block);
-        } else if values.not_in_path(epsilon) {
-            continue;
+            if values.in_path(epsilon) {
+                info!("Found block pair: {:#?}", &block);
+                result.push(block);
+                progress_bar.inc(
+                    (points.0.size_hint().0 + points.1.size_hint().0 + 2)
+                        .try_into()
+                        .expect("value doesn't fit in u64"),
+                );
+            } else if values.not_in_path(epsilon) {
+                progress_bar.inc(
+                    (points.0.size_hint().0 + points.1.size_hint().0 + 2)
+                        .try_into()
+                        .expect("value doesn't fit in u64"),
+                );
+                continue;
+            }
         }
 
         let children = (divide(&block.0).into_iter(), divide(&block.1).into_iter());
@@ -100,8 +121,12 @@ where
             })
             .collect();
 
+        info!("Inserting blocks {:#?}", &child_block_pairs);
+
         queue.append(&mut child_block_pairs.into());
     }
+
+    result
 }
 
 struct Values<T: FloatCore> {

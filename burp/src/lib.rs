@@ -1,5 +1,5 @@
 pub mod events;
+pub mod graph;
 pub mod input;
-pub mod oracle;
 mod serde;
 pub mod types;

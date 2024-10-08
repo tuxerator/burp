@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
 };
 
-use burp::{oracle::PoiGraph, types::Poi};
+use burp::{graph::PoiGraph, types::Poi};
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use graph_rs::{types::Direction, Graph};
 use rand::{
@@ -28,7 +28,7 @@ pub fn dijkstra_full_bench(c: &mut Criterion) {
     for node in nodes {
         group.sample_size(10);
         group.bench_with_input(BenchmarkId::new("dijkstra_full", &node), &node, |b, n| {
-            b.iter(|| oracle.dijkstra_full(*n, Direction::Outgoing))
+            b.iter(|| oracle.dijkstra_full(*n, Direction::Outgoing).unwrap())
         });
     }
 

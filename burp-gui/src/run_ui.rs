@@ -10,7 +10,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
 use std::usize;
 
-use burp::oracle::{self, BeerPathResult, PoiGraph};
+use burp::graph::{self, BeerPathResult, PoiGraph};
 use burp::types::{CoordNode, Poi};
 use egui::{Context, Id, InnerResponse};
 use galileo::symbol::{ArbitraryGeometrySymbol, CirclePointSymbol, SimpleContourSymbol};
@@ -311,7 +311,9 @@ fn dijkstra(state: &mut UiState) {
         );
         let mut target = HashSet::new();
         target.insert(end.0);
-        let result = oracle.dijkstra(start.0, target).unwrap();
+        let result = oracle
+            .dijkstra(start.0, target, graph_rs::types::Direction::Outgoing)
+            .unwrap();
 
         let mut layer = state.map.write().expect("poisoned lock");
 

@@ -7,7 +7,7 @@ use crate::state::WgpuFrame;
 use crate::types::MapPositions;
 use ::geo_types::Geometry::{self, GeometryCollection, LineString, Point};
 use ::geo_types::{coord, LineString as LineLineString, Point as PointPoint};
-use burp::oracle::PoiGraph;
+use burp::graph::PoiGraph;
 use burp::types::{CoordNode, Poi};
 use galileo::control::{EventPropagation, MouseButton, MouseEvent, UserEvent};
 use galileo::layer::feature_layer::{self, Feature, FeatureStore};

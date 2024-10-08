@@ -36,7 +36,7 @@ use crate::{
     types::{CoordNode, Poi},
 };
 
-mod oracle;
+pub mod oracle;
 
 pub trait NodeTrait: Clone + Debug + Send + Sync {}
 
@@ -463,8 +463,8 @@ mod test {
     use graph_rs::graph::quad_tree::QuadGraph;
 
     use crate::{
+        graph::{self, PoiGraph},
         input::geo_zero::{read_geojson, GraphWriter},
-        oracle::{self, PoiGraph},
         types::Poi,
     };
 
@@ -519,7 +519,7 @@ mod test {
         }]
         }"#;
 
-        let mut graph_writer = GraphWriter::new_from_filter(|_| true);
+        let mut graph_writer = GraphWriter::new(|_| true);
         assert!(read_geojson(geojson.as_bytes(), &mut graph_writer).is_ok());
         let graph = graph_writer.get_graph();
         let oracle = PoiGraph::from(QuadGraph::new_from_graph(graph));

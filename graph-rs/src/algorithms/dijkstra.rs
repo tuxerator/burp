@@ -36,7 +36,7 @@ pub trait Dijkstra<T: FloatCore, V> {
 
 impl<T, V, U> Dijkstra<T, V> for U
 where
-    T: FloatCore + Send + Sync,
+    T: FloatCore + Send + Sync + Debug,
     U: DirectedGraph<T, V>,
 {
     fn dijkstra(
