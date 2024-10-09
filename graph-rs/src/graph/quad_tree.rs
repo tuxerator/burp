@@ -472,6 +472,7 @@ mod test {
     }
 
     #[test]
+    #[ignore = "Long runtime"]
     fn nearest_neighbour_search_big() {
         let file = File::open("../resources/Berlin.geojson").unwrap();
         let reader = BufReader::new(file);

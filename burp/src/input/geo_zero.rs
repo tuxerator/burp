@@ -1,6 +1,8 @@
 pub use geozero;
 use log::info;
 use ordered_float::OrderedFloat;
+use petgraph::{algo::tarjan_scc, csr::IndexType, data::Build, graph::NodeIndex, Directed};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use std::{
     cmp::Ordering,
@@ -37,9 +39,9 @@ use crate::{
 use super::NodeValue;
 
 pub struct GraphWriter {
-    node_map: HashMap<Coord<OrderedFloat<f64>>, usize>,
+    node_map: HashMap<Coord<OrderedFloat<f64>>, NodeIndex<usize>>,
     nodes: Vec<CoordNode<Poi>>,
-    edges: Vec<(usize, usize, f64)>,
+    graph: petgraph::Graph<CoordNode<Poi>, f64, Directed, usize>,
     line: Vec<(usize, usize, f64)>,
     coords: Option<Vec<Coord>>,
     index: usize,
@@ -63,7 +65,7 @@ impl GraphWriter {
         GraphWriter {
             node_map: HashMap::default(),
             nodes: Vec::default(),
-            edges: Vec::default(),
+            graph: petgraph::Graph::default(),
             line: Vec::default(),
             coords: None,
             index: usize::default(),
@@ -78,15 +80,7 @@ impl GraphWriter {
     }
 
     pub fn get_graph(&mut self) -> DirectedCsrGraph<f64, CoordNode<Poi>> {
-        let edge_list = EdgeList::new(mem::take(&mut self.edges));
-
-        let graph = DirectedCsrGraph::from(edge_list);
-
-        DirectedCsrGraph::new(
-            mem::take(&mut self.nodes).into_boxed_slice(),
-            graph.csr_out,
-            graph.csr_inc,
-        )
+        DirectedCsrGraph::from(self.graph.clone())
     }
 }
 
@@ -132,9 +126,7 @@ impl GeomProcessor for GraphWriter {
         coords.push(coord);
 
         if let std::collections::hash_map::Entry::Vacant(e) = self.node_map.entry(ord_coord) {
-            e.insert(self.index);
-            self.nodes.push(CoordNode::new(coord, vec![]));
-            self.index += 1;
+            e.insert(self.graph.add_node(CoordNode::new(coord, vec![])));
         }
         Ok(())
     }
@@ -203,10 +195,10 @@ impl GeomProcessor for GraphWriter {
 
             let d = p_a.haversine_distance(&p_b);
 
-            self.edges.push((*node_a, *node_b, d));
+            self.graph.add_edge(*node_a, *node_b, d);
 
             if !oneway {
-                self.edges.push((*node_b, *node_a, d));
+                self.graph.add_edge(*node_b, *node_a, d);
             }
             coord_a = coord_b;
         }
@@ -225,6 +217,22 @@ impl FeatureProcessor for GraphWriter {
 
     fn properties_end(&mut self) -> geozero::error::Result<()> {
         self.include_feature = (self.property_filter)(&self.properties);
+        Ok(())
+    }
+
+    fn dataset_end(&mut self) -> geozero::error::Result<()> {
+        let scc = tarjan_scc(&self.graph);
+
+        let biggest_scc = scc
+            .into_par_iter()
+            .max_by(|rhs, lhs| rhs.len().cmp(&lhs.len()))
+            .ok_or(GeozeroError::Dataset(
+                "could not find any components".to_string(),
+            ))?;
+
+        self.graph
+            .retain_nodes(|_, node| biggest_scc.contains(&node));
+
         Ok(())
     }
 }
@@ -637,6 +645,8 @@ mod test {
         let mut graph_writer = GraphWriter::new(|_| true);
         assert!(read_geojson(geojson.as_bytes(), &mut graph_writer).is_ok());
         let graph = graph_writer.get_graph();
+
+        dbg!(&graph);
 
         assert_eq!(
             graph.neighbors(0).map(|x| x.target()).collect::<Vec<_>>(),

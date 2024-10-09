@@ -4,12 +4,13 @@ use std::{
     iter::Peekable,
 };
 
+use geo::point;
 use graph_rs::{
     algorithms::dijkstra::Dijkstra, graph::quad_tree::QuadGraph, types::Direction, Coordinate,
     DirectedGraph, Graph,
 };
 use indicatif::ProgressBar;
-use log::{info, warn};
+use log::{debug, info, warn};
 use ordered_float::FloatCore;
 use qutee::{Boundary, DynCap, Point, QueryPoints};
 
@@ -31,12 +32,11 @@ where
     NV: Coordinate + Debug,
     G: DirectedGraph<EV, NV>,
 {
-    let progress_bar = ProgressBar::new(
-        graph
-            .node_count()
-            .try_into()
-            .expect("Value doesn't fit in u64"),
-    );
+    // let progress_bar = ProgressBar::new( graph .node_count()
+    //         .try_into()
+    //         .expect("Value doesn't fit in u64"),
+    // );
+
     let root = graph.boundary().clone();
     let mut queue = VecDeque::new();
 
@@ -48,7 +48,7 @@ where
         if block.0 != block.1 {
             let mut points = (graph.query_points(block.0), graph.query_points(block.1));
             let (Some(s), Some(t)) = (points.0.next(), points.1.next()) else {
-                info!("At least one block is empty. {:?}", &block);
+                debug!("At least one block is empty. {:?}", &block);
                 continue;
             };
 
@@ -79,19 +79,22 @@ where
             };
 
             if values.in_path(epsilon) {
-                info!("Found block pair: {:#?}", &block);
+                debug!("Found in-path block pair: {:#?}", &block);
                 result.push(block);
-                progress_bar.inc(
-                    (points.0.size_hint().0 + points.1.size_hint().0 + 2)
-                        .try_into()
-                        .expect("value doesn't fit in u64"),
-                );
+                // progress_bar.inc(
+                //     (points.0.size_hint().0 + points.1.size_hint().0 + 2)
+                //         .try_into()
+                //         .expect("value doesn't fit in u64"),
+                // );
+
+                continue;
             } else if values.not_in_path(epsilon) {
-                progress_bar.inc(
-                    (points.0.size_hint().0 + points.1.size_hint().0 + 2)
-                        .try_into()
-                        .expect("value doesn't fit in u64"),
-                );
+                debug!("Found not in-path block pair: {:#?}", &block);
+                // progress_bar.inc(
+                //     (points.0.size_hint().0 + points.1.size_hint().0 + 2)
+                //         .try_into()
+                //         .expect("value doesn't fit in u64"),
+                // );
                 continue;
             }
         }
@@ -117,9 +120,21 @@ where
                     .iter()
                     .map(move |block_b| (block_a, block_b.clone()))
             })
+            .filter(|block_pair| {
+                let points = (
+                    graph.query(block_pair.0).collect::<Vec<_>>(),
+                    graph.query(block_pair.1).collect::<Vec<_>>(),
+                );
+
+                // If both blocks only contain the same node they can be discarded
+                if points.0.len() == 1 && points.0 == points.1 {
+                    return false;
+                }
+                true
+            })
             .collect();
 
-        info!("Inserting blocks {:#?}", &child_block_pairs);
+        debug!("inserting {} block pairs", child_block_pairs.len());
 
         queue.append(&mut child_block_pairs.into());
     }
@@ -139,13 +154,13 @@ struct Values<T: FloatCore> {
 
 impl<T: FloatCore> Values<T> {
     fn in_path(&self, epsilon: T) -> bool {
-        (self.r_ab + self.d_sp + self.d_pt + self.r_bf) / (self.d_st - (self.r_af + self.r_bb))
+        ((self.r_ab + self.d_sp + self.d_pt + self.r_bf) / (self.d_st - (self.r_af + self.r_bb)))
             - T::from(1).unwrap()
             <= epsilon
     }
 
     fn not_in_path(&self, epsilon: T) -> bool {
-        (self.d_sp + self.d_pt - (self.r_ab + self.r_bf)) / (self.d_st + (self.r_ab + self.r_bf))
+        ((self.d_sp + self.d_pt - (self.r_ab + self.r_bf)) / (self.d_st + (self.r_ab + self.r_bf)))
             - T::from(1).unwrap()
             >= epsilon
     }
@@ -199,24 +214,52 @@ fn divide<C: qutee::Coordinate>(block: &Boundary<C>) -> [Boundary<C>; 4] {
 
 #[cfg(test)]
 mod test {
-    use std::ops::Bound;
+    use std::{f64, ops::Bound};
 
-    use qutee::{Boundary, Point};
+    use qutee::{Area, Boundary, Point};
+    use rand::random;
 
     use super::divide;
 
     #[test]
     fn corner_points_test() {
-        let block = Boundary::new(Point::new(-0.5, 0.5), 1.0, -1.0);
-        dbg!(block);
-        let split = divide(&block);
-        let expected = [
-            Boundary::new(Point::new(-0.5, 0.5), 0.5, -0.5),
-            Boundary::new(Point::new(0.0, 0.5), 0.5, -0.5),
-            Boundary::new(Point::new(-0.5, 0.0), 0.5, -0.5),
-            Boundary::new(Point::new(0.0, 0.0), 0.5, -0.5),
-        ];
+        for _ in 0..1000 {
+            let point: Point<f64> = Point::new(
+                random::<f64>() * 360.0 - 180.0,
+                random::<f64>() * 180.0 - 90.0,
+            );
+            let block = Boundary::new(point, random::<f64>() * 360.0, -random::<f64>() * 180.0);
+            let split = divide(&block);
+            let expected = [
+                Boundary::new(point, block.width() / 2.0, -block.height() / 2.0),
+                Boundary::new(
+                    Point::new(point.x + block.width() / 2.0, point.y),
+                    block.width() / 2.0,
+                    -block.height() / 2.0,
+                ),
+                Boundary::new(
+                    Point::new(point.x, point.y - block.height() / 2.0),
+                    block.width() / 2.0,
+                    -block.height() / 2.0,
+                ),
+                Boundary::new(
+                    Point::new(
+                        point.x + block.width() / 2.0,
+                        point.y - block.height() / 2.0,
+                    ),
+                    block.width() / 2.0,
+                    -block.height() / 2.0,
+                ),
+            ];
 
-        assert_eq!(split, expected);
+            assert_eq!(split, expected);
+            for i in 0..4 {
+                for j in 0..4 {
+                    if i != j {
+                        assert!(!split[i].intersects(&split[j]));
+                    }
+                }
+            }
+        }
     }
 }
