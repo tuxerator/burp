@@ -158,8 +158,8 @@ impl<K: Hash + Eq + Send + Sync + 'static> Map<K> {
             .0
     }
 
-    pub fn get_layer(&self, key: &K) -> Option<&Box<dyn EventLayer>> {
-        self.layers.get(key).map(|layer| &layer.0)
+    pub fn get_layer(&self, key: &K) -> Option<&dyn EventLayer> {
+        self.layers.get(key).map(|layer| layer.0.as_ref())
     }
 
     pub fn get_layer_mut(&mut self, key: &K) -> Option<&mut Box<dyn EventLayer>> {
@@ -167,11 +167,7 @@ impl<K: Hash + Eq + Send + Sync + 'static> Map<K> {
     }
 
     pub fn show_layer(&self, key: &K) -> Result<(), String> {
-        let index = self
-            .layers
-            .get(&key)
-            .ok_or("Layer not found".to_string())?
-            .1;
+        let index = self.layers.get(key).ok_or("Layer not found".to_string())?.1;
         self.map_write_lock()
             .expect("poisoned lock")
             .layers_mut()
@@ -181,11 +177,7 @@ impl<K: Hash + Eq + Send + Sync + 'static> Map<K> {
     }
 
     pub fn hide_layer(&self, key: &K) -> Result<(), String> {
-        let index = self
-            .layers
-            .get(&key)
-            .ok_or("Layer not found".to_string())?
-            .1;
+        let index = self.layers.get(key).ok_or("Layer not found".to_string())?.1;
         self.map_write_lock()
             .expect("poisoned lock")
             .layers_mut()
@@ -195,11 +187,7 @@ impl<K: Hash + Eq + Send + Sync + 'static> Map<K> {
     }
 
     pub fn toggle_layer(&self, key: &K) -> Result<(), String> {
-        let index = self
-            .layers
-            .get(&key)
-            .ok_or("Layer not found".to_string())?
-            .1;
+        let index = self.layers.get(key).ok_or("Layer not found".to_string())?.1;
         let mut layers = self.map_write_lock().expect("poisoned lock");
         let layers = layers.layers_mut();
         if layers.is_visible(index) {
@@ -223,5 +211,21 @@ impl<K: Hash + Eq + Send + Sync + 'static> Map<K> {
 
     pub fn add_handler(&mut self, handler: impl galileo::control::UserEventHandler + 'static) {
         self.event_processor.add_handler(handler)
+    }
+
+    pub fn remove<Q: ?Sized>(&mut self, k: &Q) -> Option<(Box<dyn EventLayer>, usize)>
+    where
+        K: std::borrow::Borrow<Q>,
+        Q: Hash + Eq,
+    {
+        self.layers.remove(k)
+    }
+
+    pub fn remove_entry<Q: ?Sized>(&mut self, k: &Q) -> Option<(K, (Box<dyn EventLayer>, usize))>
+    where
+        K: std::borrow::Borrow<Q>,
+        Q: Hash + Eq,
+    {
+        self.layers.remove_entry(k)
     }
 }

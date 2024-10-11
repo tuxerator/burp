@@ -37,27 +37,32 @@ where
     //         .expect("Value doesn't fit in u64"),
     // );
 
-    let root = graph.boundary().clone();
+    let root = *graph.boundary();
     let mut queue = VecDeque::new();
 
     let mut result = vec![];
 
     queue.push_back((root, root));
 
-    while let Some(block) = queue.pop_front() {
-        if block.0 != block.1 {
-            let mut points = (graph.query_points(block.0), graph.query_points(block.1));
+    while let Some(block_pair) = queue.pop_front() {
+        if block_pair.0 != block_pair.1 {
+            let mut points = (
+                graph.query_points(block_pair.0),
+                graph.query_points(block_pair.1),
+            );
             let (Some(s), Some(t)) = (points.0.next(), points.1.next()) else {
-                debug!("At least one block is empty. {:?}", &block);
+                debug!("At least one block is empty. {:?}", &block_pair);
                 continue;
             };
 
-            let result_st = graph
-                .dijkstra(s.1, HashSet::from([t.1]), Direction::Outgoing)
-                .unwrap();
-
             let values = Values {
-                d_st: result_st.get(t.1).unwrap().cost().0,
+                d_st: graph
+                    .dijkstra(s.1, HashSet::from([t.1]), Direction::Outgoing)
+                    .unwrap()
+                    .get(t.1)
+                    .unwrap()
+                    .cost()
+                    .0,
                 d_sp: graph
                     .dijkstra(s.1, HashSet::from([poi]), Direction::Outgoing)
                     .unwrap()
@@ -72,15 +77,23 @@ where
                     .unwrap()
                     .cost()
                     .0,
-                r_af: graph.radius(s.1, &block.0, Direction::Outgoing).unwrap(),
-                r_ab: graph.radius(s.1, &block.0, Direction::Incoming).unwrap(),
-                r_bf: graph.radius(t.1, &block.1, Direction::Outgoing).unwrap(),
-                r_bb: graph.radius(t.1, &block.1, Direction::Incoming).unwrap(),
+                r_af: graph
+                    .radius(s.1, &block_pair.0, Direction::Outgoing)
+                    .unwrap(),
+                r_ab: graph
+                    .radius(s.1, &block_pair.0, Direction::Incoming)
+                    .unwrap(),
+                r_bf: graph
+                    .radius(t.1, &block_pair.1, Direction::Outgoing)
+                    .unwrap(),
+                r_bb: graph
+                    .radius(t.1, &block_pair.1, Direction::Incoming)
+                    .unwrap(),
             };
 
             if values.in_path(epsilon) {
-                debug!("Found in-path block pair: {:#?}", &block);
-                result.push(block);
+                debug!("Found in-path block pair: {:#?}", &block_pair);
+                result.push(block_pair);
                 // progress_bar.inc(
                 //     (points.0.size_hint().0 + points.1.size_hint().0 + 2)
                 //         .try_into()
@@ -89,7 +102,7 @@ where
 
                 continue;
             } else if values.not_in_path(epsilon) {
-                debug!("Found not in-path block pair: {:#?}", &block);
+                debug!("Found not in-path block pair: {:#?}", &block_pair);
                 // progress_bar.inc(
                 //     (points.0.size_hint().0 + points.1.size_hint().0 + 2)
                 //         .try_into()
@@ -99,7 +112,10 @@ where
             }
         }
 
-        let children = (divide(&block.0).into_iter(), divide(&block.1).into_iter());
+        let children = (
+            divide(&block_pair.0).into_iter(),
+            divide(&block_pair.1).into_iter(),
+        );
 
         let children = (
             children
@@ -111,15 +127,10 @@ where
                 .filter(|block| graph.query(*block).peekable().peek().is_some())
                 .collect::<Vec<_>>(),
         );
-        let mut child_block_pairs: Vec<_> = children
+        let child_block_pairs: Vec<_> = children
             .0
             .into_iter()
-            .flat_map(|block_a| {
-                children
-                    .1
-                    .iter()
-                    .map(move |block_b| (block_a, block_b.clone()))
-            })
+            .flat_map(|block_a| children.1.iter().map(move |block_b| (block_a, *block_b)))
             .filter(|block_pair| {
                 let points = (
                     graph.query(block_pair.0).collect::<Vec<_>>(),
@@ -154,15 +165,13 @@ struct Values<T: FloatCore> {
 
 impl<T: FloatCore> Values<T> {
     fn in_path(&self, epsilon: T) -> bool {
-        ((self.r_ab + self.d_sp + self.d_pt + self.r_bf) / (self.d_st - (self.r_af + self.r_bb)))
-            - T::from(1).unwrap()
-            <= epsilon
+        (self.r_ab + self.d_sp + self.d_pt + self.r_bf)
+            <= (self.d_st - (self.r_af + self.r_bb)) * (T::from(1).unwrap() + epsilon)
     }
 
     fn not_in_path(&self, epsilon: T) -> bool {
-        ((self.d_sp + self.d_pt - (self.r_ab + self.r_bf)) / (self.d_st + (self.r_ab + self.r_bf)))
-            - T::from(1).unwrap()
-            >= epsilon
+        (self.d_sp + self.d_pt - (self.r_ab + self.r_bf))
+            >= (self.d_st + (self.r_ab + self.r_bf)) * (T::from(1).unwrap() + epsilon)
     }
 }
 

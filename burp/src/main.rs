@@ -28,7 +28,7 @@ struct Cli {
 #[derive(Subcommand, Clone)]
 enum Commands {
     Graph { in_file: PathBuf, out_file: PathBuf },
-    Build { graph: PathBuf },
+    Build { graph: PathBuf, epsilon: f64 },
 }
 
 fn main() {
@@ -47,7 +47,7 @@ fn main() {
             let mut writer = BufWriter::new(File::create(out_file).unwrap());
             writer.write_all(graph.to_flexbuffer().as_slice()).unwrap();
         }
-        Commands::Build { graph } => {
+        Commands::Build { graph, epsilon } => {
             let mut file = File::open(graph).unwrap();
             let mut f_buf = vec![];
             file.read_to_end(&mut f_buf).unwrap();
@@ -55,7 +55,7 @@ fn main() {
 
             let node = thread_rng().gen_range(0..graph.graph().node_count());
 
-            let oracle = oracle::build(&graph.graph(), node, 0.5);
+            let oracle = oracle::build(&graph.graph(), node, epsilon);
         }
     }
 }

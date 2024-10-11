@@ -38,6 +38,7 @@ pub struct UiState {
     map: Arc<RwLock<Map<String>>>,
     sender: Sender<Events>,
     state: State,
+    epsilon: f64,
 }
 
 #[derive(PartialEq)]
@@ -70,7 +71,7 @@ impl Debug for State {
             State::Dijkstra(points) => write!(f, "Dijkstra({:?})", points),
             State::DoubleDijkstra(points) => write!(f, "DoubleDijkstra({:?})", points),
             State::DoubleDijkstraResult(_) => write!(f, "DoubleDijkstraResult"),
-            State::Oracle(point) => write!(f, "Oracle({:?}", point),
+            State::Oracle(point) => write!(f, "Oracle({:?})", point),
         }
     }
 }
@@ -82,6 +83,7 @@ impl UiState {
             map,
             sender,
             state: State::Init,
+            epsilon: 0.2,
         }
     }
 }
@@ -274,6 +276,8 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
             state.state = State::Oracle(None);
         }
 
+        ui.add(egui::Slider::new(&mut state.epsilon, 0.0..=1.0));
+
         if ui.button("Save").clicked() {
             if let Some(path) = FileDialog::new().save_file() {
                 if let Ok(file) = File::create(path) {
@@ -462,11 +466,13 @@ fn build_oracle(state: &mut UiState) {
         return;
     };
 
-    let oracle = oracle::build(&graph.graph(), pos.0, 0.0);
+    let oracle = oracle::build(&graph.graph(), pos.0, state.epsilon);
 
     info!("Found {} block pairs", oracle.len());
 
     let mut map = state.map.write().expect("poisoned lock");
+
+    map.remove(&"blocks".to_string());
     oracle
         .into_iter()
         .map(|blocks| {
