@@ -13,7 +13,7 @@ use image::GenericImageView;
 use nalgebra::{dimension, Vector2};
 use num_traits::AsPrimitive;
 
-use super::layers::NodeMarker;
+use crate::map::layers::node_layer::NodeMarker;
 
 pub struct PoiSymbol {
     image_symbol: ImagePointSymbol,

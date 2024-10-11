@@ -1,6 +1,5 @@
 extern crate geozero;
 
-use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt::Debug;
@@ -8,31 +7,28 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
-use std::usize;
 
-use burp::graph::{self, BeerPathResult, PoiGraph};
+use burp::graph::{oracle, PoiGraph};
 use burp::types::{CoordNode, Poi};
-use egui::{Context, Id, InnerResponse};
-use galileo::symbol::{ArbitraryGeometrySymbol, CirclePointSymbol, SimpleContourSymbol};
+use egui::{Context, InnerResponse};
+use galileo::symbol::{CirclePointSymbol, SimpleContourSymbol};
 use galileo::Color;
-use galileo_types::geo::impls::GeoPoint2d;
 use galileo_types::geo::{GeoPoint, NewGeoPoint};
-use galileo_types::Disambiguate;
-use geo::{Area, Coord, LineString};
+use geo::{coord, Coord, LineString};
+use geo_types::geometry::Polygon;
 use geozero::geojson::read_geojson;
-use graph_rs::algorithms::dijkstra::Dijkstra;
-use graph_rs::graph::csr::DirectedCsrGraph;
 use graph_rs::graph::quad_tree::QuadGraph;
-use graph_rs::{CoordGraph, DirectedGraph, Graph};
+use graph_rs::Graph;
 use log::{info, warn};
-use ordered_float::OrderedFloat;
 use rfd::FileDialog;
-use serde::de::value::UsizeDeserializer;
 
-use crate::map::layers::{LineLayer, NodeLayer, NodeMarker};
+use crate::map::layers::poly_layer::{BlocksLayer, BlocksSymbol};
+use crate::map::layers::{
+    line_layer::ContourLayer,
+    node_layer::{NodeLayer, NodeMarker},
+};
 use crate::map::Map;
 use crate::state::Events;
-use crate::types::MapPositions;
 use burp::input::geo_zero::{ColumnValueClonable, GraphWriter, PoiWriter};
 
 type StartEndPos<T> = (Option<(usize, CoordNode<T>)>, Option<(usize, CoordNode<T>)>);
@@ -62,6 +58,7 @@ enum State {
         ),
     ),
     DoubleDijkstraResult(HashMap<usize, f64>),
+    Oracle(Option<(usize, CoordNode<Poi>)>),
 }
 
 impl Debug for State {
@@ -73,6 +70,7 @@ impl Debug for State {
             State::Dijkstra(points) => write!(f, "Dijkstra({:?})", points),
             State::DoubleDijkstra(points) => write!(f, "DoubleDijkstra({:?})", points),
             State::DoubleDijkstraResult(_) => write!(f, "DoubleDijkstraResult"),
+            State::Oracle(point) => write!(f, "Oracle({:?}", point),
         }
     }
 }
@@ -93,6 +91,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
         State::Dijkstra(_) => dijkstra(state),
         State::DoubleDijkstra(_) => double_dijkstra(state),
         State::DoubleDijkstraResult(_) => draw_resutl_path(state),
+        State::Oracle(_) => build_oracle(state),
         _ => (),
     };
 
@@ -209,10 +208,10 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
 
             map.toggle_layer(&String::from("graph"))
                 .or_else(|_| -> Result<(), String> {
-                    let layer: &mut Arc<RwLock<LineLayer<SimpleContourSymbol>>> = map
+                    let layer: &mut Arc<RwLock<ContourLayer<SimpleContourSymbol>>> = map
                         .or_insert(
                             "graph".to_string(),
-                            LineLayer::new(SimpleContourSymbol::new(Color::GREEN, 2.0)),
+                            ContourLayer::new(SimpleContourSymbol::new(Color::GREEN, 2.0)),
                         )
                         .as_any_mut()
                         .downcast_mut()
@@ -244,7 +243,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
         }
 
         if ui
-            .add_visible(
+            .add_enabled(
                 state.state == State::LoadedPois,
                 egui::Button::new("Double Dijkstra"),
             )
@@ -260,13 +259,19 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
         }
 
         if ui
-            .add_visible(
-                matches!(state.state, State::DoubleDijkstraResult(_)),
-                egui::Button::new("Exit DoubleDijkstraResult"),
+            .add_enabled(
+                matches!(state.state, State::LoadedPois | State::LoadedGraph),
+                egui::Button::new("Build Oracle"),
             )
             .clicked()
         {
-            state.state = State::LoadedPois;
+            state
+                .map
+                .write()
+                .expect("poisoned lock")
+                .take_click_pos()
+                .expect("poisoned lock");
+            state.state = State::Oracle(None);
         }
 
         if ui.button("Save").clicked() {
@@ -337,10 +342,10 @@ fn dijkstra(state: &mut UiState) {
 
         info!("Path found {:?}", &coords);
 
-        let layer: &mut Arc<RwLock<LineLayer<SimpleContourSymbol>>> = layer
+        let layer: &mut Arc<RwLock<ContourLayer<SimpleContourSymbol>>> = layer
             .or_insert(
                 "path".to_string(),
-                LineLayer::new(SimpleContourSymbol::new(Color::BLUE, 1.0)),
+                ContourLayer::new(SimpleContourSymbol::new(Color::BLUE, 1.0)),
             )
             .as_any_mut()
             .downcast_mut()
@@ -367,7 +372,7 @@ fn double_dijkstra(state: &mut UiState) {
         };
         let mut target = HashSet::new();
         target.insert(end.0);
-        let result = oracle.beer_path_dijkstra_fast(start.0, end.0, oracle.poi_nodes(), 0.1);
+        let result = oracle.beer_path_dijkstra_fast(start.0, end.0, oracle.poi_nodes(), 0.0);
 
         info!("Finished beer paths");
 
@@ -443,6 +448,65 @@ fn get_node_click_pos(
             .get_node_value_at(&geo::Coord::lonlat(click_pos.lon(), click_pos.lat()), 100.0)
             .ok()
     })
+}
+
+fn build_oracle(state: &mut UiState) {
+    let Some(ref graph) = state.oracle else {
+        warn!("No graph loaded");
+        return;
+    };
+
+    let State::Oracle(Some(ref pos)) = state.state else {
+        let node = get_node_click_pos(state.map.clone(), graph);
+        state.state = State::Oracle(node);
+        return;
+    };
+
+    let oracle = oracle::build(&graph.graph(), pos.0, 0.0);
+
+    info!("Found {} block pairs", oracle.len());
+
+    let mut map = state.map.write().expect("poisoned lock");
+    oracle
+        .into_iter()
+        .map(|blocks| {
+            let top_left = (blocks.0.top_left(), blocks.1.top_left());
+            let width = (blocks.0.width(), blocks.1.width());
+            let height = (blocks.0.height(), blocks.1.height());
+            (
+                Polygon::new(
+                    LineString::new(vec![
+                        coord! {x: top_left.0.x, y: top_left.0.y},
+                        coord! {x: top_left.0.x + width.0, y: top_left.0.y},
+                        coord! {x: top_left.0.x  + width.0, y: top_left.0.y - height.0},
+                        coord! {x: top_left.0.x , y: top_left.0.y - height.0},
+                    ]),
+                    vec![],
+                ),
+                Polygon::new(
+                    LineString::new(vec![
+                        coord! {x: top_left.1.x, y: top_left.1.y},
+                        coord! {x: top_left.1.x + width.1, y: top_left.1.y},
+                        coord! {x: top_left.1.x  + width.1, y: top_left.1.y - height.1},
+                        coord! {x: top_left.1.x , y: top_left.1.y - height.1},
+                    ]),
+                    vec![],
+                ),
+            )
+        })
+        .for_each(|blocks| {
+            let layer: &mut Arc<RwLock<BlocksLayer<BlocksSymbol>>> = map
+                .or_insert("blocks".to_string(), BlocksLayer::new(BlocksSymbol::new()))
+                .as_any_mut()
+                .downcast_mut()
+                .unwrap();
+            layer
+                .write()
+                .expect("poisoned lock")
+                .insert_block_pair(blocks);
+        });
+
+    state.state = State::LoadedPois;
 }
 
 fn unwrap_error(
