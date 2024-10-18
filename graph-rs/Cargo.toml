@@ -12,7 +12,7 @@ osmpbfreader = { version = "0.16.1" }
 geozero = { version = "0.12.0" }
 geo = { version = "0.28.0" }
 geo-types = { version = "0.7" }
-ordered-float = { version = "4.2.0" }
+ordered-float = { version = "4.2.0", features = ["serde", "std"] }
 qutee = "0.2"
 approx = "0.5"
 serde = { version = "1.0", features = ["derive"] }
@@ -21,6 +21,7 @@ bytemuck = "1.16"
 num-traits = { version = "0.2", features = ["std"] }
 priority-queue = "2.0"
 rayon = "1.10"
+cached = { version = "0.53", features = ["proc_macro", "serde", "ahash"] }
 
 [dev-dependencies]
 serde_test = "1.0"

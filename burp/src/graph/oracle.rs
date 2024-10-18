@@ -6,11 +6,14 @@ use std::{
 
 use geo::point;
 use graph_rs::{
-    algorithms::dijkstra::Dijkstra, graph::quad_tree::QuadGraph, types::Direction, Coordinate,
-    DirectedGraph, Graph,
+    algorithms::dijkstra::{CachedDijkstra, Dijkstra},
+    graph::quad_tree::QuadGraph,
+    types::Direction,
+    Coordinate, DirectedGraph, Graph,
 };
 use indicatif::ProgressBar;
 use log::{debug, info, warn};
+use num_traits::Num;
 use ordered_float::FloatCore;
 use qutee::{Boundary, DynCap, Point, QueryPoints};
 
@@ -22,15 +25,16 @@ impl Oracle {
     fn new() {}
 }
 
-pub fn build<EV, NV, G>(
-    graph: &QuadGraph<EV, NV, G>,
+pub fn build<EV, NV, G, C>(
+    graph: &mut QuadGraph<EV, NV, C, G>,
     poi: usize,
     epsilon: EV,
-) -> Vec<(Boundary<f64>, Boundary<f64>)>
+) -> Vec<(Boundary<C>, Boundary<C>)>
 where
-    EV: FloatCore + Default + Debug + Copy + Send + Sync,
-    NV: Coordinate + Debug,
-    G: DirectedGraph<EV, NV>,
+    EV: FloatCore + Default + Debug,
+    NV: Coordinate<C> + Debug,
+    C: qutee::Coordinate + Num,
+    G: DirectedGraph<EV, NV> + CachedDijkstra<EV, NV>,
 {
     // let progress_bar = ProgressBar::new( graph .node_count()
     //         .try_into()
@@ -47,8 +51,8 @@ where
     while let Some(block_pair) = queue.pop_front() {
         if block_pair.0 != block_pair.1 {
             let mut points = (
-                graph.query_points(block_pair.0),
-                graph.query_points(block_pair.1),
+                graph.query_points(block_pair.0).cloned(),
+                graph.query_points(block_pair.1).cloned(),
             );
             let (Some(s), Some(t)) = (points.0.next(), points.1.next()) else {
                 debug!("At least one block is empty. {:?}", &block_pair);
@@ -56,27 +60,24 @@ where
             };
 
             let values = Values {
-                d_st: graph
-                    .dijkstra(s.1, HashSet::from([t.1]), Direction::Outgoing)
+                d_st: *graph
+                    .cached_dijkstra(s.1, HashSet::from([t.1]), Direction::Outgoing)
                     .unwrap()
                     .get(t.1)
                     .unwrap()
-                    .cost()
-                    .0,
-                d_sp: graph
-                    .dijkstra(s.1, HashSet::from([poi]), Direction::Outgoing)
+                    .cost(),
+                d_sp: *graph
+                    .cached_dijkstra(s.1, HashSet::from([poi]), Direction::Outgoing)
                     .unwrap()
                     .get(poi)
                     .unwrap()
-                    .cost()
-                    .0,
-                d_pt: graph
-                    .dijkstra(poi, HashSet::from([t.1]), Direction::Outgoing)
+                    .cost(),
+                d_pt: *graph
+                    .cached_dijkstra(poi, HashSet::from([t.1]), Direction::Outgoing)
                     .unwrap()
                     .get(t.1)
                     .unwrap()
-                    .cost()
-                    .0,
+                    .cost(),
                 r_af: graph
                     .radius(s.1, &block_pair.0, Direction::Outgoing)
                     .unwrap(),

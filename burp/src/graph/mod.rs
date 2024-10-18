@@ -7,7 +7,7 @@ use std::{
     hash::Hash,
     io::Read,
     ops::Deref,
-    sync::{Arc, Mutex, RwLock, RwLockReadGuard},
+    sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard},
     thread, usize,
 };
 
@@ -40,7 +40,8 @@ pub mod oracle;
 
 pub trait NodeTrait: Clone + Debug + Send + Sync {}
 
-type QuadGraphType<T> = QuadGraph<f64, CoordNode<T>, DirectedCsrGraph<f64, CoordNode<T>>>;
+type QuadGraphType<T> =
+    QuadGraph<f64, CoordNode<f64, T>, f64, DirectedCsrGraph<f64, CoordNode<f64, T>>>;
 type RwLockGraph<T> = RwLock<QuadGraphType<T>>;
 
 #[derive(Serialize, Deserialize)]
@@ -58,7 +59,7 @@ where
 {
     pub fn new(graph: QuadGraphType<T>) -> Self {
         let poi_nodes = graph
-            .iter()
+            .node_values()
             .fold(HashSet::default(), |mut poi_nodes, node| {
                 if node.1.has_data() {
                     poi_nodes.insert(node.0);
@@ -71,7 +72,7 @@ where
         }
     }
 
-    pub fn add_poi(&mut self, mut poi: CoordNode<T>) -> Result<(), Error> {
+    pub fn add_poi(&mut self, mut poi: CoordNode<f64, T>) -> Result<(), Error> {
         let nearest_node;
         {
             nearest_node = self
@@ -98,9 +99,9 @@ where
 
     pub fn get_node_value_at(
         &self,
-        coord: &Coord,
+        coord: &Coord<f64>,
         tolerance: f64,
-    ) -> Result<(usize, CoordNode<T>), Error> {
+    ) -> Result<(usize, CoordNode<f64, T>), Error> {
         let graph = self.graph.read().expect("poisoned lock");
 
         let node_id = graph
@@ -119,7 +120,7 @@ where
         Ok((node_id, node_value))
     }
 
-    pub fn add_pois(&mut self, pois: &[CoordNode<T>]) -> Result<(), Vec<Error>> {
+    pub fn add_pois(&mut self, pois: &[CoordNode<f64, T>]) -> Result<(), Vec<Error>> {
         pois.iter().for_each(|poi| {
             self.add_poi(poi.to_owned());
         });
@@ -150,12 +151,16 @@ impl<T: NodeTrait> PoiGraph<T> {
         self.graph.read().expect("poisoned lock")
     }
 
+    pub fn graph_mut(&self) -> RwLockWriteGuard<QuadGraphType<T>> {
+        self.graph.write().expect("poisoned lock")
+    }
+
     pub fn dijkstra(
         &self,
         start_node: usize,
         targets: HashSet<usize>,
         direction: Direction,
-    ) -> Result<DijkstraResult<f64>, String> {
+    ) -> Option<DijkstraResult<f64>> {
         self.graph().dijkstra(start_node, targets, direction)
     }
 
@@ -163,7 +168,7 @@ impl<T: NodeTrait> PoiGraph<T> {
         &self,
         start_node: usize,
         direction: Direction,
-    ) -> Result<DijkstraResult<f64>, String> {
+    ) -> Option<DijkstraResult<f64>> {
         self.graph().dijkstra_full(start_node, direction)
     }
 
@@ -172,7 +177,7 @@ impl<T: NodeTrait> PoiGraph<T> {
         start_node: usize,
         end_node: usize,
         pois: HashSet<usize>,
-    ) -> Result<BeerPathResult<f64>, String> {
+    ) -> Option<BeerPathResult<f64>> {
         info!(
             "Calculating {} beer paths between nodes {}, {}",
             self.poi_nodes.len(),
@@ -182,7 +187,7 @@ impl<T: NodeTrait> PoiGraph<T> {
         let start_result = self.dijkstra(start_node, pois.clone(), Direction::Outgoing)?;
         let end_result = self.dijkstra(end_node, pois.clone(), Direction::Incoming)?;
 
-        Ok(BeerPathResult {
+        Some(BeerPathResult {
             start_result,
             end_result,
             pois,
@@ -384,7 +389,7 @@ where
 {
     fn from(graph: QuadGraphType<T>) -> Self {
         let poi_nodes = graph
-            .iter()
+            .node_values()
             .fold(HashSet::default(), |mut poi_nodes, node| {
                 if node.1.has_data() {
                     poi_nodes.insert(node.0);
@@ -409,7 +414,7 @@ impl<T: FloatCore + Debug> BeerPathResult<T> {
     pub fn len(&self) -> usize {
         self.pois.len()
     }
-    pub fn path(&self, node: usize) -> Option<Vec<&ResultNode<OrderedFloat<T>>>> {
+    pub fn path(&self, node: usize) -> Option<Vec<&ResultNode<T>>> {
         if !self.pois.contains(&node) {
             return None;
         }
@@ -423,21 +428,18 @@ impl<T: FloatCore + Debug> BeerPathResult<T> {
         Some(start_path)
     }
 
-    pub fn shortest_path(&self) -> Option<Vec<&ResultNode<OrderedFloat<T>>>> {
-        let shortest = self
-            .pois
-            .iter()
-            .fold((0, OrderedFloat(T::zero())), |shortest, poi| {
-                if let Some(start) = self.start_result.get(*poi) {
-                    if let Some(end) = self.end_result.get(*poi) {
-                        let cost = *start.cost() + *end.cost();
-                        if shortest.1 > cost {
-                            return (*poi, cost);
-                        }
+    pub fn shortest_path(&self) -> Option<Vec<&ResultNode<T>>> {
+        let shortest = self.pois.iter().fold((0, T::zero()), |shortest, poi| {
+            if let Some(start) = self.start_result.get(*poi) {
+                if let Some(end) = self.end_result.get(*poi) {
+                    let cost = *start.cost() + *end.cost();
+                    if shortest.1 > cost {
+                        return (*poi, cost);
                     }
                 }
-                shortest
-            });
+            }
+            shortest
+        });
 
         self.path(shortest.0)
     }

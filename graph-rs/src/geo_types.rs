@@ -1,17 +1,31 @@
-use geo::{point, Point};
+use geo::{point, Coord, CoordNum, Point};
 
 use crate::Coordinate;
 
-impl Coordinate for Point {
-    fn x_y(&self) -> (f64, f64) {
-        Point::x_y(*self)
+impl<C: CoordNum> Coordinate<C> for Point<C> {
+    fn x_y(&self) -> (C, C) {
+        self.x_y()
     }
 
-    fn as_coord(&self) -> geo_types::Coord<f64> {
+    fn as_coord(&self) -> geo_types::Coord<C> {
         self.0
     }
 
     fn zero() -> Self {
-        point!(x: 0.0, y: 0.0)
+        Point::zero()
+    }
+}
+
+impl<C: CoordNum> Coordinate<C> for Coord<C> {
+    fn x_y(&self) -> (C, C) {
+        self.x_y()
+    }
+
+    fn as_coord(&self) -> Coord<C> {
+        self.clone()
+    }
+
+    fn zero() -> Self {
+        Coord::zero()
     }
 }

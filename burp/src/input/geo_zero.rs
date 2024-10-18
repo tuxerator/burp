@@ -40,8 +40,8 @@ use super::NodeValue;
 
 pub struct GraphWriter {
     node_map: HashMap<Coord<OrderedFloat<f64>>, NodeIndex<usize>>,
-    nodes: Vec<CoordNode<Poi>>,
-    graph: petgraph::Graph<CoordNode<Poi>, f64, Directed, usize>,
+    nodes: Vec<CoordNode<f64, Poi>>,
+    graph: petgraph::Graph<CoordNode<f64, Poi>, f64, Directed, usize>,
     line: Vec<(usize, usize, f64)>,
     coords: Option<Vec<Coord>>,
     index: usize,
@@ -79,7 +79,7 @@ impl GraphWriter {
         graph_writer
     }
 
-    pub fn get_graph(&mut self) -> DirectedCsrGraph<f64, CoordNode<Poi>> {
+    pub fn get_graph(&mut self) -> DirectedCsrGraph<f64, CoordNode<f64, Poi>> {
         DirectedCsrGraph::from(self.graph.clone())
     }
 }
@@ -322,7 +322,7 @@ where
     polygons: Option<Vec<Polygon>>,
     property_filter: F,
     properties: Option<HashMap<String, ColumnValueClonable>>,
-    pois: Vec<CoordNode<Poi>>,
+    pois: Vec<CoordNode<f64, Poi>>,
     include_feature: bool,
 }
 
@@ -356,7 +356,7 @@ where
         Ok(())
     }
 
-    pub fn pois(&self) -> &[CoordNode<Poi>] {
+    pub fn pois(&self) -> &[CoordNode<f64, Poi>] {
         &self.pois
     }
 }

@@ -2,6 +2,7 @@ use std::{error::Error, fmt::Display, usize};
 
 use ::geo_types::{Coord, CoordNum, Point};
 use graph::Target;
+use num_traits::Num;
 use petgraph::{stable_graph::StableGraph, Directed};
 
 pub use geozero::{FeatureProcessor, GeomProcessor, PropertyProcessor};
@@ -36,7 +37,7 @@ impl Display for GraphError {
     }
 }
 
-pub trait Coordinate<T: CoordNum = f64> {
+pub trait Coordinate<T: qutee::Coordinate + Num = f64> {
     fn x_y(&self) -> (T, T);
 
     fn zero() -> Self;
@@ -44,16 +45,12 @@ pub trait Coordinate<T: CoordNum = f64> {
     fn as_coord(&self) -> Coord<T>;
 }
 
-pub trait Graph<EV: Send + Sync, NV> {
+pub trait Graph<EV, NV> {
     fn node_count(&self) -> usize;
 
     fn edge_count(&self) -> usize;
 
-    fn iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
-    where
-        NV: 'a;
-
-    fn neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>> + Send + Sync
+    fn neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
     where
         EV: 'a;
 
@@ -63,35 +60,31 @@ pub trait Graph<EV: Send + Sync, NV> {
 
     fn node_value(&self, node: usize) -> Option<&NV>;
 
+    fn node_values<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
+    where
+        NV: 'a;
+
     fn node_value_mut(&mut self, node: usize) -> Option<&mut NV>;
 
     fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), GraphError>;
-
-    fn to_stable_graph(&self) -> StableGraph<Option<NV>, EV, Directed, usize>;
 }
 
-pub trait DirectedGraph<EV: Send + Sync, NV>: Graph<EV, NV> {
-    fn out_neighbors<'a>(
-        &'a self,
-        node: usize,
-    ) -> impl Iterator<Item = &'a Target<EV>> + Send + Sync
+pub trait DirectedGraph<EV, NV>: Graph<EV, NV> {
+    fn out_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
     where
-        EV: 'a + Send + Sync;
+        EV: 'a;
 
-    fn in_neighbors<'a>(
-        &'a self,
-        node: usize,
-    ) -> impl Iterator<Item = &'a Target<EV>> + Send + Sync
+    fn in_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
     where
-        EV: 'a + Send + Sync;
+        EV: 'a;
 
     fn out_degree(&self, node: usize) -> usize;
 
     fn in_degree(&self, node: usize) -> usize;
 }
 
-pub trait CoordGraph<EV: Send + Sync, NV: Coordinate>: Graph<EV, NV> {
-    fn nearest_node(&self, point: &Coord) -> Option<usize>;
+pub trait CoordGraph<EV, NV: Coordinate<C>, C: qutee::Coordinate + Num>: Graph<EV, NV> {
+    fn nearest_node(&self, point: &Coord<C>) -> Option<usize>;
 
-    fn nearest_node_bound(&self, point: &Coord, tolerance: f64) -> Option<usize>;
+    fn nearest_node_bound(&self, point: &Coord<C>, tolerance: C) -> Option<usize>;
 }

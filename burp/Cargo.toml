@@ -16,8 +16,8 @@ petgraph = "0.6"
 graph-rs = { path = "../graph-rs/" }
 geozero = "0.13"
 ordered-float = "4.2"
-geo-types = "0.7"
-geo = "0.28"
+geo-types = { version = "0.7", default-features = true, features = ["serde"] }
+geo = { version = "0.28", default-features = true, features = ["serde"] }
 rfd = { version = "0.14", default-features = false, features = [
   "xdg-portal",
   "tokio",

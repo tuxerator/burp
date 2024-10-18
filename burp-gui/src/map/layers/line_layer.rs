@@ -6,31 +6,37 @@ use galileo::{
     Map,
 };
 use galileo_types::{
+    cartesian::NewCartesianPoint2d,
     geo::{
         impls::projection::{self, WebMercator},
-        Crs, Datum,
+        Crs, Datum, NewGeoPoint,
     },
     geometry::{Geom, Geometry},
     geometry_type::CartesianSpace2d,
     impls::Contour,
 };
 use geo::LineString;
-use geo_types::geometry::Coord;
+use geo_types::{geometry::Coord, CoordNum};
 use graph_rs::{CoordGraph, Coordinate};
 use maybe_sync::{MaybeSend, MaybeSync};
+use nalgebra::Scalar;
+use num_traits::{Bounded, Float, FromPrimitive, Num};
 
 use super::EventLayer;
 
-pub struct ContourLayer<S>
+pub struct ContourLayer<S, C>
 where
-    S: Symbol<Contour<Coord>>,
+    S: Symbol<Contour<Coord<C>>>,
+    C: CoordNum + Bounded + Scalar + FromPrimitive,
 {
-    layer: FeatureLayer<Coord, Contour<Coord>, S, CartesianSpace2d>,
+    layer: FeatureLayer<Coord<C>, Contour<Coord<C>>, S, CartesianSpace2d>,
 }
 
-impl<S> ContourLayer<S>
+impl<S, C> ContourLayer<S, C>
 where
-    S: Symbol<Contour<Coord>>,
+    S: Symbol<Contour<Coord<C>>>,
+    C: CoordNum + Bounded + Scalar + FromPrimitive + Float,
+    Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
     pub fn new(style: S) -> Self {
         Self {
@@ -38,8 +44,8 @@ where
         }
     }
 
-    pub fn insert_line(&mut self, line: LineString) {
-        let projection: WebMercator<Coord, Coord> = WebMercator::new(Datum::WGS84);
+    pub fn insert_line(&mut self, line: LineString<C>) {
+        let projection: WebMercator<Coord<C>, Coord<C>> = WebMercator::new(Datum::WGS84);
         let line = line.project(&projection).unwrap();
         let Geom::Contour(contour) = line else {
             return;
@@ -47,17 +53,17 @@ where
         self.layer.features_mut().insert(contour);
     }
 
-    pub fn insert_lines(&mut self, lines: Vec<LineString>) {
+    pub fn insert_lines(&mut self, lines: Vec<LineString<C>>) {
         lines.into_iter().for_each(|line| self.insert_line(line));
     }
 
     pub fn insert_coord_graph<T, EV, NV>(&mut self, graph: &T)
     where
-        T: CoordGraph<EV, NV>,
-        NV: Coordinate<f64> + Send + Sync,
+        T: CoordGraph<EV, NV, C>,
+        NV: Coordinate<C> + Send + Sync,
         EV: Send + Sync,
     {
-        let nodes = graph.iter();
+        let nodes = graph.node_values();
 
         for node in nodes {
             let p_1 = node.1.as_coord();
@@ -73,9 +79,11 @@ where
     }
 }
 
-impl<S> GalileoLayer for ContourLayer<S>
+impl<S, C> GalileoLayer for ContourLayer<S, C>
 where
-    S: Symbol<Contour<Coord>> + MaybeSend + MaybeSync + 'static,
+    S: Symbol<Contour<Coord<C>>> + MaybeSend + MaybeSync + 'static,
+    C: CoordNum + Bounded + Scalar + FromPrimitive + MaybeSend + MaybeSync,
+    Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
     fn render(&self, view: &galileo::MapView, canvas: &mut dyn galileo::render::Canvas) {
         self.layer.render(view, canvas)
@@ -98,16 +106,20 @@ where
     }
 }
 
-impl<S> EventLayer for ContourLayer<S>
+impl<S, C> EventLayer for ContourLayer<S, C>
 where
-    S: Symbol<Contour<Coord>> + MaybeSend + MaybeSync + 'static,
+    S: Symbol<Contour<Coord<C>>> + MaybeSend + MaybeSync + 'static,
+    C: CoordNum + Bounded + Scalar + FromPrimitive + MaybeSend + MaybeSync,
+    Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
     fn handle_event(&self, event: &UserEvent, map: &mut Map) {}
 }
 
-impl<S> UserEventHandler for ContourLayer<S>
+impl<S, C> UserEventHandler for ContourLayer<S, C>
 where
-    S: Symbol<Contour<Coord>> + MaybeSend + MaybeSync + 'static,
+    S: Symbol<Contour<Coord<C>>> + MaybeSend + MaybeSync + 'static,
+    C: CoordNum + Bounded + Scalar + FromPrimitive + MaybeSend + MaybeSync,
+    Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
     fn handle(&self, event: &UserEvent, map: &mut Map) -> EventPropagation {
         self.handle_event(event, map);

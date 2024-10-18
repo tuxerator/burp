@@ -1,4 +1,4 @@
-use std::{f32, f64, sync::Mutex};
+use std::{f32, f64, marker::PhantomData, sync::Mutex};
 
 use galileo::{
     control::{EventPropagation, UserEvent, UserEventHandler},
@@ -16,14 +16,14 @@ use galileo_types::{
             projection::{self, WebMercator},
             GeoPoint2d,
         },
-        Crs, Datum,
+        Crs, Datum, NewGeoPoint,
     },
     geometry::{Geom, Geometry},
     geometry_type::CartesianSpace2d,
     impls::{Contour, MultiPolygon, Polygon as GalileoPolygon},
     Disambig, Disambiguate, MultiPolygon as MultiPolygonTrait,
 };
-use geo::{Centroid, LineString};
+use geo::{Centroid, CoordNum, GeoFloat, LineString};
 use geo_types::geometry::{Coord, Polygon};
 use graph_rs::{CoordGraph, Coordinate};
 use maybe_sync::{MaybeSend, MaybeSync};
@@ -32,14 +32,15 @@ use num_traits::{AsPrimitive, Bounded, FromPrimitive, Num, ToPrimitive};
 
 use super::EventLayer;
 
-pub struct BlocksLayer<S>
+pub struct BlocksLayer<S, C>
 where
-    S: Symbol<Blocks>,
+    S: Symbol<Blocks<C>>,
+    C: CoordNum + Bounded + Scalar + FromPrimitive,
 {
     layer: Mutex<
         FeatureLayer<
-            <Disambig<Coord, CartesianSpace2d> as Geometry>::Point,
-            Blocks,
+            <Disambig<Coord<C>, CartesianSpace2d> as Geometry>::Point,
+            Blocks<C>,
             S,
             CartesianSpace2d,
         >,
@@ -48,9 +49,11 @@ where
     color_id: u8,
 }
 
-impl<S> BlocksLayer<S>
+impl<S, C> BlocksLayer<S, C>
 where
-    S: Symbol<Blocks>,
+    S: Symbol<Blocks<C>>,
+    C: CoordNum + Bounded + Scalar + FromPrimitive + GeoFloat,
+    Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
     pub fn new(style: S) -> Self {
         Self {
@@ -65,8 +68,8 @@ where
         }
     }
 
-    pub fn insert_block_pair(&mut self, pair: (Polygon, Polygon)) {
-        let projection: WebMercator<Coord, Disambig<Coord, CartesianSpace2d>> =
+    pub fn insert_block_pair(&mut self, pair: (Polygon<C>, Polygon<C>)) {
+        let projection: WebMercator<Coord<C>, Disambig<Coord<C>, CartesianSpace2d>> =
             WebMercator::new(Datum::WGS84);
         let mut line = LineString::new(vec![
             pair.0.centroid().unwrap().as_coord(),
@@ -133,9 +136,11 @@ where
     }
 }
 
-impl<S> GalileoLayer for BlocksLayer<S>
+impl<S, C> GalileoLayer for BlocksLayer<S, C>
 where
-    S: Symbol<Blocks> + MaybeSend + MaybeSync + 'static,
+    S: Symbol<Blocks<C>> + MaybeSend + MaybeSync + 'static,
+    C: CoordNum + Bounded + Scalar + FromPrimitive + MaybeSend + MaybeSync,
+    Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
     fn render(&self, view: &galileo::MapView, canvas: &mut dyn galileo::render::Canvas) {
         self.layer.lock().unwrap().render(view, canvas)
@@ -158,9 +163,11 @@ where
     }
 }
 
-impl<S> EventLayer for BlocksLayer<S>
+impl<S, C> EventLayer for BlocksLayer<S, C>
 where
-    S: Symbol<Blocks> + MaybeSend + MaybeSync + 'static,
+    S: Symbol<Blocks<C>> + MaybeSend + MaybeSync + 'static,
+    C: CoordNum + Bounded + Scalar + FromPrimitive + MaybeSync + MaybeSend,
+    Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
     fn handle_event(&self, event: &UserEvent, map: &mut Map) {
         match event {
@@ -187,9 +194,11 @@ where
     }
 }
 
-impl<S> UserEventHandler for BlocksLayer<S>
+impl<S, C> UserEventHandler for BlocksLayer<S, C>
 where
-    S: Symbol<Blocks> + MaybeSend + MaybeSync + 'static,
+    S: Symbol<Blocks<C>> + MaybeSend + MaybeSync + 'static,
+    C: CoordNum + Bounded + Scalar + FromPrimitive + MaybeSync + MaybeSend,
+    Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
     fn handle(&self, event: &UserEvent, map: &mut Map) -> EventPropagation {
         self.handle_event(event, map);
@@ -197,26 +206,42 @@ where
     }
 }
 
-pub struct Blocks {
-    pub multi_poly: MultiPolygon<Disambig<Coord, CartesianSpace2d>>,
+pub struct Blocks<C>
+where
+    C: CoordNum + Bounded + Scalar + FromPrimitive,
+{
+    pub multi_poly: MultiPolygon<Disambig<Coord<C>, CartesianSpace2d>>,
     pub color: Color,
 }
 
-impl Feature for Blocks {
-    type Geom = MultiPolygon<Disambig<Coord, CartesianSpace2d>>;
+impl<C> Feature for Blocks<C>
+where
+    C: CoordNum + Bounded + Scalar + FromPrimitive,
+{
+    type Geom = MultiPolygon<Disambig<Coord<C>, CartesianSpace2d>>;
     fn geometry(&self) -> &Self::Geom {
         &self.multi_poly
     }
 }
 
-pub struct BlocksSymbol {}
+pub struct BlocksSymbol<C>
+where
+    C: CoordNum + Bounded + Scalar + FromPrimitive,
+{
+    marker: PhantomData<C>,
+}
 
-impl BlocksSymbol {
+impl<C> BlocksSymbol<C>
+where
+    C: CoordNum + Bounded + Scalar + FromPrimitive,
+{
     pub fn new() -> Self {
-        Self {}
+        Self {
+            marker: PhantomData,
+        }
     }
 
-    fn get_polygon_symbol(&self, feature: &Blocks) -> SimplePolygonSymbol {
+    fn get_polygon_symbol(&self, feature: &Blocks<C>) -> SimplePolygonSymbol {
         let stroke_color = feature.color;
 
         SimplePolygonSymbol {
@@ -230,10 +255,13 @@ impl BlocksSymbol {
     fn shift_color(&self) {}
 }
 
-impl Symbol<Blocks> for BlocksSymbol {
+impl<C> Symbol<Blocks<C>> for BlocksSymbol<C>
+where
+    C: CoordNum + Bounded + Scalar + FromPrimitive,
+{
     fn render<'a, N, P>(
         &self,
-        feature: &Blocks,
+        feature: &Blocks<C>,
         geometry: &'a Geom<P>,
         min_resolution: f64,
     ) -> Vec<

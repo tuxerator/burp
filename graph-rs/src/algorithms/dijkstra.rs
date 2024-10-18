@@ -7,11 +7,13 @@ use std::{
     mem, usize,
 };
 
+use cached::proc_macro::cached;
 use log::{debug, info};
 use num_traits::Num;
 use ordered_float::{FloatCore, OrderedFloat};
 use priority_queue::PriorityQueue;
 use rayon::iter::ParallelIterator;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     graph::{Path, Target},
@@ -25,18 +27,14 @@ pub trait Dijkstra<T: FloatCore, V> {
         start_node: usize,
         target_set: HashSet<usize>,
         direction: Direction,
-    ) -> Result<DijkstraResult<T>, String>;
+    ) -> Option<DijkstraResult<T>>;
 
-    fn dijkstra_full(
-        &self,
-        start_node: usize,
-        direction: Direction,
-    ) -> Result<DijkstraResult<T>, String>;
+    fn dijkstra_full(&self, start_node: usize, direction: Direction) -> Option<DijkstraResult<T>>;
 }
 
 impl<T, V, U> Dijkstra<T, V> for U
 where
-    T: FloatCore + Send + Sync + Debug,
+    T: FloatCore,
     U: DirectedGraph<T, V>,
 {
     fn dijkstra(
@@ -44,17 +42,17 @@ where
         start_node: usize,
         mut target_set: HashSet<usize>,
         direction: Direction,
-    ) -> Result<DijkstraResult<T>, String> {
+    ) -> Option<DijkstraResult<T>> {
         let mut frontier = PriorityQueue::new();
         let mut result = HashSet::new();
         let mut visited = HashSet::new();
         frontier.push(
-            ResultNode::new(start_node, None, OrderedFloat(T::zero())),
+            ResultNode::new(start_node, None, T::zero()),
             Reverse(OrderedFloat(T::zero())),
         );
 
         while !target_set.is_empty() && !frontier.is_empty() {
-            let node = frontier.pop().ok_or("frontier is empty".to_string())?.0;
+            let node = frontier.pop()?.0;
             if visited.contains(&node.node_id()) {
                 continue;
             }
@@ -68,6 +66,7 @@ where
             neighbours.for_each(|n| {
                 let path_cost = *node.cost() + *n.value();
                 let new_node = ResultNode::new(n.target(), Some(node.node_id()), path_cost);
+                let path_cost = OrderedFloat(path_cost);
                 if !frontier.change_priority_by(&new_node, |p| {
                     if p.0 > path_cost {
                         p.0 = path_cost
@@ -86,14 +85,10 @@ where
             result.insert(node);
         }
 
-        Ok(DijkstraResult::new(result))
+        Some(DijkstraResult::new(result))
     }
 
-    fn dijkstra_full(
-        &self,
-        start_node: usize,
-        direction: Direction,
-    ) -> Result<DijkstraResult<T>, String> {
+    fn dijkstra_full(&self, start_node: usize, direction: Direction) -> Option<DijkstraResult<T>> {
         self.dijkstra(
             start_node,
             HashSet::from_iter(0..self.node_count()),
@@ -102,20 +97,32 @@ where
     }
 }
 
-#[derive(PartialEq, Debug)]
-pub struct DijkstraResult<T: FloatCore>(pub HashSet<ResultNode<OrderedFloat<T>>>);
+pub trait CachedDijkstra<T: FloatCore, V>: Dijkstra<T, V> {
+    fn cached_dijkstra(
+        &mut self,
+        start_node: usize,
+        target_set: HashSet<usize>,
+        direction: Direction,
+    ) -> Option<DijkstraResult<T>>;
 
-impl<T: FloatCore> DijkstraResult<T> {
-    pub fn new(hash_set: HashSet<ResultNode<OrderedFloat<T>>>) -> Self {
+    fn cached_dijkstra_full(
+        &mut self,
+        start_node: usize,
+        direction: Direction,
+    ) -> Option<DijkstraResult<T>>;
+}
+
+#[derive(PartialEq, Debug)]
+pub struct DijkstraResult<T: Num>(pub HashSet<ResultNode<T>>);
+
+impl<T: Num> DijkstraResult<T> {
+    pub fn new(hash_set: HashSet<ResultNode<T>>) -> Self {
         Self(hash_set)
     }
 
-    pub fn path(&self, mut node_id: usize) -> Option<Vec<&ResultNode<OrderedFloat<T>>>> {
+    pub fn path(&self, mut node_id: usize) -> Option<Vec<&ResultNode<T>>> {
         let mut path = vec![];
-        while let Some(node) = self
-            .0
-            .get(&ResultNode::new(node_id, None, OrderedFloat(T::zero())))
-        {
+        while let Some(node) = self.0.get(&ResultNode::new(node_id, None, T::zero())) {
             path.push(node);
 
             if let Some(prev_node_id) = node.prev_node_id() {
@@ -130,18 +137,14 @@ impl<T: FloatCore> DijkstraResult<T> {
         Some(path)
     }
 
-    pub fn get(&self, node_id: usize) -> Option<&ResultNode<OrderedFloat<T>>> {
-        self.0
-            .get(&ResultNode::new(node_id, None, OrderedFloat(T::zero())))
+    pub fn get(&self, node_id: usize) -> Option<&ResultNode<T>> {
+        self.0.get(&ResultNode::new(node_id, None, T::zero()))
     }
 
-    pub fn convert_to_path(mut self, node_id: usize) -> Option<Vec<ResultNode<OrderedFloat<T>>>> {
+    pub fn convert_to_path(mut self, node_id: usize) -> Option<Vec<ResultNode<T>>> {
         let mut node_id = Some(node_id);
         let mut path = vec![];
-        while let Some(node) =
-            self.0
-                .take(&ResultNode::new(node_id?, None, OrderedFloat(T::zero())))
-        {
+        while let Some(node) = self.0.take(&ResultNode::new(node_id?, None, T::zero())) {
             node_id = node.prev_node_id();
             path.push(node);
         }
@@ -152,14 +155,14 @@ impl<T: FloatCore> DijkstraResult<T> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ResultNode<T> {
     node_id: usize,
     prev_node_id: Option<usize>,
     cost: T,
 }
 
-impl<T: Num + Ord> ResultNode<T> {
+impl<T> ResultNode<T> {
     pub fn new(node_id: usize, prev_node_id: Option<usize>, cost: T) -> Self {
         Self {
             node_id,
@@ -181,23 +184,17 @@ impl<T: Num + Ord> ResultNode<T> {
     }
 }
 
-impl<T: Num + Ord> PartialEq for ResultNode<T> {
+impl<T> PartialEq for ResultNode<T> {
     fn eq(&self, other: &Self) -> bool {
         self.node_id == other.node_id
     }
 }
 
-impl<T: Num + Ord> PartialOrd for ResultNode<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
+impl<T> Eq for ResultNode<T> {}
 
-impl<T: Num + Ord> Eq for ResultNode<T> {}
-
-impl<T: Num + Ord> Ord for ResultNode<T> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.cost.cmp(&other.cost)
+impl<T: PartialOrd> PartialOrd for ResultNode<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.cost.partial_cmp(&other.cost)
     }
 }
 

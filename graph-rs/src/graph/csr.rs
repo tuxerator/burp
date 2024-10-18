@@ -1,9 +1,19 @@
 use std::{
-    cell::RefCell, collections::HashSet, fmt::Debug, hash::Hash, io::Read, marker::PhantomData,
-    rc::Rc, sync::atomic::AtomicI8, usize, vec,
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+    hash::Hash,
+    io::Read,
+    marker::PhantomData,
+    rc::Rc,
+    sync::atomic::AtomicI8,
+    usize, vec,
 };
 
+use cached::{Cached, SizedCache};
 use log::info;
+use num_traits::AsPrimitive;
+use ordered_float::{FloatCore, OrderedFloat};
 use osmpbfreader::{blocks, groups, primitive_block_from_blob, OsmPbfReader};
 use petgraph::{
     data::{Build, Element, ElementIterator},
@@ -14,7 +24,10 @@ use petgraph::{
 use rayon::iter::IntoParallelRefIterator;
 use serde::{Deserialize, Serialize};
 
-use crate::types::Direction;
+use crate::{
+    algorithms::dijkstra::{CachedDijkstra, Dijkstra, DijkstraResult, ResultNode},
+    types::Direction,
+};
 use crate::{graph::Target, input::edgelist::EdgeList, DirectedGraph, Graph, GraphError};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -57,31 +70,31 @@ impl<EV> Csr<EV> {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub struct DirectedCsrGraph<EV, NV>
-where
-    EV: Copy,
-    NV: Clone,
-{
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DirectedCsrGraph<EV, NV> {
     pub node_values: Box<[NV]>,
     pub csr_out: Csr<EV>,
     pub csr_inc: Csr<EV>,
+    dijkstra_cache: HashMap<(usize, usize), ResultNode<EV>>,
 }
 
-impl<EV, NV> DirectedCsrGraph<EV, NV>
-where
-    EV: Copy + Send + Sync,
-    NV: Clone,
-{
+impl<EV, NV> DirectedCsrGraph<EV, NV> {
     pub fn new(
         node_values: Box<[NV]>,
         csr_out: Csr<EV>,
         csr_inc: Csr<EV>,
     ) -> DirectedCsrGraph<EV, NV> {
+        assert_eq!(
+            csr_out.node_count(),
+            csr_inc.node_count(),
+            "csr_out and csr_in have different node counts"
+        );
+        let node_count = csr_out.node_count();
         let g = Self {
             node_values,
             csr_out,
             csr_inc,
+            dijkstra_cache: HashMap::with_capacity(node_count.pow(2)),
         };
 
         info!(
@@ -104,11 +117,13 @@ where
     }
 }
 
-impl<EV, NV> Graph<EV, NV> for DirectedCsrGraph<EV, NV>
-where
-    EV: Copy + Send + Sync,
-    NV: Clone,
-{
+impl<EV, NV> PartialEq for DirectedCsrGraph<EV, NV> {
+    fn eq(&self, other: &Self) -> bool {
+        todo!();
+    }
+}
+
+impl<EV, NV> Graph<EV, NV> for DirectedCsrGraph<EV, NV> {
     fn node_count(&self) -> usize {
         self.csr_out.node_count()
     }
@@ -118,16 +133,16 @@ where
     }
 
     // TODO: Use Result<usize> as return value.
-    fn neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>> + Send + Sync
+    fn neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
     where
         EV: 'a,
     {
-        let mut dict: HashSet<Target<EV>> = HashSet::new();
+        let mut dict: HashSet<&Target<EV>> = HashSet::new();
         self.out_neighbors(node)
             .chain(self.in_neighbors(node))
             .filter(move |&x| {
                 if !dict.contains(x) {
-                    dict.insert(*x);
+                    dict.insert(x);
                     true
                 } else {
                     false
@@ -138,7 +153,7 @@ where
     fn edges(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
         let mut visited: Rc<RefCell<HashSet<usize>>> = Rc::new(RefCell::new(HashSet::new()));
 
-        self.iter().flat_map(move |node| {
+        self.node_values().flat_map(move |node| {
             let node_id = node.0;
             {
                 visited.borrow_mut().insert(node_id);
@@ -163,6 +178,13 @@ where
         self.node_values.get(node)
     }
 
+    fn node_values<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
+    where
+        NV: 'a,
+    {
+        self.node_values.iter().enumerate()
+    }
+
     fn node_value_mut(&mut self, node: usize) -> Option<&mut NV> {
         self.node_values.get_mut(node)
     }
@@ -171,12 +193,6 @@ where
     ///
     /// The Iterator yields pairs `(i, val)`, where `i` is the index
     /// of the node and `val` the data accociated with that node.
-    fn iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
-    where
-        NV: 'a,
-    {
-        self.node_values.iter().enumerate()
-    }
 
     fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), crate::GraphError> {
         let node_value = self
@@ -188,51 +204,21 @@ where
 
         Ok(())
     }
-
-    fn to_stable_graph(&self) -> StableGraph<Option<NV>, EV, Directed, usize> {
-        let mut stable_graph: StableGraph<Option<NV>, EV, Directed, usize> =
-            StableGraph::with_capacity(self.node_count(), self.edge_count());
-
-        for node in 0..self.node_count() {
-            let idx = stable_graph.add_node(self.node_value(node).cloned());
-            let node: NodeIndex<usize> = NodeIndex::new(node);
-            assert_eq!(node, idx);
-        }
-
-        for node in 0..self.node_count() {
-            self.neighbors(node).for_each(|target| {
-                stable_graph.add_edge(
-                    NodeIndex::new(node),
-                    NodeIndex::new(target.target()),
-                    *target.value(),
-                );
-            });
-        }
-
-        stable_graph
-    }
 }
 
-impl<EV, NV> DirectedGraph<EV, NV> for DirectedCsrGraph<EV, NV>
-where
-    EV: Copy + Send + Sync,
-    NV: Clone,
-{
+impl<EV, NV> DirectedGraph<EV, NV> for DirectedCsrGraph<EV, NV> {
     // TODO: Use Result<usize> as return value.
-    fn out_neighbors<'a>(
-        &'a self,
-        node: usize,
-    ) -> impl Iterator<Item = &'a Target<EV>> + Send + Sync
+    fn out_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
     where
-        EV: 'a + Send + Sync,
+        EV: 'a,
     {
         self.csr_out.targets(node).iter()
     }
 
     // TODO: Use Result<usize> as return value.
-    fn in_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>> + Send + Sync
+    fn in_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
     where
-        EV: 'a + Send + Sync,
+        EV: 'a,
     {
         self.csr_inc.targets(node).iter()
     }
@@ -248,9 +234,50 @@ where
     }
 }
 
+impl<EV, NV> CachedDijkstra<EV, NV> for DirectedCsrGraph<EV, NV>
+where
+    EV: FloatCore,
+{
+    fn cached_dijkstra(
+        &mut self,
+        start_node: usize,
+        target_set: HashSet<usize>,
+        direction: Direction,
+    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<EV>> {
+        let s_t_pairs = std::iter::repeat(start_node).zip(target_set.into_iter());
+        let mut result_set = DijkstraResult(HashSet::new());
+        let mut cache_misses = HashSet::new();
+        for s_t in s_t_pairs {
+            if let Some(result) = self.dijkstra_cache.cache_get(&s_t) {
+                result_set.0.insert(result.clone());
+            } else {
+                cache_misses.insert(s_t.1);
+            };
+        }
+        if !cache_misses.is_empty() {
+            let result = self.dijkstra(start_node, cache_misses, direction)?;
+
+            for t in result.0.into_iter() {
+                result_set.0.insert(t.clone());
+                self.dijkstra_cache.cache_set((start_node, t.node_id()), t);
+            }
+        }
+
+        Some(result_set)
+    }
+
+    fn cached_dijkstra_full(
+        &mut self,
+        start_node: usize,
+        direction: Direction,
+    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<EV>> {
+        todo!()
+    }
+}
+
 impl<EV> From<EdgeList<EV>> for DirectedCsrGraph<EV, ()>
 where
-    EV: Copy + Default,
+    EV: Copy + Default + Send + Sync,
 {
     fn from(edge_list: EdgeList<EV>) -> Self {
         let degrees_out = edge_list.degrees(Direction::Outgoing);
@@ -299,18 +326,14 @@ where
         );
         let csr_inc = Csr::new(offsets_in.into_boxed_slice(), targets_in.into_boxed_slice());
 
-        DirectedCsrGraph {
-            node_values: Box::new([()]),
-            csr_out,
-            csr_inc,
-        }
+        DirectedCsrGraph::new(Box::new([()]), csr_out, csr_inc)
     }
 }
 
 impl<NV, EV> From<petgraph::Graph<NV, EV, Directed, usize>> for DirectedCsrGraph<EV, NV>
 where
     NV: Clone + Debug,
-    EV: Copy + Default,
+    EV: Copy + Default + Send + Sync,
 {
     fn from(graph: petgraph::Graph<NV, EV, Directed, usize>) -> Self {
         let nodes = graph.node_indices();
@@ -368,11 +391,7 @@ where
             .collect::<Vec<_>>()
             .into_boxed_slice();
 
-        DirectedCsrGraph {
-            node_values,
-            csr_out,
-            csr_inc,
-        }
+        DirectedCsrGraph::new(node_values, csr_out, csr_inc)
     }
 }
 

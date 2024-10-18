@@ -1,11 +1,13 @@
 use core::fmt;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 
 use crate::{graph::NodeTrait, serde::CoordDef};
+use galileo::galileo_types::cartesian::NewCartesianPoint2d;
+use geo::{coord, CoordNum};
 use geo_types::Coord;
 use graph_rs::Coordinate;
 use num_traits::Num;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Poi {
@@ -43,22 +45,27 @@ pub enum Amenity {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct CoordNode<T> {
-    #[serde(with = "CoordDef")]
-    coord: Coord,
+pub struct CoordNode<C, T>
+where
+    C: CoordNum,
+{
+    coord: Coord<C>,
     data: Vec<T>,
 }
 
-impl<T> CoordNode<T> {
-    pub fn new(coord: Coord, data: Vec<T>) -> Self {
+impl<C, T> CoordNode<C, T>
+where
+    C: CoordNum,
+{
+    pub fn new(coord: Coord<C>, data: Vec<T>) -> Self {
         Self { coord, data }
     }
 
-    pub fn set_coord(&mut self, coord: Coord) {
+    pub fn set_coord(&mut self, coord: Coord<C>) {
         self.coord = coord;
     }
 
-    pub fn get_coord(&self) -> &Coord {
+    pub fn get_coord(&self) -> &Coord<C> {
         &self.coord
     }
 
@@ -85,9 +92,21 @@ impl<T> CoordNode<T> {
     pub fn has_data(&self) -> bool {
         !self.data.is_empty()
     }
+
+    pub fn map_coords<F, D>(self, mut f: F) -> CoordNode<D, T>
+    where
+        F: FnMut(C) -> D,
+        D: CoordNum,
+    {
+        CoordNode::new(coord! {x: f(self.coord.x), y: f(self.coord.y)}, self.data)
+    }
 }
 
-impl<T: Debug> fmt::Display for CoordNode<T> {
+impl<C, T> fmt::Display for CoordNode<C, T>
+where
+    C: CoordNum + Display,
+    T: Debug,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -97,7 +116,10 @@ impl<T: Debug> fmt::Display for CoordNode<T> {
     }
 }
 
-impl<T> Default for CoordNode<T> {
+impl<C, T> Default for CoordNode<C, T>
+where
+    C: CoordNum + Default,
+{
     fn default() -> Self {
         Self {
             coord: Coord::default(),
@@ -106,8 +128,11 @@ impl<T> Default for CoordNode<T> {
     }
 }
 
-impl<T> Coordinate for CoordNode<T> {
-    fn x_y(&self) -> (f64, f64) {
+impl<T, C> Coordinate<C> for CoordNode<C, T>
+where
+    C: qutee::Coordinate + Num,
+{
+    fn x_y(&self) -> (C, C) {
         self.coord.x_y()
     }
 
@@ -118,7 +143,7 @@ impl<T> Coordinate for CoordNode<T> {
         }
     }
 
-    fn as_coord(&self) -> Coord {
+    fn as_coord(&self) -> Coord<C> {
         self.coord
     }
 }

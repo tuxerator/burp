@@ -25,7 +25,7 @@ pub fn build_poi_oracle(c: &mut Criterion) {
     for node in nodes {
         group.sample_size(10);
         group.bench_with_input(BenchmarkId::new("poi_oracle", node), &node, |b, n| {
-            b.iter(|| oracle::build(&graph.graph(), *n, 0.1))
+            b.iter(|| oracle::build(&mut graph.graph_mut(), *n, 0.1))
         });
     }
 }

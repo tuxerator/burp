@@ -2,6 +2,7 @@ extern crate geozero;
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::f64;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -31,7 +32,10 @@ use crate::map::Map;
 use crate::state::Events;
 use burp::input::geo_zero::{ColumnValueClonable, GraphWriter, PoiWriter};
 
-type StartEndPos<T> = (Option<(usize, CoordNode<T>)>, Option<(usize, CoordNode<T>)>);
+type StartEndPos<T> = (
+    Option<(usize, CoordNode<f64, T>)>,
+    Option<(usize, CoordNode<f64, T>)>,
+);
 
 pub struct UiState {
     oracle: Option<PoiGraph<Poi>>,
@@ -48,18 +52,18 @@ enum State {
     LoadedPois,
     Dijkstra(
         (
-            Option<(usize, CoordNode<Poi>)>,
-            Option<(usize, CoordNode<Poi>)>,
+            Option<(usize, CoordNode<f64, Poi>)>,
+            Option<(usize, CoordNode<f64, Poi>)>,
         ),
     ),
     DoubleDijkstra(
         (
-            Option<(usize, CoordNode<Poi>)>,
-            Option<(usize, CoordNode<Poi>)>,
+            Option<(usize, CoordNode<f64, Poi>)>,
+            Option<(usize, CoordNode<f64, Poi>)>,
         ),
     ),
     DoubleDijkstraResult(HashMap<usize, f64>),
-    Oracle(Option<(usize, CoordNode<Poi>)>),
+    Oracle(Option<(usize, CoordNode<f64, Poi>)>),
 }
 
 impl Debug for State {
@@ -210,7 +214,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
 
             map.toggle_layer(&String::from("graph"))
                 .or_else(|_| -> Result<(), String> {
-                    let layer: &mut Arc<RwLock<ContourLayer<SimpleContourSymbol>>> = map
+                    let layer: &mut Arc<RwLock<ContourLayer<SimpleContourSymbol, f64>>> = map
                         .or_insert(
                             "graph".to_string(),
                             ContourLayer::new(SimpleContourSymbol::new(Color::GREEN, 2.0)),
@@ -346,7 +350,7 @@ fn dijkstra(state: &mut UiState) {
 
         info!("Path found {:?}", &coords);
 
-        let layer: &mut Arc<RwLock<ContourLayer<SimpleContourSymbol>>> = layer
+        let layer: &mut Arc<RwLock<ContourLayer<SimpleContourSymbol, f64>>> = layer
             .or_insert(
                 "path".to_string(),
                 ContourLayer::new(SimpleContourSymbol::new(Color::BLUE, 1.0)),
@@ -441,7 +445,7 @@ fn get_start_end_pos(
 fn get_node_click_pos(
     map: Arc<RwLock<Map<String>>>,
     oracle: &PoiGraph<Poi>,
-) -> Option<(usize, CoordNode<Poi>)> {
+) -> Option<(usize, CoordNode<f64, Poi>)> {
     let click_pos = map
         .write()
         .expect("poisoned lock")
@@ -466,7 +470,7 @@ fn build_oracle(state: &mut UiState) {
         return;
     };
 
-    let oracle = oracle::build(&graph.graph(), pos.0, state.epsilon);
+    let oracle = oracle::build(&mut graph.graph_mut(), pos.0, state.epsilon);
 
     info!("Found {} block pairs", oracle.len());
 
@@ -501,7 +505,7 @@ fn build_oracle(state: &mut UiState) {
             )
         })
         .for_each(|blocks| {
-            let layer: &mut Arc<RwLock<BlocksLayer<BlocksSymbol>>> = map
+            let layer: &mut Arc<RwLock<BlocksLayer<BlocksSymbol<f64>, f64>>> = map
                 .or_insert("blocks".to_string(), BlocksLayer::new(BlocksSymbol::new()))
                 .as_any_mut()
                 .downcast_mut()
