@@ -3,3 +3,4 @@
 .tile_cache/api.maptiler.com/maps/openstreetmap/256
 result
 resources/map_styles
+.direnv
