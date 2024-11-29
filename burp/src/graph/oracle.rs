@@ -4,44 +4,45 @@ use std::{
     iter::Peekable,
 };
 
-use geo::point;
+use geo::{point, Coord, CoordFloat, CoordNum, Polygon, Rect};
 use graph_rs::{
     algorithms::dijkstra::{CachedDijkstra, Dijkstra},
-    graph::quad_tree::QuadGraph,
+    graph::{quad_tree::QuadGraph, rstar::RTreeGraph},
     types::Direction,
-    Coordinate, DirectedGraph, Graph,
+    CoordGraph, Coordinate, DirectedGraph, Graph,
 };
 use indicatif::ProgressBar;
 use log::{debug, info, warn};
 use num_traits::Num;
 use ordered_float::FloatCore;
 use qutee::{Boundary, DynCap, Point, QueryPoints};
+use rstar::{primitives::GeomWithData, RTree, RTreeNum, AABB};
 
-pub struct Oracle {
-    b_tree: BTreeMap<usize, usize>,
-}
+pub struct Oracle {}
 
 impl Oracle {
     fn new() {}
 }
 
 pub fn build<EV, NV, G, C>(
-    graph: &mut QuadGraph<EV, NV, C, G>,
+    graph: &mut RTreeGraph<EV, NV, G, C>,
     poi: usize,
     epsilon: EV,
-) -> Vec<(Boundary<C>, Boundary<C>)>
+) -> Option<Vec<(Rect<C>, Rect<C>)>>
 where
-    EV: FloatCore + Default + Debug,
+    EV: FloatCore,
     NV: Coordinate<C> + Debug,
-    C: qutee::Coordinate + Num,
     G: DirectedGraph<EV, NV> + CachedDijkstra<EV, NV>,
+    C: RTreeNum + CoordFloat,
 {
     // let progress_bar = ProgressBar::new( graph .node_count()
     //         .try_into()
     //         .expect("Value doesn't fit in u64"),
     // );
 
-    let root = *graph.boundary();
+    let Some(root) = graph.bounding_rect() else {
+        return None;
+    };
     let mut queue = VecDeque::new();
 
     let mut result = vec![];
@@ -50,45 +51,72 @@ where
 
     while let Some(block_pair) = queue.pop_front() {
         if block_pair.0 != block_pair.1 {
-            let mut points = (
-                graph.query_points(block_pair.0).cloned(),
-                graph.query_points(block_pair.1).cloned(),
-            );
-            let (Some(s), Some(t)) = (points.0.next(), points.1.next()) else {
-                debug!("At least one block is empty. {:?}", &block_pair);
-                continue;
-            };
+            let s: GeomWithData<Coord<C>, usize>;
+            let t: GeomWithData<Coord<C>, usize>;
+            {
+                let mut points = (
+                    graph
+                        .query(&AABB::from_corners(block_pair.0.min(), block_pair.0.max()))
+                        .cloned(),
+                    graph
+                        .query(&AABB::from_corners(block_pair.1.min(), block_pair.1.max()))
+                        .cloned(),
+                );
+                let (Some(p_0), Some(p_1)) = (points.0.next(), points.1.next()) else {
+                    debug!("At least one block is empty. {:?}", &block_pair);
+                    continue;
+                };
+
+                s = p_0;
+                t = p_1;
+            }
 
             let values = Values {
                 d_st: *graph
-                    .cached_dijkstra(s.1, HashSet::from([t.1]), Direction::Outgoing)
+                    .cached_dijkstra(s.data, HashSet::from([t.data]), Direction::Outgoing)
                     .unwrap()
-                    .get(t.1)
+                    .get(t.data)
                     .unwrap()
                     .cost(),
                 d_sp: *graph
-                    .cached_dijkstra(s.1, HashSet::from([poi]), Direction::Outgoing)
+                    .cached_dijkstra(s.data, HashSet::from([poi]), Direction::Outgoing)
                     .unwrap()
                     .get(poi)
                     .unwrap()
                     .cost(),
                 d_pt: *graph
-                    .cached_dijkstra(poi, HashSet::from([t.1]), Direction::Outgoing)
+                    .cached_dijkstra(poi, HashSet::from([t.data]), Direction::Outgoing)
                     .unwrap()
-                    .get(t.1)
+                    .get(t.data)
                     .unwrap()
                     .cost(),
                 r_af: graph
-                    .radius(s.1, &block_pair.0, Direction::Outgoing)
+                    .radius(
+                        s.data,
+                        &AABB::from_corners(block_pair.0.min(), block_pair.0.max()),
+                        Direction::Outgoing,
+                    )
                     .unwrap(),
                 r_ab: graph
-                    .radius(s.1, &block_pair.0, Direction::Incoming)
+                    .radius(
+                        s.data,
+                        &AABB::from_corners(block_pair.0.min(), block_pair.0.max()),
+                        Direction::Incoming,
+                    )
                     .unwrap(),
                 r_bf: graph
-                    .radius(t.1, &block_pair.1, Direction::Outgoing)
+                    .radius(
+                        t.data,
+                        &AABB::from_corners(block_pair.1.min(), block_pair.1.max()),
+                        Direction::Outgoing,
+                    )
                     .unwrap(),
                 r_bb: graph
-                    .radius(t.1, &block_pair.1, Direction::Incoming)
+                    .radius(
+                        t.data,
+                        &AABB::from_corners(block_pair.1.min(), block_pair.1.max()),
+                        Direction::Incoming,
+                    )
                     .unwrap(),
             };
 
@@ -114,18 +142,38 @@ where
         }
 
         let children = (
-            divide(&block_pair.0).into_iter(),
-            divide(&block_pair.1).into_iter(),
+            block_pair
+                .0
+                .split_y()
+                .into_iter()
+                .flat_map(|split| split.split_x()),
+            block_pair
+                .1
+                .split_y()
+                .into_iter()
+                .flat_map(|split| split.split_x()),
         );
 
         let children = (
             children
                 .0
-                .filter(|block| graph.query(*block).peekable().peek().is_some())
+                .filter(|block| {
+                    graph
+                        .query(&AABB::from_corners(block.min(), block.max()))
+                        .peekable()
+                        .peek()
+                        .is_some()
+                })
                 .collect::<Vec<_>>(),
             children
                 .1
-                .filter(|block| graph.query(*block).peekable().peek().is_some())
+                .filter(|block| {
+                    graph
+                        .query(&AABB::from_corners(block.min(), block.max()))
+                        .peekable()
+                        .peek()
+                        .is_some()
+                })
                 .collect::<Vec<_>>(),
         );
         let child_block_pairs: Vec<_> = children
@@ -134,8 +182,12 @@ where
             .flat_map(|block_a| children.1.iter().map(move |block_b| (block_a, *block_b)))
             .filter(|block_pair| {
                 let points = (
-                    graph.query(block_pair.0).collect::<Vec<_>>(),
-                    graph.query(block_pair.1).collect::<Vec<_>>(),
+                    graph
+                        .query(&AABB::from_corners(block_pair.0.min(), block_pair.0.max()))
+                        .collect::<Vec<_>>(),
+                    graph
+                        .query(&AABB::from_corners(block_pair.1.min(), block_pair.1.max()))
+                        .collect::<Vec<_>>(),
                 );
 
                 // If both blocks only contain the same node they can be discarded
@@ -151,7 +203,7 @@ where
         queue.append(&mut child_block_pairs.into());
     }
 
-    result
+    Some(result)
 }
 
 struct Values<T: FloatCore> {

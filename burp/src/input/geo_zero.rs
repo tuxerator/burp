@@ -39,9 +39,10 @@ use crate::{
 use super::NodeValue;
 
 pub struct GraphWriter {
-    node_map: HashMap<Coord<OrderedFloat<f64>>, NodeIndex<usize>>,
+    node_map: HashMap<Coord<OrderedFloat<f64>>, usize>,
     nodes: Vec<CoordNode<f64, Poi>>,
-    graph: petgraph::Graph<CoordNode<f64, Poi>, f64, Directed, usize>,
+    graph: DirectedCsrGraph<f64, CoordNode<f64, Poi>>,
+    edges: Vec<(usize, usize, f64)>,
     line: Vec<(usize, usize, f64)>,
     coords: Option<Vec<Coord>>,
     index: usize,
@@ -65,7 +66,8 @@ impl GraphWriter {
         GraphWriter {
             node_map: HashMap::default(),
             nodes: Vec::default(),
-            graph: petgraph::Graph::default(),
+            graph: DirectedCsrGraph::default(),
+            edges: Vec::default(),
             line: Vec::default(),
             coords: None,
             index: usize::default(),
@@ -79,8 +81,8 @@ impl GraphWriter {
         graph_writer
     }
 
-    pub fn get_graph(&mut self) -> DirectedCsrGraph<f64, CoordNode<f64, Poi>> {
-        DirectedCsrGraph::from(self.graph.clone())
+    pub fn get_graph(self) -> DirectedCsrGraph<f64, CoordNode<f64, Poi>> {
+        self.graph
     }
 }
 
@@ -171,7 +173,6 @@ impl GeomProcessor for GraphWriter {
         {
             false
         } else {
-            info!("Found oneway edge");
             true
         };
 
@@ -220,21 +221,21 @@ impl FeatureProcessor for GraphWriter {
         Ok(())
     }
 
-    fn dataset_end(&mut self) -> geozero::error::Result<()> {
-        let scc = tarjan_scc(&self.graph);
-
-        let biggest_scc = scc
-            .into_par_iter()
-            .max_by(|rhs, lhs| rhs.len().cmp(&lhs.len()))
-            .ok_or(GeozeroError::Dataset(
-                "could not find any components".to_string(),
-            ))?;
-
-        self.graph
-            .retain_nodes(|_, node| biggest_scc.contains(&node));
-
-        Ok(())
-    }
+    // fn dataset_end(&mut self) -> geozero::error::Result<()> {
+    //     let scc = tarjan_scc(&self.graph);
+    //
+    //     let biggest_scc = scc
+    //         .into_par_iter()
+    //         .max_by(|rhs, lhs| rhs.len().cmp(&lhs.len()))
+    //         .ok_or(GeozeroError::Dataset(
+    //             "could not find any components".to_string(),
+    //         ))?;
+    //
+    //     self.graph
+    //         .retain_nodes(|_, node| biggest_scc.contains(&node));
+    //
+    //     Ok(())
+    // }
 }
 
 impl PropertyProcessor for GraphWriter {
@@ -648,6 +649,7 @@ mod test {
 
         dbg!(&graph);
 
+        assert_eq!(graph.node_count(), 7);
         assert_eq!(
             graph.neighbors(0).map(|x| x.target()).collect::<Vec<_>>(),
             vec![1]
@@ -674,10 +676,10 @@ mod test {
         assert!(read_geojson(geojson.as_bytes(), &mut graph_writer).is_ok());
         let graph = graph_writer.get_graph();
 
-        assert_eq!(
-            graph.neighbors(0).map(|x| x.target()).collect::<Vec<_>>(),
-            vec![1, 29]
-        );
+        let mut neighbors = graph.neighbors(0).map(|x| x.target()).collect::<Vec<_>>();
+        neighbors.sort();
+
+        assert_eq!(neighbors, vec![1, 29]);
     }
 
     #[test]

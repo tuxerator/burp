@@ -14,7 +14,10 @@ use burp::{
 };
 use clap::{Args, Parser, Subcommand};
 use geozero::geojson::read_geojson;
-use graph_rs::{graph::quad_tree::QuadGraph, Graph};
+use graph_rs::{
+    graph::{quad_tree::QuadGraph, rstar::RTreeGraph},
+    Graph,
+};
 use indicatif::ProgressBar;
 use rand::prelude::*;
 
@@ -42,7 +45,7 @@ fn main() {
             let mut graph_writer = GraphWriter::default();
             read_geojson(reader, &mut graph_writer).unwrap();
 
-            let graph = PoiGraph::new(QuadGraph::new_from_graph(graph_writer.get_graph()));
+            let graph = PoiGraph::new(RTreeGraph::new_from_graph(graph_writer.get_graph()));
 
             let mut writer = BufWriter::new(File::create(out_file).unwrap());
             writer.write_all(graph.to_flexbuffer().as_slice()).unwrap();

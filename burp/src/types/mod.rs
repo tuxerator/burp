@@ -102,6 +102,26 @@ where
     }
 }
 
+impl<C, T> Coordinate<C> for CoordNode<C, T>
+where
+    C: CoordNum,
+{
+    fn x_y(&self) -> (C, C) {
+        self.coord.x_y()
+    }
+
+    fn zero() -> Self {
+        Self {
+            coord: Coord::zero(),
+            data: Vec::default(),
+        }
+    }
+
+    fn as_coord(&self) -> Coord<C> {
+        self.coord
+    }
+}
+
 impl<C, T> fmt::Display for CoordNode<C, T>
 where
     C: CoordNum + Display,
@@ -125,25 +145,5 @@ where
             coord: Coord::default(),
             data: Vec::default(),
         }
-    }
-}
-
-impl<T, C> Coordinate<C> for CoordNode<C, T>
-where
-    C: qutee::Coordinate + Num,
-{
-    fn x_y(&self) -> (C, C) {
-        self.coord.x_y()
-    }
-
-    fn zero() -> Self {
-        Self {
-            coord: Coord::zero(),
-            data: vec![],
-        }
-    }
-
-    fn as_coord(&self) -> Coord<C> {
-        self.coord
     }
 }

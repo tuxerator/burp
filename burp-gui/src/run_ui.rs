@@ -19,6 +19,7 @@ use geo::{coord, Coord, LineString};
 use geo_types::geometry::Polygon;
 use geozero::geojson::read_geojson;
 use graph_rs::graph::quad_tree::QuadGraph;
+use graph_rs::graph::rstar::RTreeGraph;
 use graph_rs::Graph;
 use log::{info, warn};
 use rfd::FileDialog;
@@ -175,7 +176,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
             let mut graph_writer = GraphWriter::new(filter);
 
             read_geojson(buf_reader, &mut graph_writer);
-            let graph = QuadGraph::new_from_graph(graph_writer.get_graph());
+            let graph = RTreeGraph::new_from_graph(graph_writer.get_graph());
             state.oracle = Some(PoiGraph::new(graph));
 
             state.state = State::LoadedGraph;
@@ -472,49 +473,7 @@ fn build_oracle(state: &mut UiState) {
 
     let oracle = oracle::build(&mut graph.graph_mut(), pos.0, state.epsilon);
 
-    info!("Found {} block pairs", oracle.len());
-
     let mut map = state.map.write().expect("poisoned lock");
-
-    map.remove(&"blocks".to_string());
-    oracle
-        .into_iter()
-        .map(|blocks| {
-            let top_left = (blocks.0.top_left(), blocks.1.top_left());
-            let width = (blocks.0.width(), blocks.1.width());
-            let height = (blocks.0.height(), blocks.1.height());
-            (
-                Polygon::new(
-                    LineString::new(vec![
-                        coord! {x: top_left.0.x, y: top_left.0.y},
-                        coord! {x: top_left.0.x + width.0, y: top_left.0.y},
-                        coord! {x: top_left.0.x  + width.0, y: top_left.0.y - height.0},
-                        coord! {x: top_left.0.x , y: top_left.0.y - height.0},
-                    ]),
-                    vec![],
-                ),
-                Polygon::new(
-                    LineString::new(vec![
-                        coord! {x: top_left.1.x, y: top_left.1.y},
-                        coord! {x: top_left.1.x + width.1, y: top_left.1.y},
-                        coord! {x: top_left.1.x  + width.1, y: top_left.1.y - height.1},
-                        coord! {x: top_left.1.x , y: top_left.1.y - height.1},
-                    ]),
-                    vec![],
-                ),
-            )
-        })
-        .for_each(|blocks| {
-            let layer: &mut Arc<RwLock<BlocksLayer<BlocksSymbol<f64>, f64>>> = map
-                .or_insert("blocks".to_string(), BlocksLayer::new(BlocksSymbol::new()))
-                .as_any_mut()
-                .downcast_mut()
-                .unwrap();
-            layer
-                .write()
-                .expect("poisoned lock")
-                .insert_block_pair(blocks);
-        });
 
     state.state = State::LoadedPois;
 }

@@ -21,7 +21,7 @@ use galileo::{
 use geo::{Coord, Point};
 use graph_rs::{
     algorithms::dijkstra::{Dijkstra, DijkstraResult, ResultNode},
-    graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph, Target},
+    graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph, rstar::RTreeGraph, Target},
     types::Direction,
     CoordGraph, Coordinate, DirectedGraph, Graph,
 };
@@ -40,9 +40,9 @@ pub mod oracle;
 
 pub trait NodeTrait: Clone + Debug + Send + Sync {}
 
-type QuadGraphType<T> =
-    QuadGraph<f64, CoordNode<f64, T>, f64, DirectedCsrGraph<f64, CoordNode<f64, T>>>;
-type RwLockGraph<T> = RwLock<QuadGraphType<T>>;
+type RTreeGraphType<T> =
+    RTreeGraph<f64, CoordNode<f64, T>, DirectedCsrGraph<f64, CoordNode<f64, T>>, f64>;
+type RwLockGraph<T> = RwLock<RTreeGraphType<T>>;
 
 #[derive(Serialize, Deserialize)]
 pub struct PoiGraph<T>
@@ -57,7 +57,7 @@ impl<T> PoiGraph<T>
 where
     T: NodeTrait + Serialize + DeserializeOwned,
 {
-    pub fn new(graph: QuadGraphType<T>) -> Self {
+    pub fn new(graph: RTreeGraphType<T>) -> Self {
         let poi_nodes = graph
             .node_values()
             .fold(HashSet::default(), |mut poi_nodes, node| {
@@ -147,11 +147,11 @@ where
 }
 
 impl<T: NodeTrait> PoiGraph<T> {
-    pub fn graph(&self) -> RwLockReadGuard<QuadGraphType<T>> {
+    pub fn graph(&self) -> RwLockReadGuard<RTreeGraphType<T>> {
         self.graph.read().expect("poisoned lock")
     }
 
-    pub fn graph_mut(&self) -> RwLockWriteGuard<QuadGraphType<T>> {
+    pub fn graph_mut(&self) -> RwLockWriteGuard<RTreeGraphType<T>> {
         self.graph.write().expect("poisoned lock")
     }
 
@@ -383,11 +383,11 @@ where
     }
 }
 
-impl<T> From<QuadGraphType<T>> for PoiGraph<T>
+impl<T> From<RTreeGraphType<T>> for PoiGraph<T>
 where
     T: NodeTrait,
 {
-    fn from(graph: QuadGraphType<T>) -> Self {
+    fn from(graph: RTreeGraphType<T>) -> Self {
         let poi_nodes = graph
             .node_values()
             .fold(HashSet::default(), |mut poi_nodes, node| {
@@ -462,7 +462,7 @@ impl std::error::Error for Error {}
 
 #[cfg(test)]
 mod test {
-    use graph_rs::graph::quad_tree::QuadGraph;
+    use graph_rs::graph::{quad_tree::QuadGraph, rstar::RTreeGraph};
 
     use crate::{
         graph::{self, PoiGraph},
@@ -524,7 +524,7 @@ mod test {
         let mut graph_writer = GraphWriter::new(|_| true);
         assert!(read_geojson(geojson.as_bytes(), &mut graph_writer).is_ok());
         let graph = graph_writer.get_graph();
-        let oracle = PoiGraph::from(QuadGraph::new_from_graph(graph));
+        let oracle = PoiGraph::from(RTreeGraph::new_from_graph(graph));
 
         let flexbuff = oracle.to_flexbuffer();
 
