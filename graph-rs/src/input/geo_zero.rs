@@ -123,11 +123,7 @@ where
 
         let graph = DirectedCsrGraph::from(edge_list);
 
-        DirectedCsrGraph::new(
-            mem::take(&mut self.nodes).into_boxed_slice(),
-            graph.csr_out,
-            graph.csr_inc,
-        )
+        DirectedCsrGraph::new(mem::take(&mut self.nodes), graph.csr_out, graph.csr_inc)
     }
 }
 

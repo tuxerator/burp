@@ -181,6 +181,14 @@ where
     fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), crate::GraphError> {
         self.graph.set_node_value(node, value)
     }
+
+    fn add_node(&mut self, weight: NV) -> usize {
+        self.graph.add_node(weight)
+    }
+
+    fn add_edge(&mut self, a: usize, b: usize, weight: EV) -> bool {
+        self.graph.add_edge(a, b, weight)
+    }
 }
 
 impl<EV, NV, C, G> DirectedGraph<EV, NV> for QuadGraph<EV, NV, C, G>
@@ -253,6 +261,16 @@ where
             }
         })
         .1
+    }
+
+    fn bounding_rect(&self) -> Option<geo::Rect<C>> {
+        MultiPoint::new(
+            self.quad_tree
+                .iter_points()
+                .map(|point| Point::new(point.0.x, point.0.y))
+                .collect(),
+        )
+        .bounding_rect()
     }
 }
 
@@ -596,7 +614,7 @@ mod test {
                 Token::Str("graph"),
                 Token::Struct {
                     name: "DirectedCsrGraph",
-                    len: 3,
+                    len: 4,
                 },
                 Token::Str("node_values"),
                 Token::Seq { len: Some(2) },

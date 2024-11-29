@@ -11,6 +11,7 @@ use crate::{CoordGraph, Coordinate, Graph};
 
 pub mod csr;
 pub mod quad_tree;
+pub mod rstar;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Target<EV> {

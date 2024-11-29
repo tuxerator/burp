@@ -1,6 +1,7 @@
-use std::{error::Error, fmt::Display, usize};
+use std::{error::Error, fmt::Display};
 
 use ::geo_types::{Coord, CoordNum, Point};
+use geo::Rect;
 use graph::Target;
 use num_traits::Num;
 use petgraph::{stable_graph::StableGraph, Directed};
@@ -37,7 +38,7 @@ impl Display for GraphError {
     }
 }
 
-pub trait Coordinate<T: qutee::Coordinate + Num = f64> {
+pub trait Coordinate<T: CoordNum + Num = f64> {
     fn x_y(&self) -> (T, T);
 
     fn zero() -> Self;
@@ -67,6 +68,10 @@ pub trait Graph<EV, NV> {
     fn node_value_mut(&mut self, node: usize) -> Option<&mut NV>;
 
     fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), GraphError>;
+
+    fn add_node(&mut self, weight: NV) -> usize;
+
+    fn add_edge(&mut self, a: usize, b: usize, weight: EV) -> bool;
 }
 
 pub trait DirectedGraph<EV, NV>: Graph<EV, NV> {
@@ -83,8 +88,10 @@ pub trait DirectedGraph<EV, NV>: Graph<EV, NV> {
     fn in_degree(&self, node: usize) -> usize;
 }
 
-pub trait CoordGraph<EV, NV: Coordinate<C>, C: qutee::Coordinate + Num>: Graph<EV, NV> {
+pub trait CoordGraph<EV, NV: Coordinate<C>, C: CoordNum>: Graph<EV, NV> {
     fn nearest_node(&self, point: &Coord<C>) -> Option<usize>;
 
     fn nearest_node_bound(&self, point: &Coord<C>, tolerance: C) -> Option<usize>;
+
+    fn bounding_rect(&self) -> Option<Rect<C>>;
 }

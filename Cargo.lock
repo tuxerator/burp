@@ -569,6 +569,7 @@ dependencies = [
  "rand",
  "rayon",
  "rfd",
+ "rstar",
  "serde",
  "tokio",
 ]
@@ -2074,6 +2075,7 @@ dependencies = [
  "priority-queue",
  "qutee",
  "rayon",
+ "rstar",
  "serde",
  "serde_json",
  "serde_test",
@@ -4106,6 +4108,7 @@ checksum = "133315eb94c7b1e8d0cb097e5a710d850263372fd028fff18969de708afc7008"
 dependencies = [
  "heapless",
  "num-traits",
+ "serde",
  "smallvec",
 ]
 

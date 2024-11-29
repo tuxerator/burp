@@ -1,4 +1,5 @@
 use std::{
+    any::Any,
     cell::RefCell,
     collections::{HashMap, HashSet},
     fmt::Debug,
@@ -11,7 +12,7 @@ use std::{
 };
 
 use cached::{Cached, SizedCache};
-use log::info;
+use log::{debug, info};
 use num_traits::AsPrimitive;
 use ordered_float::{FloatCore, OrderedFloat};
 use osmpbfreader::{blocks, groups, primitive_block_from_blob, OsmPbfReader};
@@ -21,7 +22,9 @@ use petgraph::{
     visit::{EdgeRef, IntoNodeReferences},
     Directed, Undirected,
 };
-use rayon::iter::IntoParallelRefIterator;
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -30,10 +33,10 @@ use crate::{
 };
 use crate::{graph::Target, input::edgelist::EdgeList, DirectedGraph, Graph, GraphError};
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Default)]
 pub struct Csr<EV> {
-    offsets: Box<[usize]>,
-    targets: Box<[Target<EV>]>,
+    offsets: Vec<usize>,
+    targets: Vec<Target<EV>>,
 }
 
 impl<EV> Csr<EV> {
@@ -41,7 +44,7 @@ impl<EV> Csr<EV> {
     ///
     /// Returns a new `CSR` where `offsets[i]` contains the index of the first
     /// target node in `targets`.
-    pub fn new(offsets: Box<[usize]>, targets: Box<[Target<EV>]>) -> Csr<EV> {
+    pub fn new(offsets: Vec<usize>, targets: Vec<Target<EV>>) -> Csr<EV> {
         Self { offsets, targets }
     }
 
@@ -68,19 +71,43 @@ impl<EV> Csr<EV> {
 
         &self.targets[from..to]
     }
+
+    pub fn add_node(&mut self) -> usize {
+        if self.offsets.is_empty() {
+            self.offsets.push(0);
+        }
+        self.offsets.push(*self.offsets.last().unwrap_or(&0));
+        self.offsets.len() - 2
+    }
+
+    pub fn add_edge(&mut self, a: usize, b: usize, weight: EV) -> bool {
+        let mut neighbors = self.targets(a).iter();
+        if neighbors.find(|n| n.target() == b).is_some() {
+            return false;
+        }
+        self.targets.insert(self.offsets[a], Target::new(b, weight));
+
+        self.offsets.par_iter_mut().enumerate().for_each(|(i, x)| {
+            if i > a {
+                *x += 1;
+            }
+        });
+
+        true
+    }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct DirectedCsrGraph<EV, NV> {
-    pub node_values: Box<[NV]>,
+    pub node_values: Vec<NV>,
     pub csr_out: Csr<EV>,
     pub csr_inc: Csr<EV>,
     dijkstra_cache: HashMap<(usize, usize), ResultNode<EV>>,
 }
 
-impl<EV, NV> DirectedCsrGraph<EV, NV> {
+impl<EV: Clone, NV> DirectedCsrGraph<EV, NV> {
     pub fn new(
-        node_values: Box<[NV]>,
+        node_values: Vec<NV>,
         csr_out: Csr<EV>,
         csr_inc: Csr<EV>,
     ) -> DirectedCsrGraph<EV, NV> {
@@ -109,21 +136,22 @@ impl<EV, NV> DirectedCsrGraph<EV, NV> {
 
 impl<EV, NV> DirectedCsrGraph<EV, NV>
 where
-    EV: Copy + Send + Sync,
-    NV: Clone,
+    EV: Send + Sync,
 {
     pub fn par_out_neighbors<'a>(&'a self, node_id: usize) -> rayon::slice::Iter<'_, Target<EV>> {
         self.csr_out.targets(node_id).par_iter()
     }
 }
 
-impl<EV, NV> PartialEq for DirectedCsrGraph<EV, NV> {
+impl<EV: PartialEq, NV: PartialEq> PartialEq for DirectedCsrGraph<EV, NV> {
     fn eq(&self, other: &Self) -> bool {
-        todo!();
+        self.node_values.eq(&other.node_values)
+            && self.csr_out.eq(&other.csr_out)
+            && self.csr_inc.eq(&other.csr_inc)
     }
 }
 
-impl<EV, NV> Graph<EV, NV> for DirectedCsrGraph<EV, NV> {
+impl<EV: Clone, NV> Graph<EV, NV> for DirectedCsrGraph<EV, NV> {
     fn node_count(&self) -> usize {
         self.csr_out.node_count()
     }
@@ -204,9 +232,27 @@ impl<EV, NV> Graph<EV, NV> for DirectedCsrGraph<EV, NV> {
 
         Ok(())
     }
+
+    fn add_node(&mut self, weight: NV) -> usize {
+        let id_out = self.csr_out.add_node();
+        let id_in = self.csr_inc.add_node();
+        assert_eq!(id_out, id_in);
+
+        self.node_values.push(weight);
+        assert_eq!(id_out, self.node_values.len() - 1);
+        id_out
+    }
+
+    fn add_edge(&mut self, a: usize, b: usize, weight: EV) -> bool {
+        let ret_out = self.csr_out.add_edge(a, b, weight.clone());
+        let ret_in = self.csr_inc.add_edge(b, a, weight);
+        assert_eq!(ret_out, ret_in, "csr_out and csr_in are inconsitent");
+
+        ret_out
+    }
 }
 
-impl<EV, NV> DirectedGraph<EV, NV> for DirectedCsrGraph<EV, NV> {
+impl<EV: Clone, NV> DirectedGraph<EV, NV> for DirectedCsrGraph<EV, NV> {
     // TODO: Use Result<usize> as return value.
     fn out_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
     where
@@ -320,13 +366,10 @@ where
         offsets_in.rotate_right(1);
         offsets_in[0] = 0;
 
-        let csr_out = Csr::new(
-            offsets_out.into_boxed_slice(),
-            targets_out.into_boxed_slice(),
-        );
-        let csr_inc = Csr::new(offsets_in.into_boxed_slice(), targets_in.into_boxed_slice());
+        let csr_out = Csr::new(offsets_out, targets_out);
+        let csr_inc = Csr::new(offsets_in, targets_in);
 
-        DirectedCsrGraph::new(Box::new([()]), csr_out, csr_inc)
+        DirectedCsrGraph::new(Vec::new(), csr_out, csr_inc)
     }
 }
 
@@ -378,18 +421,14 @@ where
         offsets_in.rotate_right(1);
         offsets_in[0] = 0;
 
-        let csr_out = Csr::new(
-            offsets_out.into_boxed_slice(),
-            targets_out.into_boxed_slice(),
-        );
+        let csr_out = Csr::new(offsets_out, targets_out);
 
-        let csr_inc = Csr::new(offsets_in.into_boxed_slice(), targets_in.into_boxed_slice());
+        let csr_inc = Csr::new(offsets_in, targets_in);
 
         let node_values = graph
             .node_weights()
             .map(|node| node.clone())
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
+            .collect::<Vec<_>>();
 
         DirectedCsrGraph::new(node_values, csr_out, csr_inc)
     }
@@ -430,10 +469,7 @@ mod tests {
             Target::new_without_value(1),
             Target::new_without_value(0),
         ];
-        let csr = Csr::new(
-            offsets.clone().into_boxed_slice(),
-            targets.clone().into_boxed_slice(),
-        );
+        let csr = Csr::new(offsets.clone(), targets.clone());
         assert_eq!(csr.targets(1), targets.get(offsets[1]..offsets[2]).unwrap(),);
     }
 
@@ -446,10 +482,7 @@ mod tests {
             Target::new_without_value(1),
             Target::new_without_value(0),
         ];
-        let csr = Csr::new(
-            offsets.clone().into_boxed_slice(),
-            targets.clone().into_boxed_slice(),
-        );
+        let csr = Csr::new(offsets.clone(), targets.clone());
         assert_eq!(csr.degree(0), 2);
         assert_eq!(csr.degree(2), 1);
     }
@@ -463,27 +496,21 @@ mod tests {
             Target::new_without_value(1),
             Target::new_without_value(0),
         ];
-        let csr = Csr::new(
-            offsets.clone().into_boxed_slice(),
-            targets.clone().into_boxed_slice(),
-        );
+        let csr = Csr::new(offsets.clone(), targets.clone());
 
         assert_eq!(csr.edge_count(), 4, "Edgecount should be 4.");
     }
 
     #[test]
     fn directed_csr_neighbors() {
-        let offsets = vec![0, 2, 3, 4];
+        let offsets = vec![0, 2, 3, 4, 4];
         let targets = vec![
             Target::new_without_value(2),
             Target::new_without_value(3),
             Target::new_without_value(1),
             Target::new_without_value(0),
         ];
-        let csr_out = Csr::new(
-            offsets.clone().into_boxed_slice(),
-            targets.clone().into_boxed_slice(),
-        );
+        let csr_out = Csr::new(offsets.clone(), targets.clone());
 
         let offsets = vec![0, 2, 3, 4, 5];
         let targets = vec![
@@ -493,12 +520,10 @@ mod tests {
             Target::new_without_value(2),
             Target::new_without_value(2),
         ];
-        let csr_inc = Csr::new(
-            offsets.clone().into_boxed_slice(),
-            targets.clone().into_boxed_slice(),
-        );
+        let csr_inc = Csr::new(offsets.clone(), targets.clone());
 
-        let directed_csr = DirectedCsrGraph::new(Box::new([()]), csr_out, csr_inc);
+        let directed_csr: DirectedCsrGraph<(), _> =
+            DirectedCsrGraph::new(Vec::<()>::new(), csr_out, csr_inc);
 
         assert_eq!(
             directed_csr
