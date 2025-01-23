@@ -2,7 +2,9 @@ pub use geozero;
 use log::info;
 use ordered_float::OrderedFloat;
 use petgraph::{algo::tarjan_scc, csr::IndexType, data::Build, graph::NodeIndex, Directed};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::iter::{
+    IntoParallelIterator, IntoParallelRefIterator, ParallelDrainRange, ParallelIterator,
+};
 
 use std::{
     cmp::Ordering,
@@ -27,7 +29,10 @@ use geozero::{
     PropertyProcessor,
 };
 
-use graph_rs::{graph::csr::DirectedCsrGraph, CoordGraph, Coordinate, DirectedGraph, Graph};
+use graph_rs::{
+    algorithms::trajan_scc::TarjanSCC, graph::csr::DirectedCsrGraph, CoordGraph, Coordinate,
+    DirectedGraph, Graph,
+};
 
 use graph_rs::input::edgelist::EdgeList;
 
@@ -82,7 +87,13 @@ impl GraphWriter {
     }
 
     pub fn get_graph(self) -> DirectedCsrGraph<f64, CoordNode<f64, Poi>> {
-        self.graph
+        let mut sccs = self.graph.tarjan_scc();
+        let biggest_scc = sccs
+            .par_iter()
+            .max_by(|lhs, rhs| lhs.len().cmp(&rhs.len()))
+            .expect("graph is empty");
+
+        self.graph.filter(|node| biggest_scc.contains(&node.0))
     }
 }
 

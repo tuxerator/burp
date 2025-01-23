@@ -24,6 +24,13 @@ use num_traits::{Bounded, Float, FromPrimitive, Num};
 
 use super::EventLayer;
 
+pub trait RenderToContourLayer<C>
+where
+    C: CoordNum + Bounded + Scalar + FromPrimitive,
+{
+    fn get_features(&self) -> Vec<Contour<Coord<C>>>;
+}
+
 pub struct ContourLayer<S, C>
 where
     S: Symbol<Contour<Coord<C>>>,
@@ -63,7 +70,7 @@ where
         NV: Coordinate<C> + Send + Sync,
         EV: Send + Sync,
     {
-        let nodes = graph.node_values();
+        let nodes = graph.nodes_iter();
 
         for node in nodes {
             let p_1 = node.1.as_coord();
@@ -76,6 +83,14 @@ where
                 }
             }
         }
+    }
+
+    pub fn insert_features_from(&mut self, from: impl RenderToContourLayer<C>) {
+        let features = self.layer.features_mut();
+
+        from.get_features()
+            .into_iter()
+            .for_each(|f| features.insert(f));
     }
 }
 

@@ -2,7 +2,6 @@ use core::fmt;
 use std::fmt::{Debug, Display};
 
 use crate::{graph::NodeTrait, serde::CoordDef};
-use galileo::galileo_types::cartesian::NewCartesianPoint2d;
 use geo::{coord, CoordNum};
 use geo_types::Coord;
 use graph_rs::Coordinate;

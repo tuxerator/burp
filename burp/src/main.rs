@@ -15,6 +15,7 @@ use burp::{
 use clap::{Args, Parser, Subcommand};
 use geozero::geojson::read_geojson;
 use graph_rs::{
+    algorithms::trajan_scc::TarjanSCC,
     graph::{quad_tree::QuadGraph, rstar::RTreeGraph},
     Graph,
 };

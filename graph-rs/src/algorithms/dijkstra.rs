@@ -85,6 +85,10 @@ where
             result.insert(node);
         }
 
+        if !target_set.is_empty() {
+            debug!("could not find a path to these nodes: {:?}", target_set);
+        }
+
         Some(DijkstraResult::new(result))
     }
 

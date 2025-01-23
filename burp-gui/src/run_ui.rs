@@ -9,6 +9,7 @@ use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
 
+use burp::graph::oracle::Oracle;
 use burp::graph::{oracle, PoiGraph};
 use burp::types::{CoordNode, Poi};
 use egui::{Context, InnerResponse};
@@ -39,7 +40,8 @@ type StartEndPos<T> = (
 );
 
 pub struct UiState {
-    oracle: Option<PoiGraph<Poi>>,
+    graph: Option<PoiGraph<Poi>>,
+    oracle: Option<Oracle<f64>>,
     map: Arc<RwLock<Map<String>>>,
     sender: Sender<Events>,
     state: State,
@@ -84,6 +86,7 @@ impl Debug for State {
 impl UiState {
     pub fn new(map: Arc<RwLock<Map<String>>>, sender: Sender<Events>) -> Self {
         Self {
+            graph: None,
             oracle: None,
             map,
             sender,
@@ -177,7 +180,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
 
             read_geojson(buf_reader, &mut graph_writer);
             let graph = RTreeGraph::new_from_graph(graph_writer.get_graph());
-            state.oracle = Some(PoiGraph::new(graph));
+            state.graph = Some(PoiGraph::new(graph));
 
             state.state = State::LoadedGraph;
         }
@@ -198,7 +201,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
             let mut poi_writer = PoiWriter::new(|_| true);
             read_geojson(buf_reader, &mut poi_writer);
 
-            if let Some(ref mut oracel) = state.oracle {
+            if let Some(ref mut oracel) = state.graph {
                 oracel.add_pois(poi_writer.pois());
 
                 info!("Loaded Pois");
@@ -208,7 +211,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
         }
 
         if ui
-            .add_enabled(state.oracle.is_some(), egui::Button::new("Toggle graph"))
+            .add_enabled(state.graph.is_some(), egui::Button::new("Toggle graph"))
             .clicked()
         {
             let mut map = state.map.write().expect("poisoned lock");
@@ -227,7 +230,38 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
                     layer
                         .write()
                         .expect("poisoned lock")
-                        .insert_coord_graph(&*state.oracle.as_ref().unwrap().graph());
+                        .insert_coord_graph(&*state.graph.as_ref().unwrap().graph());
+
+                    Ok(())
+                });
+
+            map.toggle_layer(&String::from("nodes"))
+                .or_else(|_| -> Result<(), String> {
+                    let layer: &mut Arc<RwLock<NodeLayer<CirclePointSymbol, ()>>> = map
+                        .or_insert(
+                            "nodes".to_string(),
+                            NodeLayer::<CirclePointSymbol, ()>::new(CirclePointSymbol::new(
+                                Color::RED,
+                                3.0,
+                            )),
+                        )
+                        .as_any_mut()
+                        .downcast_mut()
+                        .ok_or("Couldn't downcast layer".to_string())?;
+
+                    layer.write().expect("poisoned lock").insert_nodes(
+                        state
+                            .graph
+                            .as_ref()
+                            .unwrap()
+                            .graph()
+                            .nodes_iter()
+                            .map(|node| {
+                                NodeMarker::new(*node.1.get_coord(), node.0, None)
+                                    .expect("could not project point")
+                            })
+                            .collect(),
+                    );
 
                     Ok(())
                 });
@@ -286,7 +320,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
         if ui.button("Save").clicked() {
             if let Some(path) = FileDialog::new().save_file() {
                 if let Ok(file) = File::create(path) {
-                    if let Some(ref oracle) = state.oracle {
+                    if let Some(ref oracle) = state.graph {
                         let mut buf_writer = BufWriter::new(file);
                         let _ = buf_writer.write(oracle.to_flexbuffer().as_slice());
                     };
@@ -302,7 +336,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
                     let mut flexbuffer = Vec::default();
 
                     buf_reader.read_to_end(&mut flexbuffer);
-                    state.oracle = Some(PoiGraph::read_flexbuffer(flexbuffer.as_slice()));
+                    state.graph = Some(PoiGraph::read_flexbuffer(flexbuffer.as_slice()));
                     state.state = State::LoadedPois;
                 }
             }
@@ -311,12 +345,12 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
 }
 
 fn dijkstra(state: &mut UiState) {
-    if let Some(ref oracle) = state.oracle {
+    if let Some(ref graph) = state.graph {
         let State::Dijkstra((Some(ref start), Some(ref end))) = state.state else {
             let State::Dijkstra(ref mut pos) = state.state else {
                 return;
             };
-            *pos = get_start_end_pos(pos.clone(), state.map.clone(), oracle);
+            *pos = get_start_end_pos(pos.clone(), state.map.clone(), graph);
             return;
         };
         info!(
@@ -325,7 +359,7 @@ fn dijkstra(state: &mut UiState) {
         );
         let mut target = HashSet::new();
         target.insert(end.0);
-        let result = oracle
+        let result = graph
             .dijkstra(start.0, target, graph_rs::types::Direction::Outgoing)
             .unwrap();
 
@@ -338,7 +372,7 @@ fn dijkstra(state: &mut UiState) {
             .fold(vec![], |mut coords: Vec<Coord>, node| {
                 coords.push(
                     *state
-                        .oracle
+                        .graph
                         .as_ref()
                         .unwrap()
                         .graph()
@@ -364,14 +398,14 @@ fn dijkstra(state: &mut UiState) {
             .expect("poisoned lock")
             .insert_line(LineString::new(coords));
     } else {
-        warn!("Couldn't get a lock on oracle");
+        warn!("Couldn't get a lock on graph");
     }
 
     state.state = State::LoadedPois;
 }
 
 fn double_dijkstra(state: &mut UiState) {
-    if let Some(ref oracle) = state.oracle {
+    if let Some(ref oracle) = state.graph {
         let State::DoubleDijkstra((Some(ref start), Some(ref end))) = state.state else {
             let State::DoubleDijkstra(ref mut pos) = state.state else {
                 return;
@@ -396,7 +430,7 @@ fn draw_resutl_path(state: &mut UiState) {
     let State::DoubleDijkstraResult(ref result) = state.state else {
         return;
     };
-    let Some(ref oracle) = state.oracle else {
+    let Some(ref oracle) = state.graph else {
         return;
     };
 
@@ -460,7 +494,7 @@ fn get_node_click_pos(
 }
 
 fn build_oracle(state: &mut UiState) {
-    let Some(ref graph) = state.oracle else {
+    let Some(ref graph) = state.graph else {
         warn!("No graph loaded");
         return;
     };
@@ -471,10 +505,21 @@ fn build_oracle(state: &mut UiState) {
         return;
     };
 
-    let oracle = oracle::build(&mut graph.graph_mut(), pos.0, state.epsilon);
+    state.oracle = Oracle::build(&mut graph.graph_mut(), pos.0, state.epsilon).ok();
 
     let mut map = state.map.write().expect("poisoned lock");
+    {
+        let layer: &mut Arc<RwLock<BlocksLayer<BlocksSymbol<f64>, f64>>> = map
+            .or_insert(
+                "points".to_string(),
+                BlocksLayer::<BlocksSymbol<f64>, f64>::new(BlocksSymbol::new()),
+            )
+            .as_any_mut()
+            .downcast_mut()
+            .unwrap();
 
+        let mut layer = layer.write().expect("poisoned lock");
+    }
     state.state = State::LoadedPois;
 }
 

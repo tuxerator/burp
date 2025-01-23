@@ -61,7 +61,7 @@ pub trait Graph<EV, NV> {
 
     fn node_value(&self, node: usize) -> Option<&NV>;
 
-    fn node_values<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
+    fn nodes_iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
     where
         NV: 'a;
 
@@ -72,6 +72,10 @@ pub trait Graph<EV, NV> {
     fn add_node(&mut self, weight: NV) -> usize;
 
     fn add_edge(&mut self, a: usize, b: usize, weight: EV) -> bool;
+
+    fn remove_node(&mut self, node: usize) -> Option<NV>;
+
+    fn remove_edge(&mut self, edge: (usize, usize)) -> Option<EV>;
 }
 
 pub trait DirectedGraph<EV, NV>: Graph<EV, NV> {

@@ -55,14 +55,11 @@ where
     C: RTreeNum + CoordFloat,
 {
     pub fn new_from_graph(graph: G) -> Self {
-        let points = MultiPoint::from_iter(graph.node_values().map(|c| c.1.as_coord()));
-
-        let b_box = points.bounding_rect().unwrap();
-        let b_box = Boundary::between_points(b_box.min().x_y(), b_box.max().x_y());
+        let points = MultiPoint::from_iter(graph.nodes_iter().map(|c| c.1.as_coord()));
 
         let r_tree = Box::new(RTree::bulk_load(
             graph
-                .node_values()
+                .nodes_iter()
                 .map(|n| GeomWithData::new(n.1.as_coord(), n.0))
                 .collect(),
         ));
@@ -170,11 +167,11 @@ where
         self.graph.edges()
     }
 
-    fn node_values<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
+    fn nodes_iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
     where
         NV: 'a,
     {
-        self.graph.node_values()
+        self.graph.nodes_iter()
     }
 
     fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), crate::GraphError> {
@@ -192,6 +189,14 @@ where
 
     fn add_edge(&mut self, a: usize, b: usize, weight: EV) -> bool {
         self.graph.add_edge(a, b, weight)
+    }
+
+    fn remove_node(&mut self, node: usize) -> Option<NV> {
+        self.graph.remove_node(node)
+    }
+
+    fn remove_edge(&mut self, edge: (usize, usize)) -> Option<EV> {
+        self.graph.remove_edge(edge)
     }
 }
 

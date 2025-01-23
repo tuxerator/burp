@@ -31,7 +31,6 @@ impl TarjanSCCData {
             .resize(g.node_count(), NodeData { rootindex: None });
 
         for v in 0..g.node_count() {
-            println!("Visiting node {}", v);
             let visited = self.nodes[v].rootindex.is_some();
             if !visited {
                 self.visit(g, v);

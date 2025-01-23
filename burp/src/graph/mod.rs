@@ -11,13 +11,6 @@ use std::{
     thread, usize,
 };
 
-use galileo::{
-    galileo_types::{
-        cartesian::CartesianPoint2d,
-        geo::{impls::GeoPoint2d, GeoPoint, NewGeoPoint},
-    },
-    Map,
-};
 use geo::{Coord, Point};
 use graph_rs::{
     algorithms::dijkstra::{Dijkstra, DijkstraResult, ResultNode},
@@ -59,7 +52,7 @@ where
 {
     pub fn new(graph: RTreeGraphType<T>) -> Self {
         let poi_nodes = graph
-            .node_values()
+            .nodes_iter()
             .fold(HashSet::default(), |mut poi_nodes, node| {
                 if node.1.has_data() {
                     poi_nodes.insert(node.0);
@@ -389,7 +382,7 @@ where
 {
     fn from(graph: RTreeGraphType<T>) -> Self {
         let poi_nodes = graph
-            .node_values()
+            .nodes_iter()
             .fold(HashSet::default(), |mut poi_nodes, node| {
                 if node.1.has_data() {
                     poi_nodes.insert(node.0);

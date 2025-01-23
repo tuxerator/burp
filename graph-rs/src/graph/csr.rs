@@ -11,12 +11,16 @@ use std::{
     usize, vec,
 };
 
+use bincode::Options;
+use bytemuck::offset_of;
 use cached::{Cached, SizedCache};
-use log::{debug, info};
+use log::{debug, info, warn};
 use num_traits::AsPrimitive;
 use ordered_float::{FloatCore, OrderedFloat};
 use osmpbfreader::{blocks, groups, primitive_block_from_blob, OsmPbfReader};
 use petgraph::{
+    adj::Neighbors,
+    csr,
     data::{Build, Element, ElementIterator},
     stable_graph::{self, NodeIndex, StableGraph},
     visit::{EdgeRef, IntoNodeReferences},
@@ -33,7 +37,7 @@ use crate::{
 };
 use crate::{graph::Target, input::edgelist::EdgeList, DirectedGraph, Graph, GraphError};
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Csr<EV> {
     offsets: Vec<usize>,
     targets: Vec<Target<EV>>,
@@ -82,7 +86,7 @@ impl<EV> Csr<EV> {
 
     pub fn add_edge(&mut self, a: usize, b: usize, weight: EV) -> bool {
         let mut neighbors = self.targets(a).iter();
-        if neighbors.find(|n| n.target() == b).is_some() {
+        if neighbors.any(|n| n.target() == b) {
             return false;
         }
         self.targets.insert(self.offsets[a], Target::new(b, weight));
@@ -95,9 +99,91 @@ impl<EV> Csr<EV> {
 
         true
     }
+
+    pub fn remove_node(&mut self, node: usize) -> bool {
+        let mut edges = Vec::new();
+        self.offsets.windows(2).enumerate().for_each(|n| {
+            if self.targets[n.1[0]..n.1[1]]
+                .iter()
+                .any(|t| t.target() == node)
+            {
+                edges.push((n.0, node));
+            }
+        });
+
+        for ele in edges {
+            self.remove_edge(ele);
+        }
+        let targets_len = self.targets.len();
+        let offsets_len = self.offsets.len();
+        if offsets_len <= node + 1 {
+            return false;
+        }
+
+        let offset_lower = self.offsets[node];
+        let offset_upper = self.offsets[node + 1];
+        let n_out_edges = offset_upper - offset_lower;
+
+        if targets_len <= offset_upper {
+            return false;
+        }
+
+        self.targets.drain(offset_lower..offset_upper);
+
+        let targets_len = self.targets.len();
+
+        self.targets[offset_lower..targets_len]
+            .iter_mut()
+            .for_each(|target| {
+                if target.target > node {
+                    target.target -= 1;
+                }
+            });
+        self.offsets.remove(node);
+        let offset_len = self.offsets.len();
+        self.offsets[node..offset_len]
+            .par_iter_mut()
+            .for_each(|x| *x -= n_out_edges);
+
+        true
+    }
+
+    pub fn remove_edge(&mut self, edge: (usize, usize)) -> Option<EV> {
+        if self.offsets[edge.0] < self.offsets[edge.0 + 1] {
+            let mut i = self.offsets[edge.0];
+            let target_index = loop {
+                if i >= self.offsets[edge.0 + 1] {
+                    break None;
+                }
+
+                if self.targets[i].target() == edge.1 {
+                    break Some(i);
+                }
+
+                i += 1;
+            }?;
+
+            let offset_len = self.offsets.len();
+            self.offsets[edge.0 + 1..offset_len]
+                .par_iter_mut()
+                .for_each(|x| *x -= 1);
+            Some(self.targets.remove(target_index).value)
+        } else {
+            None
+        }
+    }
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+impl<EV> Default for Csr<EV> {
+    fn default() -> Self {
+        Csr {
+            offsets: vec![0],
+            targets: vec![],
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct DirectedCsrGraph<EV, NV> {
     pub node_values: Vec<NV>,
     pub csr_out: Csr<EV>,
@@ -105,7 +191,11 @@ pub struct DirectedCsrGraph<EV, NV> {
     dijkstra_cache: HashMap<(usize, usize), ResultNode<EV>>,
 }
 
-impl<EV: Clone, NV> DirectedCsrGraph<EV, NV> {
+impl<EV, NV> DirectedCsrGraph<EV, NV>
+where
+    EV: Clone + Default,
+    NV: Clone,
+{
     pub fn new(
         node_values: Vec<NV>,
         csr_out: Csr<EV>,
@@ -132,14 +222,63 @@ impl<EV: Clone, NV> DirectedCsrGraph<EV, NV> {
 
         g
     }
+
+    pub fn filter<F>(self, predicate: F) -> DirectedCsrGraph<EV, NV>
+    where
+        F: Fn(&(usize, &NV)) -> bool + Clone,
+    {
+        let mut index: usize = 0;
+        let mut node_map = HashMap::new();
+        let mut new_graph = DirectedCsrGraph::default();
+
+        self.nodes_iter()
+            .filter(predicate.clone())
+            .for_each(|node| {
+                node_map.insert(node.0, index);
+                new_graph.add_node(node.1.clone());
+
+                index += 1;
+            });
+
+        node_map.iter().for_each(|node| {
+            let neighbors = self.out_neighbors(*node.0).filter(|target| {
+                let Some(node_value) = self.node_value(target.target()) else {
+                    return false;
+                };
+                predicate(&(target.target(), node_value))
+            });
+
+            neighbors.for_each(|t| {
+                new_graph.add_edge(
+                    *node.1,
+                    *node_map
+                        .get(&t.target())
+                        .expect("target node was not in the map"),
+                    t.value().clone(),
+                );
+            });
+        });
+
+        new_graph
+    }
 }
 
 impl<EV, NV> DirectedCsrGraph<EV, NV>
 where
     EV: Send + Sync,
 {
-    pub fn par_out_neighbors<'a>(&'a self, node_id: usize) -> rayon::slice::Iter<'_, Target<EV>> {
+    pub fn par_out_neighbors(&self, node_id: usize) -> rayon::slice::Iter<'_, Target<EV>> {
         self.csr_out.targets(node_id).par_iter()
+    }
+}
+
+impl<EV, NV> Default for DirectedCsrGraph<EV, NV>
+where
+    EV: Clone + Default,
+    NV: Clone,
+{
+    fn default() -> Self {
+        DirectedCsrGraph::new(vec![], Csr::default(), Csr::default())
     }
 }
 
@@ -181,7 +320,7 @@ impl<EV: Clone, NV> Graph<EV, NV> for DirectedCsrGraph<EV, NV> {
     fn edges(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
         let mut visited: Rc<RefCell<HashSet<usize>>> = Rc::new(RefCell::new(HashSet::new()));
 
-        self.node_values().flat_map(move |node| {
+        self.nodes_iter().flat_map(move |node| {
             let node_id = node.0;
             {
                 visited.borrow_mut().insert(node_id);
@@ -206,7 +345,7 @@ impl<EV: Clone, NV> Graph<EV, NV> for DirectedCsrGraph<EV, NV> {
         self.node_values.get(node)
     }
 
-    fn node_values<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
+    fn nodes_iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
     where
         NV: 'a,
     {
@@ -249,6 +388,24 @@ impl<EV: Clone, NV> Graph<EV, NV> for DirectedCsrGraph<EV, NV> {
         assert_eq!(ret_out, ret_in, "csr_out and csr_in are inconsitent");
 
         ret_out
+    }
+
+    fn remove_node(&mut self, node: usize) -> Option<NV> {
+        self.csr_inc.remove_node(node);
+        self.csr_out.remove_node(node);
+
+        if self.node_values.len() <= node {
+            return None;
+        }
+
+        dbg!(self.node_values.len());
+
+        Some(self.node_values.remove(node))
+    }
+
+    fn remove_edge(&mut self, edge: (usize, usize)) -> Option<EV> {
+        self.csr_inc.remove_edge((edge.1, edge.0));
+        self.csr_out.remove_edge(edge)
     }
 }
 
@@ -368,14 +525,16 @@ where
 
         let csr_out = Csr::new(offsets_out, targets_out);
         let csr_inc = Csr::new(offsets_in, targets_in);
+        let mut node_values = Vec::new();
+        node_values.resize(csr_out.node_count(), ());
 
-        DirectedCsrGraph::new(Vec::new(), csr_out, csr_inc)
+        DirectedCsrGraph::new(node_values, csr_out, csr_inc)
     }
 }
 
 impl<NV, EV> From<petgraph::Graph<NV, EV, Directed, usize>> for DirectedCsrGraph<EV, NV>
 where
-    NV: Clone + Debug,
+    NV: Clone + Debug + Default,
     EV: Copy + Default + Send + Sync,
 {
     fn from(graph: petgraph::Graph<NV, EV, Directed, usize>) -> Self {
@@ -453,12 +612,29 @@ fn prefix_sum(degrees: Vec<usize>) -> Vec<usize> {
 
 #[cfg(test)]
 mod tests {
+    use core::panic;
     use std::sync::Once;
 
     use super::*;
     use crate::graph::Target;
 
     static INIT: Once = Once::new();
+
+    fn setup() -> DirectedCsrGraph<i32, ()> {
+        let edges = EdgeList::new(vec![
+            (0, 3, 0),
+            (0, 5, 0),
+            (1, 0, 0),
+            (1, 5, 0),
+            (2, 4, 0),
+            (3, 0, 0),
+            (3, 2, 0),
+            (4, 1, 0),
+            (30, 20, 0),
+        ]);
+
+        DirectedCsrGraph::from(edges)
+    }
 
     #[test]
     fn csr_from_vectors() {
@@ -617,5 +793,66 @@ mod tests {
             vec![0, 1],
             "Incoming neighbors for node 5:"
         );
+    }
+
+    #[test]
+    fn remove_edge() {
+        let mut graph = setup();
+        let edges = EdgeList::new(vec![
+            (0, 3, 0),
+            (1, 0, 0),
+            (1, 5, 0),
+            (2, 4, 0),
+            (3, 0, 0),
+            (3, 2, 0),
+            (4, 1, 0),
+            (30, 20, 0),
+        ]);
+
+        let expected = DirectedCsrGraph::from(edges);
+
+        assert_eq!(graph.remove_edge((0, 5)), Some(0));
+
+        assert_eq!(graph, expected);
+    }
+
+    #[test]
+    fn remove_node() {
+        let mut graph = setup();
+        let edges = EdgeList::new(vec![
+            (0, 3, 0),
+            (1, 0, 0),
+            (2, 4, 0),
+            (3, 0, 0),
+            (3, 2, 0),
+            (4, 1, 0),
+            (29, 19, 0),
+        ]);
+
+        let expected = DirectedCsrGraph::from(edges);
+
+        graph.remove_node(5);
+
+        assert_eq!(graph, expected);
+    }
+
+    #[test]
+    fn filter() {
+        let graph = setup();
+        let edges = EdgeList::new(vec![
+            (0, 3, 0),
+            (1, 0, 0),
+            (2, 4, 0),
+            (3, 2, 0),
+            (3, 0, 0),
+            (4, 1, 0),
+            (29, 19, 0),
+        ]);
+
+        let expected = DirectedCsrGraph::from(edges);
+
+        let graph = graph.filter(|n| n.0 != 5);
+
+        assert_eq!(graph, expected);
     }
 }
