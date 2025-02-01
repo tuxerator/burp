@@ -59,7 +59,7 @@ fn main() {
 
             let node = thread_rng().gen_range(0..graph.graph().node_count());
 
-            let oracle = oracle::build(&mut graph.graph_mut(), node, epsilon);
+            let oracle = oracle::Oracle::build(&mut graph.graph_mut(), node, epsilon);
         }
     }
 }

@@ -1,9 +1,10 @@
 use std::{
     arch::x86_64,
+    cell::RefCell,
     collections::{BTreeMap, HashSet, VecDeque},
     fmt::Debug,
     iter::Peekable,
-    rc::Rc,
+    rc::{Rc, Weak},
     usize,
 };
 
@@ -37,7 +38,7 @@ struct BlockData<C>
 where
     C: RTreeNum + CoordFloat,
 {
-    linked_block: Option<*const GeomWithData<Rectangle<Coord<C>>, BlockData<C>>>,
+    linked_block: Option<Weak<RefCell<GeomWithData<Rectangle<Coord<C>>, BlockData<C>>>>>,
     poi_id: usize,
 }
 

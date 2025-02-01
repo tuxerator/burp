@@ -7,7 +7,7 @@ use galileo::{
 };
 pub mod line_layer;
 pub mod node_layer;
-pub mod poly_layer;
+pub mod oracle_layer;
 
 pub trait EventLayer: GalileoLayer {
     fn handle_event(&self, event: &UserEvent, map: &mut Map);

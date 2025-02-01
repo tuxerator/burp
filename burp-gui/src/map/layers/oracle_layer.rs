@@ -1,5 +1,10 @@
-use std::{f32, f64, marker::PhantomData, sync::Mutex};
+use std::{
+    f32, f64,
+    marker::PhantomData,
+    sync::{Arc, Mutex},
+};
 
+use burp::graph::oracle::Oracle;
 use galileo::{
     control::{EventPropagation, UserEvent, UserEventHandler},
     layer::{feature_layer::Feature, FeatureLayer, Layer as GalileoLayer},
@@ -23,19 +28,20 @@ use galileo_types::{
     impls::{Contour, MultiPolygon, Polygon as GalileoPolygon},
     Disambig, Disambiguate, MultiPolygon as MultiPolygonTrait,
 };
-use geo::{Centroid, CoordNum, GeoFloat, LineString};
+use geo::{Centroid, CoordFloat, CoordNum, GeoFloat, LineString};
 use geo_types::geometry::{Coord, Polygon};
 use graph_rs::{CoordGraph, Coordinate};
 use maybe_sync::{MaybeSend, MaybeSync};
 use nalgebra::{Point3, Scalar, Vector2};
 use num_traits::{AsPrimitive, Bounded, FromPrimitive, Num, ToPrimitive};
+use rstar::RTreeNum;
 
 use super::EventLayer;
 
 pub struct BlocksLayer<S, C>
 where
     S: Symbol<Blocks<C>>,
-    C: CoordNum + Bounded + Scalar + FromPrimitive,
+    C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive,
 {
     layer: Mutex<
         FeatureLayer<
@@ -45,6 +51,7 @@ where
             CartesianSpace2d,
         >,
     >,
+    oracle: Arc<Oracle<C>>,
     shown_features: Mutex<Vec<usize>>,
     color_id: u8,
 }
@@ -52,10 +59,10 @@ where
 impl<S, C> BlocksLayer<S, C>
 where
     S: Symbol<Blocks<C>>,
-    C: CoordNum + Bounded + Scalar + FromPrimitive + GeoFloat,
+    C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive + GeoFloat,
     Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
-    pub fn new(style: S) -> Self {
+    pub fn new(oracle: &'a Oracle<C>, style: S) -> Self {
         Self {
             layer: Mutex::new(FeatureLayer::with_lods(
                 vec![],
@@ -63,6 +70,7 @@ where
                 Crs::EPSG3857,
                 &[8000.0, 1000.0, 1.0],
             )),
+            oracle,
             shown_features: Mutex::new(vec![]),
             color_id: 0,
         }
@@ -139,7 +147,7 @@ where
 impl<S, C> GalileoLayer for BlocksLayer<S, C>
 where
     S: Symbol<Blocks<C>> + MaybeSend + MaybeSync + 'static,
-    C: CoordNum + Bounded + Scalar + FromPrimitive + MaybeSend + MaybeSync,
+    C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive + MaybeSend + MaybeSync,
     Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
     fn render(&self, view: &galileo::MapView, canvas: &mut dyn galileo::render::Canvas) {
@@ -166,7 +174,7 @@ where
 impl<S, C> EventLayer for BlocksLayer<S, C>
 where
     S: Symbol<Blocks<C>> + MaybeSend + MaybeSync + 'static,
-    C: CoordNum + Bounded + Scalar + FromPrimitive + MaybeSync + MaybeSend,
+    C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive + MaybeSync + MaybeSend,
     Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
     fn handle_event(&self, event: &UserEvent, map: &mut Map) {
@@ -197,7 +205,7 @@ where
 impl<S, C> UserEventHandler for BlocksLayer<S, C>
 where
     S: Symbol<Blocks<C>> + MaybeSend + MaybeSync + 'static,
-    C: CoordNum + Bounded + Scalar + FromPrimitive + MaybeSync + MaybeSend,
+    C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive + MaybeSync + MaybeSend,
     Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
     fn handle(&self, event: &UserEvent, map: &mut Map) -> EventPropagation {
@@ -208,7 +216,7 @@ where
 
 pub struct Blocks<C>
 where
-    C: CoordNum + Bounded + Scalar + FromPrimitive,
+    C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive,
 {
     pub multi_poly: MultiPolygon<Disambig<Coord<C>, CartesianSpace2d>>,
     pub color: Color,
@@ -216,7 +224,7 @@ where
 
 impl<C> Feature for Blocks<C>
 where
-    C: CoordNum + Bounded + Scalar + FromPrimitive,
+    C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive,
 {
     type Geom = MultiPolygon<Disambig<Coord<C>, CartesianSpace2d>>;
     fn geometry(&self) -> &Self::Geom {
@@ -226,14 +234,14 @@ where
 
 pub struct BlocksSymbol<C>
 where
-    C: CoordNum + Bounded + Scalar + FromPrimitive,
+    C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive,
 {
     marker: PhantomData<C>,
 }
 
 impl<C> BlocksSymbol<C>
 where
-    C: CoordNum + Bounded + Scalar + FromPrimitive,
+    C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive,
 {
     pub fn new() -> Self {
         Self {
@@ -257,7 +265,7 @@ where
 
 impl<C> Symbol<Blocks<C>> for BlocksSymbol<C>
 where
-    C: CoordNum + Bounded + Scalar + FromPrimitive,
+    C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive,
 {
     fn render<'a, N, P>(
         &self,

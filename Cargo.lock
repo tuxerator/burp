@@ -597,6 +597,7 @@ dependencies = [
  "ordered-float",
  "petgraph",
  "rfd",
+ "rstar",
  "serde",
  "serde_json",
  "tokio",

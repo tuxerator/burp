@@ -25,7 +25,7 @@ use graph_rs::Graph;
 use log::{info, warn};
 use rfd::FileDialog;
 
-use crate::map::layers::poly_layer::{BlocksLayer, BlocksSymbol};
+use crate::map::layers::oracle_layer::{BlocksLayer, BlocksSymbol};
 use crate::map::layers::{
     line_layer::ContourLayer,
     node_layer::{NodeLayer, NodeMarker},
