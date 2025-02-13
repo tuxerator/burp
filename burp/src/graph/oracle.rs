@@ -3,7 +3,9 @@ use std::{
     cell::RefCell,
     collections::{BTreeMap, HashSet, VecDeque},
     fmt::Debug,
+    hash::RandomState,
     iter::Peekable,
+    ops::Deref,
     rc::{Rc, Weak},
     usize,
 };
@@ -21,7 +23,7 @@ use num_traits::Num;
 use ordered_float::FloatCore;
 use qutee::{Boundary, DynCap, Point, QueryPoints};
 use rstar::{
-    primitives::{GeomWithData, Rectangle},
+    primitives::{GeomWithData, ObjectRef, Rectangle},
     RTree, RTreeNum, RTreeObject, RTreeParams, AABB,
 };
 
@@ -34,49 +36,22 @@ macro_rules! unwrap_or_continue {
     };
 }
 
-struct BlockData<C>
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub struct BlockPair<C>
 where
     C: RTreeNum + CoordFloat,
 {
-    linked_block: Option<Weak<RefCell<GeomWithData<Rectangle<Coord<C>>, BlockData<C>>>>>,
+    s_block: Rectangle<Coord<C>>,
+    t_block: Rectangle<Coord<C>>,
     poi_id: usize,
-}
-
-impl<C> BlockData<C>
-where
-    C: RTreeNum + CoordFloat,
-{
-    fn new_unlinked(poi_id: usize) -> Self {
-        BlockData {
-            linked_block: None,
-            poi_id,
-        }
-    }
-
-    fn new_linked(
-        link_block: *const GeomWithData<Rectangle<Coord<C>>, BlockData<C>>,
-        poi_id: usize,
-    ) -> Self {
-        BlockData {
-            linked_block: Some(link_block),
-            poi_id,
-        }
-    }
-
-    fn link(&mut self, link_block: *const GeomWithData<Rectangle<Coord<C>>, BlockData<C>>) {
-        self.linked_block = Some(link_block);
-    }
-
-    fn get_linked_block(&self) -> Option<*const GeomWithData<Rectangle<Coord<C>>, BlockData<C>>> {
-        self.linked_block
-    }
 }
 
 pub struct Oracle<C>
 where
     C: RTreeNum + CoordFloat,
 {
-    r_tree: RTree<GeomWithData<Rectangle<Coord<C>>, BlockData<C>>>,
+    r_tree: RTree<GeomWithData<Rectangle<Coord<C>>, usize>>,
+    block_pairs: Vec<BlockPair<C>>,
 }
 
 impl<C> Oracle<C>
@@ -86,33 +61,58 @@ where
     pub fn new() -> Self {
         Oracle {
             r_tree: RTree::new(),
+            block_pairs: vec![],
         }
     }
 
-    fn add_block_pair(&mut self, s_block: Rect<C>, t_block: Rect<C>, poi: usize) {
-        let s_block_data = BlockData::new_unlinked(poi);
-        let mut s_geom = GeomWithData::new(
-            Rectangle::from_corners(s_block.min(), s_block.max()),
-            s_block_data,
-        );
+    fn add_block_pair(&mut self, s_block: Rect<C>, t_block: Rect<C>, poi: usize) -> BlockPair<C> {
+        let s_geom = Rectangle::from_corners(s_block.min(), s_block.max());
 
-        let t_block_data = BlockData::new_linked(
-            &s_geom as *const GeomWithData<Rectangle<Coord<C>>, BlockData<C>>,
-            poi,
-        );
-        let mut t_geom = GeomWithData::new(
-            Rectangle::from_corners(t_block.min(), t_block.max()),
-            t_block_data,
-        );
+        let t_geom = Rectangle::from_corners(t_block.min(), t_block.max());
 
-        s_geom
-            .data
-            .link(&t_geom as *const GeomWithData<Rectangle<Coord<C>>, BlockData<C>>);
+        let block_pair = BlockPair {
+            s_block: s_geom,
+            t_block: t_geom,
+            poi_id: poi,
+        };
 
-        self.r_tree.insert(s_geom);
-        self.r_tree.insert(t_geom);
+        self.block_pairs.push(block_pair);
+
+        let block_pair = self.block_pairs.last().expect("block_pairs is empty");
+
+        let s_rect = GeomWithData::new(block_pair.s_block, self.block_pairs.len() - 1);
+        let t_rect = GeomWithData::new(block_pair.t_block, self.block_pairs.len() - 1);
+
+        self.r_tree.insert(s_rect);
+        self.r_tree.insert(t_rect);
+
+        *block_pair
     }
 
+    pub fn get_block_pairs(&self, s_coord: Coord<C>, t_coord: Coord<C>) -> Vec<&BlockPair<C>> {
+        let s_blocks = self
+            .r_tree
+            .locate_all_at_point(&s_coord)
+            .map(|geom| geom.data);
+        let t_blocks = self
+            .r_tree
+            .locate_all_at_point(&t_coord)
+            .map(|geom| geom.data);
+
+        let s_blocks = HashSet::<_, RandomState>::from_iter(s_blocks);
+        let t_blocks = HashSet::<_, RandomState>::from_iter(t_blocks);
+
+        let block_pair_ids = HashSet::<_, RandomState>::from_iter(s_blocks.intersection(&t_blocks));
+
+        self.block_pairs
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| block_pair_ids.contains(i))
+            .map(|e| e.1)
+            .collect()
+    }
+
+    // TODO: Convert to method
     pub fn build<EV, NV, G>(
         graph: &mut RTreeGraph<EV, NV, G, C>,
         poi: usize,
@@ -290,25 +290,6 @@ where
 
         Ok(oracle)
     }
-
-    pub fn get_block_pairs(
-        &self,
-        coord: Coord<C>,
-    ) -> Vec<(&Rectangle<Coord<C>>, &Rectangle<Coord<C>>)> {
-        let blocks = self.r_tree.locate_all_at_point(&coord);
-        let mut block_pairs = vec![];
-
-        for block in blocks {
-            // Safety: As long as r_tree lives the pointers are valid.
-            unsafe {
-                let other = &*block.data.linked_block.unwrap();
-
-                block_pairs.push((block.geom(), other.geom()));
-            }
-        }
-
-        block_pairs
-    }
 }
 
 impl<C> Default for Oracle<C>
@@ -392,10 +373,11 @@ fn divide<C: qutee::Coordinate>(block: &Boundary<C>) -> [Boundary<C>; 4] {
 mod test {
     use std::{f64, ops::Bound};
 
+    use geo::Rect;
     use qutee::{Area, Boundary, Point};
     use rand::random;
 
-    use super::divide;
+    use super::{divide, BlockPair, Oracle};
 
     #[test]
     fn corner_points_test() {
@@ -437,5 +419,29 @@ mod test {
                 }
             }
         }
+    }
+
+    #[test]
+    fn add_block_pair_test() {
+        let mut oracle = Oracle::default();
+
+        let rect_0 = Rect::new((0.5, 0.5), (1.0, 1.0));
+        let rect_1 = Rect::new((10., 9.), (11., 12.));
+
+        oracle.add_block_pair(rect_0, rect_1, 0);
+    }
+
+    #[test]
+    fn get_block_pairs_test() {
+        let mut oracle = Oracle::default();
+
+        let rect_0 = Rect::new((0.5, 0.5), (1.0, 1.0));
+        let rect_1 = Rect::new((10., 9.), (11., 12.));
+
+        let expected = oracle.add_block_pair(rect_0, rect_1, 0);
+
+        let block_pairs = oracle.get_block_pairs((0.6, 0.8).into(), (10.5, 10.).into());
+
+        assert_eq!(block_pairs, vec![&expected]);
     }
 }
