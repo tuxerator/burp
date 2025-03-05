@@ -18,14 +18,6 @@ use log::{debug, info, warn};
 use num_traits::AsPrimitive;
 use ordered_float::{FloatCore, OrderedFloat};
 use osmpbfreader::{blocks, groups, primitive_block_from_blob, OsmPbfReader};
-use petgraph::{
-    adj::Neighbors,
-    csr,
-    data::{Build, Element, ElementIterator},
-    stable_graph::{self, NodeIndex, StableGraph},
-    visit::{EdgeRef, IntoNodeReferences},
-    Directed, Undirected,
-};
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
@@ -532,67 +524,6 @@ where
     }
 }
 
-impl<NV, EV> From<petgraph::Graph<NV, EV, Directed, usize>> for DirectedCsrGraph<EV, NV>
-where
-    NV: Clone + Debug + Default,
-    EV: Copy + Default + Send + Sync,
-{
-    fn from(graph: petgraph::Graph<NV, EV, Directed, usize>) -> Self {
-        let nodes = graph.node_indices();
-
-        let degrees = nodes
-            .map(|node| {
-                (
-                    graph.neighbors_directed(node, petgraph::Direction::Outgoing),
-                    graph.neighbors_directed(node, petgraph::Direction::Incoming),
-                )
-            })
-            .fold((vec![], vec![]), |mut acc, e| {
-                acc.0.push(e.0.count());
-                acc.1.push(e.1.count());
-                acc
-            });
-
-        let (mut offsets_out, mut offsets_in) = (prefix_sum(degrees.0), prefix_sum(degrees.1));
-        let edge_counts = (offsets_out.last().unwrap(), offsets_in.last().unwrap());
-
-        let mut targets_out = Vec::new();
-        let mut targets_in = Vec::new();
-
-        targets_out.resize_with(*edge_counts.0, || Target::new(0, Default::default()));
-        targets_in.resize_with(*edge_counts.1, || Target::new(0, Default::default()));
-
-        graph.edge_references().for_each(|edge| {
-            let offset_out = offsets_out[edge.source().index()];
-            let offset_in = offsets_in[edge.target().index()];
-
-            // Increment offset by one after inserting target.
-            offsets_out[edge.source().index()] = offset_out + 1;
-            offsets_in[edge.target().index()] = offset_in + 1;
-
-            targets_out[offset_out] = Target::new(edge.target().index(), *edge.weight());
-            targets_in[offset_in] = Target::new(edge.source().index(), *edge.weight());
-        });
-
-        offsets_out.rotate_right(1);
-        offsets_out[0] = 0;
-
-        offsets_in.rotate_right(1);
-        offsets_in[0] = 0;
-
-        let csr_out = Csr::new(offsets_out, targets_out);
-
-        let csr_inc = Csr::new(offsets_in, targets_in);
-
-        let node_values = graph
-            .node_weights()
-            .map(|node| node.clone())
-            .collect::<Vec<_>>();
-
-        DirectedCsrGraph::new(node_values, csr_out, csr_inc)
-    }
-}
-
 fn prefix_sum(degrees: Vec<usize>) -> Vec<usize> {
     let mut last = *degrees.last().unwrap();
     let mut sums: Vec<usize> = degrees
@@ -734,44 +665,6 @@ mod tests {
         ]);
 
         let csr = DirectedCsrGraph::from(edges);
-
-        assert_eq!(csr.node_count(), 31);
-        assert_eq!(csr.degree(0), 4, "Total degree of node 0.");
-        assert_eq!(csr.in_degree(0), 2, "In degree of node 0.");
-        assert_eq!(csr.out_degree(1), 2, "Out degree of node 1.");
-        assert_eq!(csr.degree(22), 0, "Total degree of node 0 should be 0.");
-        assert_eq!(csr.in_degree(30), 0, "In degree of node 30 should be 0.");
-        assert_eq!(
-            csr.out_neighbors(3)
-                .map(|x| x.target())
-                .collect::<Vec<usize>>(),
-            vec![0, 2],
-            "Outgoing neighbors for node 3:"
-        );
-        assert_eq!(
-            csr.in_neighbors(5)
-                .map(|x| x.target())
-                .collect::<Vec<usize>>(),
-            vec![0, 1],
-            "Incoming neighbors for node 5:"
-        );
-    }
-
-    #[test]
-    fn from_petgraph() {
-        let petgraph: petgraph::Graph<f64, usize, _, usize> = petgraph::Graph::from_edges(vec![
-            (0, 3, 0),
-            (0, 5, 0),
-            (1, 0, 0),
-            (1, 5, 0),
-            (2, 4, 0),
-            (3, 0, 0),
-            (3, 2, 0),
-            (4, 1, 0),
-            (30, 20, 0),
-        ]);
-
-        let csr = DirectedCsrGraph::from(petgraph);
 
         assert_eq!(csr.node_count(), 31);
         assert_eq!(csr.degree(0), 4, "Total degree of node 0.");

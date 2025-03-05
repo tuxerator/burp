@@ -201,8 +201,8 @@ impl<T: NodeTrait> PoiGraph<T> {
             &end_id
         );
         let mut frontier = PriorityQueue::new();
-        let result = Arc::new(RwLock::new(HashMap::new()));
         let visited = Arc::new(RwLock::new(HashMap::new()));
+        let result = Arc::new(Mutex::new(HashMap::new()));
         let bound = Arc::new(RwLock::new(f64::INFINITY));
         let Some(_) = self.graph().node_value(start_id) else {
             warn!("start_id {} not found in graph", start_id);
@@ -280,7 +280,7 @@ fn shared_dijkstra<EV, NV, G>(
     direction: Label,
     visited: Arc<RwLock<HashMap<(usize, Label), OrderedFloat<EV>>>>,
     targets: &HashSet<usize>,
-    result: Arc<RwLock<HashMap<usize, EV>>>,
+    result: Arc<Mutex<HashMap<usize, EV>>>,
     bound: Arc<RwLock<EV>>,
     epsilon: EV,
 ) where
@@ -299,7 +299,7 @@ fn shared_dijkstra<EV, NV, G>(
 
         if matches!(node.0 .1, Label::Poi) {
             result
-                .write()
+                .lock()
                 .expect("poisoned lock")
                 .insert(node.0 .0, *node.1 .0);
             next_node = frontier.pop();

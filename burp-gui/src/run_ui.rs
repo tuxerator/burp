@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use burp::graph::oracle::Oracle;
 use burp::graph::{oracle, PoiGraph};
@@ -41,7 +41,7 @@ type StartEndPos<T> = (
 
 pub struct UiState {
     graph: Option<PoiGraph<Poi>>,
-    oracle: Option<Oracle<f64>>,
+    oracle: Option<Arc<Mutex<Oracle<f64>>>>,
     map: Arc<RwLock<Map<String>>>,
     sender: Sender<Events>,
     state: State,
@@ -505,14 +505,19 @@ fn build_oracle(state: &mut UiState) {
         return;
     };
 
-    state.oracle = Oracle::build(&mut graph.graph_mut(), pos.0, state.epsilon).ok();
+    state.oracle = Oracle::build(&mut graph.graph_mut(), pos.0, state.epsilon)
+        .ok()
+        .map(|oracle| Arc::new(Mutex::new(oracle)));
 
     let mut map = state.map.write().expect("poisoned lock");
     {
         let layer: &mut Arc<RwLock<BlocksLayer<BlocksSymbol<f64>, f64>>> = map
             .or_insert(
                 "points".to_string(),
-                BlocksLayer::<BlocksSymbol<f64>, f64>::new(BlocksSymbol::new()),
+                BlocksLayer::<BlocksSymbol<f64>, f64>::new(
+                    state.oracle.clone().expect("Oracle not present"),
+                    BlocksSymbol::new(),
+                ),
             )
             .as_any_mut()
             .downcast_mut()

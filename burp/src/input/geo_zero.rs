@@ -1,7 +1,6 @@
 pub use geozero;
 use log::info;
 use ordered_float::OrderedFloat;
-use petgraph::{algo::tarjan_scc, csr::IndexType, data::Build, graph::NodeIndex, Directed};
 use rayon::iter::{
     IntoParallelIterator, IntoParallelRefIterator, ParallelDrainRange, ParallelIterator,
 };

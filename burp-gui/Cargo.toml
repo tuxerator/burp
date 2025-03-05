@@ -26,11 +26,10 @@ egui-winit = { version = "0.28", default-features = false, features = [
   "x11",
 ] }
 env_logger = { version = "0.11", default-features = false }
-galileo = { git = "https://github.com/tuxerator/galileo.git" }
-galileo-types = { git = "https://github.com/tuxerator/galileo.git" }
+galileo = { path = "../../../galileo/galileo/" }
+galileo-types = { path = "../../../galileo/galileo-types/" }
 wgpu = { version = "0.20", default-features = false }
 winit = { version = "0.29", default-features = false }
-petgraph = "0.6"
 graph-rs = { path = "../graph-rs/" }
 geozero = "0.13"
 ordered-float = "4.2"
@@ -49,5 +48,4 @@ nalgebra = "0.32"
 image = "0.25"
 num-traits = "0.2"
 tokio = { version = "1.0", default-features = false, features = ["full"] }
-lazy_static = "1.5"
 rstar = "0.12"

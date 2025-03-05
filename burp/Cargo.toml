@@ -13,7 +13,6 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 geo-types = { version = "0.7.9", features = ["serde", "use-rstar_0_12"] }
 env_logger = { version = "0.11", default-features = false }
-petgraph = "0.6"
 graph-rs = { path = "../graph-rs/" }
 geozero = "0.13"
 ordered-float = "4.2"

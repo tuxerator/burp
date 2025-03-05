@@ -4,7 +4,6 @@ use ::geo_types::{Coord, CoordNum, Point};
 use geo::Rect;
 use graph::Target;
 use num_traits::Num;
-use petgraph::{stable_graph::StableGraph, Directed};
 
 pub use geozero::{FeatureProcessor, GeomProcessor, PropertyProcessor};
 use qutee::Boundary;

@@ -1,16 +1,10 @@
 use std::{
-    arch::x86_64,
-    cell::RefCell,
-    collections::{BTreeMap, HashSet, VecDeque},
+    collections::{HashSet, VecDeque},
     fmt::Debug,
     hash::RandomState,
-    iter::Peekable,
-    ops::Deref,
-    rc::{Rc, Weak},
-    usize,
 };
 
-use geo::{point, Coord, CoordFloat, CoordNum, MultiPolygon, Polygon, Rect};
+use geo::{Coord, CoordFloat, Rect};
 use graph_rs::{
     algorithms::dijkstra::{CachedDijkstra, Dijkstra},
     graph::{quad_tree::QuadGraph, rstar::RTreeGraph},
@@ -18,7 +12,7 @@ use graph_rs::{
     CoordGraph, Coordinate, DirectedGraph, Graph,
 };
 use indicatif::ProgressBar;
-use log::{debug, info, warn};
+use log::debug;
 use num_traits::Num;
 use ordered_float::FloatCore;
 use qutee::{Boundary, DynCap, Point, QueryPoints};
@@ -41,9 +35,9 @@ pub struct BlockPair<C>
 where
     C: RTreeNum + CoordFloat,
 {
-    s_block: Rectangle<Coord<C>>,
-    t_block: Rectangle<Coord<C>>,
-    poi_id: usize,
+    pub s_block: Rectangle<Coord<C>>,
+    pub t_block: Rectangle<Coord<C>>,
+    pub poi_id: usize,
 }
 
 pub struct Oracle<C>
@@ -89,14 +83,14 @@ where
         *block_pair
     }
 
-    pub fn get_block_pairs(&self, s_coord: Coord<C>, t_coord: Coord<C>) -> Vec<&BlockPair<C>> {
+    pub fn get_block_pairs(&self, s_coord: &Coord<C>, t_coord: &Coord<C>) -> Vec<&BlockPair<C>> {
         let s_blocks = self
             .r_tree
-            .locate_all_at_point(&s_coord)
+            .locate_all_at_point(s_coord)
             .map(|geom| geom.data);
         let t_blocks = self
             .r_tree
-            .locate_all_at_point(&t_coord)
+            .locate_all_at_point(t_coord)
             .map(|geom| geom.data);
 
         let s_blocks = HashSet::<_, RandomState>::from_iter(s_blocks);
@@ -112,7 +106,25 @@ where
             .collect()
     }
 
-    // TODO: Convert to method
+    pub fn get_pois(&self, s_coord: &Coord<C>, t_coord: &Coord<C>) -> Vec<usize> {
+        let block_pairs = self.get_block_pairs(s_coord, t_coord);
+
+        block_pairs.into_iter().map(|b| b.poi_id).collect()
+    }
+
+    pub fn get_blocks_at(&self, coord: &Coord<C>) -> Vec<&BlockPair<C>> {
+        let block_pairs = self.r_tree.locate_all_at_point(coord).map(|geom| geom.data);
+
+        let block_pairs = HashSet::<_, RandomState>::from_iter(block_pairs);
+
+        self.block_pairs
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| block_pairs.contains(i))
+            .map(|e| e.1)
+            .collect()
+    }
+
     pub fn build<EV, NV, G>(
         graph: &mut RTreeGraph<EV, NV, G, C>,
         poi: usize,
@@ -159,50 +171,8 @@ where
                     t = p_1;
                 }
 
-                let values = Values {
-                    d_st: *unwrap_or_continue!(graph
-                        .cached_dijkstra(s.data, HashSet::from([t.data]), Direction::Outgoing)
-                        .unwrap()
-                        .get(t.data))
-                    .cost(),
-                    d_sp: *unwrap_or_continue!(graph
-                        .cached_dijkstra(s.data, HashSet::from([poi]), Direction::Outgoing)
-                        .unwrap()
-                        .get(poi))
-                    .cost(),
-                    d_pt: *unwrap_or_continue!(graph
-                        .cached_dijkstra(poi, HashSet::from([t.data]), Direction::Outgoing)
-                        .unwrap()
-                        .get(t.data))
-                    .cost(),
-                    r_af: graph
-                        .radius(
-                            s.data,
-                            &AABB::from_corners(block_pair.0.min(), block_pair.0.max()),
-                            Direction::Outgoing,
-                        )
-                        .unwrap(),
-                    r_ab: graph
-                        .radius(
-                            s.data,
-                            &AABB::from_corners(block_pair.0.min(), block_pair.0.max()),
-                            Direction::Incoming,
-                        )
-                        .unwrap(),
-                    r_bf: graph
-                        .radius(
-                            t.data,
-                            &AABB::from_corners(block_pair.1.min(), block_pair.1.max()),
-                            Direction::Outgoing,
-                        )
-                        .unwrap(),
-                    r_bb: graph
-                        .radius(
-                            t.data,
-                            &AABB::from_corners(block_pair.1.min(), block_pair.1.max()),
-                            Direction::Incoming,
-                        )
-                        .unwrap(),
+                let Some(values) = Values::new(graph, s, t, block_pair, poi) else {
+                    continue;
                 };
 
                 if values.in_path(epsilon) {
@@ -312,13 +282,72 @@ struct Values<T: FloatCore> {
 }
 
 impl<T: FloatCore> Values<T> {
+    fn new<NV, G, C>(
+        graph: &mut RTreeGraph<T, NV, G, C>,
+        s: GeomWithData<Coord<C>, usize>,
+        t: GeomWithData<Coord<C>, usize>,
+        block_pair: (Rect<C>, Rect<C>),
+        poi: usize,
+    ) -> Option<Self>
+    where
+        NV: Coordinate<C> + Debug,
+        G: DirectedGraph<T, NV> + CachedDijkstra<T, NV>,
+        C: RTreeNum + CoordFloat,
+    {
+        Some(Values {
+            d_st: *graph
+                .cached_dijkstra(s.data, HashSet::from([t.data]), Direction::Outgoing)
+                .unwrap()
+                .get(t.data)?
+                .cost(),
+            d_sp: *graph
+                .cached_dijkstra(s.data, HashSet::from([poi]), Direction::Outgoing)
+                .unwrap()
+                .get(poi)?
+                .cost(),
+            d_pt: *graph
+                .cached_dijkstra(poi, HashSet::from([t.data]), Direction::Outgoing)
+                .unwrap()
+                .get(t.data)?
+                .cost(),
+            r_af: graph
+                .radius(
+                    s.data,
+                    &AABB::from_corners(block_pair.0.min(), block_pair.0.max()),
+                    Direction::Outgoing,
+                )
+                .unwrap(),
+            r_ab: graph
+                .radius(
+                    s.data,
+                    &AABB::from_corners(block_pair.0.min(), block_pair.0.max()),
+                    Direction::Incoming,
+                )
+                .unwrap(),
+            r_bf: graph
+                .radius(
+                    t.data,
+                    &AABB::from_corners(block_pair.1.min(), block_pair.1.max()),
+                    Direction::Outgoing,
+                )
+                .unwrap(),
+            r_bb: graph
+                .radius(
+                    t.data,
+                    &AABB::from_corners(block_pair.1.min(), block_pair.1.max()),
+                    Direction::Incoming,
+                )
+                .unwrap(),
+        })
+    }
+
     fn in_path(&self, epsilon: T) -> bool {
         (self.r_ab + self.d_sp + self.d_pt + self.r_bf)
             <= (self.d_st - (self.r_af + self.r_bb)) * (T::from(1).unwrap() + epsilon)
     }
 
     fn not_in_path(&self, epsilon: T) -> bool {
-        (self.d_sp + self.d_pt - (self.r_ab + self.r_bf))
+        (self.d_sp + self.d_pt - (self.r_af + self.r_bb))
             >= (self.d_st + (self.r_ab + self.r_bf)) * (T::from(1).unwrap() + epsilon)
     }
 }
@@ -440,7 +469,7 @@ mod test {
 
         let expected = oracle.add_block_pair(rect_0, rect_1, 0);
 
-        let block_pairs = oracle.get_block_pairs((0.6, 0.8).into(), (10.5, 10.).into());
+        let block_pairs = oracle.get_block_pairs(&(0.6, 0.8).into(), &(10.5, 10.).into());
 
         assert_eq!(block_pairs, vec![&expected]);
     }
