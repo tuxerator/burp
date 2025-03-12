@@ -2,20 +2,23 @@ use std::{
     collections::{HashSet, VecDeque},
     fmt::Debug,
     hash::RandomState,
+    ops::{Deref, DerefMut},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use geo::{Coord, CoordFloat, Rect};
 use graph_rs::{
     algorithms::dijkstra::{CachedDijkstra, Dijkstra},
-    graph::{quad_tree::QuadGraph, rstar::RTreeGraph},
+    graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph, rstar::RTreeGraph},
     types::Direction,
     CoordGraph, Coordinate, DirectedGraph, Graph,
 };
 use indicatif::ProgressBar;
-use log::debug;
+use log::{debug, error, warn};
 use num_traits::Num;
 use ordered_float::FloatCore;
 use qutee::{Boundary, DynCap, Point, QueryPoints};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use rstar::{
     primitives::{GeomWithData, ObjectRef, Rectangle},
     RTree, RTreeNum, RTreeObject, RTreeParams, AABB,
@@ -40,20 +43,29 @@ where
     pub poi_id: usize,
 }
 
-pub struct Oracle<C>
+#[derive(Default)]
+pub struct Oracle<G, C = f64>
 where
+    G: DirectedGraph + CachedDijkstra,
+    G::EV: FloatCore,
+    G::NV: Coordinate<C> + Debug,
     C: RTreeNum + CoordFloat,
 {
+    graph: Arc<RwLock<RTreeGraph<G, C>>>,
     r_tree: RTree<GeomWithData<Rectangle<Coord<C>>, usize>>,
     block_pairs: Vec<BlockPair<C>>,
 }
 
-impl<C> Oracle<C>
+impl<G, C> Oracle<G, C>
 where
-    C: RTreeNum + CoordFloat,
+    G: DirectedGraph + CachedDijkstra + Send + Sync,
+    G::EV: FloatCore + Send + Sync,
+    G::NV: Coordinate<C> + Debug + Send + Sync,
+    C: RTreeNum + CoordFloat + Send + Sync,
 {
-    pub fn new() -> Self {
+    pub fn new(graph: Arc<RwLock<RTreeGraph<G, C>>>) -> Self {
         Oracle {
+            graph,
             r_tree: RTree::new(),
             block_pairs: vec![],
         }
@@ -125,26 +137,30 @@ where
             .collect()
     }
 
-    pub fn build<EV, NV, G>(
-        graph: &mut RTreeGraph<EV, NV, G, C>,
-        poi: usize,
-        epsilon: EV,
-    ) -> Result<Self, String>
+    pub fn build_for_point(&mut self, point: usize, epsilon: G::EV) {
+        let oracle = Arc::new(RwLock::new(self));
+
+        Self::build_for_point_par(oracle, point, epsilon);
+    }
+    fn build_for_point_par(oracle: Arc<RwLock<&mut Self>>, point: usize, epsilon: G::EV)
     where
-        EV: FloatCore,
-        NV: Coordinate<C> + Debug,
-        G: DirectedGraph<EV, NV> + CachedDijkstra<EV, NV>,
+        G::EV: FloatCore,
+        G::NV: Coordinate<C> + Debug,
+        G: DirectedGraph + CachedDijkstra,
     {
-        // let progress_bar = ProgressBar::new( graph .node_count()
-        //         .try_into()
-        //         .expect("Value doesn't fit in u64"),
-        // );
-
-        let mut oracle = Oracle::<C>::new();
-
-        let Some(root) = graph.bounding_rect() else {
-            return Err("Could not get bounding rect of graph".to_string());
+        let oracle_ref = oracle.read().expect("RwLock poisoned");
+        let Some(root) = oracle_ref
+            .graph
+            .read()
+            .expect("RwLock poisoned")
+            .bounding_rect()
+        else {
+            error!("Could not get bounding rect of graph");
+            return;
         };
+
+        drop(oracle_ref);
+
         let mut queue = VecDeque::new();
 
         queue.push_back((root, root));
@@ -153,7 +169,10 @@ where
             if block_pair.0 != block_pair.1 {
                 let s: GeomWithData<Coord<C>, usize>;
                 let t: GeomWithData<Coord<C>, usize>;
+
+                let oracle_ref = oracle.read().expect("RwLock poisoned");
                 {
+                    let graph = oracle_ref.graph.read().expect("RwLock poisoned");
                     let mut points = (
                         graph
                             .query(&AABB::from_corners(block_pair.0.min(), block_pair.0.max()))
@@ -170,28 +189,30 @@ where
                     s = p_0;
                     t = p_1;
                 }
-
-                let Some(values) = Values::new(graph, s, t, block_pair, poi) else {
+                let Some(values) = Values::<G::EV>::new(
+                    &mut oracle_ref.graph.write().expect("RwLock poisoned"),
+                    s,
+                    t,
+                    block_pair,
+                    point,
+                ) else {
                     continue;
                 };
 
+                drop(oracle_ref);
+
                 if values.in_path(epsilon) {
                     debug!("Found in-path block pair: {:#?}", &block_pair);
-                    oracle.add_block_pair(block_pair.0, block_pair.1, poi);
-                    // progress_bar.inc(
-                    //     (points.0.size_hint().0 + points.1.size_hint().0 + 2)
-                    //         .try_into()
-                    //         .expect("value doesn't fit in u64"),
-                    // );
+
+                    oracle.write().expect("Mutex poisoned").add_block_pair(
+                        block_pair.0,
+                        block_pair.1,
+                        point,
+                    );
 
                     continue;
                 } else if values.not_in_path(epsilon) {
                     debug!("Found not in-path block pair: {:#?}", &block_pair);
-                    // progress_bar.inc(
-                    //     (points.0.size_hint().0 + points.1.size_hint().0 + 2)
-                    //         .try_into()
-                    //         .expect("value doesn't fit in u64"),
-                    // );
                     continue;
                 }
             }
@@ -209,6 +230,9 @@ where
                     .flat_map(|split| split.split_x()),
             );
 
+            let oracle_ref = oracle.read().expect("RwLock poisoned");
+
+            let graph = oracle_ref.graph.read().expect("RwLock poisoned");
             let children = (
                 children
                     .0
@@ -257,17 +281,20 @@ where
 
             queue.append(&mut child_block_pairs.into());
         }
-
-        Ok(oracle)
     }
-}
 
-impl<C> Default for Oracle<C>
-where
-    C: RTreeNum + CoordFloat,
-{
-    fn default() -> Self {
-        Self::new()
+    pub fn build_for_points(&mut self, points: Vec<usize>, epsilon: G::EV) {
+        points
+            .iter()
+            .for_each(|point| self.build_for_point(*point, epsilon));
+    }
+
+    pub fn build_for_points_par(&mut self, points: Vec<usize>, epsilon: G::EV) {
+        let self_ref = Arc::new(RwLock::new(self));
+
+        points
+            .into_par_iter()
+            .for_each(|point| Self::build_for_point_par(self_ref.clone(), point, epsilon));
     }
 }
 
@@ -282,16 +309,17 @@ struct Values<T: FloatCore> {
 }
 
 impl<T: FloatCore> Values<T> {
-    fn new<NV, G, C>(
-        graph: &mut RTreeGraph<T, NV, G, C>,
+    fn new<G, C>(
+        graph: &mut RTreeGraph<G, C>,
         s: GeomWithData<Coord<C>, usize>,
         t: GeomWithData<Coord<C>, usize>,
         block_pair: (Rect<C>, Rect<C>),
         poi: usize,
-    ) -> Option<Self>
+    ) -> Option<Values<G::EV>>
     where
-        NV: Coordinate<C> + Debug,
-        G: DirectedGraph<T, NV> + CachedDijkstra<T, NV>,
+        G: DirectedGraph + CachedDijkstra,
+        G::NV: Coordinate<C>,
+        G::EV: FloatCore,
         C: RTreeNum + CoordFloat,
     {
         Some(Values {
@@ -402,7 +430,8 @@ fn divide<C: qutee::Coordinate>(block: &Boundary<C>) -> [Boundary<C>; 4] {
 mod test {
     use std::{f64, ops::Bound};
 
-    use geo::Rect;
+    use geo::{Coord, Rect};
+    use graph_rs::graph::csr::DirectedCsrGraph;
     use qutee::{Area, Boundary, Point};
     use rand::random;
 
@@ -452,7 +481,7 @@ mod test {
 
     #[test]
     fn add_block_pair_test() {
-        let mut oracle = Oracle::default();
+        let mut oracle: Oracle<DirectedCsrGraph<f64, Coord<f64>>> = Oracle::default();
 
         let rect_0 = Rect::new((0.5, 0.5), (1.0, 1.0));
         let rect_1 = Rect::new((10., 9.), (11., 12.));
@@ -462,7 +491,7 @@ mod test {
 
     #[test]
     fn get_block_pairs_test() {
-        let mut oracle = Oracle::default();
+        let mut oracle: Oracle<DirectedCsrGraph<f64, Coord<f64>>> = Oracle::default();
 
         let rect_0 = Rect::new((0.5, 0.5), (1.0, 1.0));
         let rect_1 = Rect::new((10., 9.), (11., 12.));

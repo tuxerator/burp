@@ -1,7 +1,7 @@
 use std::{
     f32, f64,
+    fmt::Debug,
     marker::PhantomData,
-    rc::Rc,
     sync::{Arc, Mutex, RwLock},
 };
 
@@ -31,18 +31,22 @@ use galileo_types::{
 };
 use geo::{Centroid, CoordFloat, CoordNum, GeoFloat, LineString, Rect};
 use geo_types::geometry::{Coord, Polygon};
-use graph_rs::{CoordGraph, Coordinate};
+use graph_rs::{algorithms::dijkstra::CachedDijkstra, CoordGraph, Coordinate, DirectedGraph};
 use log::{info, warn};
 use maybe_sync::{MaybeSend, MaybeSync};
 use nalgebra::{Point3, Scalar, Vector2};
 use num_traits::{AsPrimitive, Bounded, FromPrimitive, Num, ToPrimitive};
+use ordered_float::FloatCore;
 use rstar::RTreeNum;
 
 use super::EventLayer;
 
-pub struct BlocksLayer<S, C>
+pub struct BlocksLayer<S, G, C>
 where
     S: Symbol<Blocks<C>>,
+    G: DirectedGraph + CachedDijkstra,
+    G::EV: FloatCore,
+    G::NV: Coordinate<C> + Debug,
     C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive,
 {
     layer: Mutex<
@@ -53,18 +57,21 @@ where
             CartesianSpace2d,
         >,
     >,
-    oracle: Arc<Mutex<Oracle<C>>>,
+    oracle: Arc<Mutex<Oracle<G, C>>>,
     shown_features: Mutex<Vec<usize>>,
     color_id: u32,
 }
 
-impl<S, C> BlocksLayer<S, C>
+impl<S, G, C> BlocksLayer<S, G, C>
 where
     S: Symbol<Blocks<C>>,
+    G: DirectedGraph + CachedDijkstra,
+    G::EV: FloatCore,
+    G::NV: Coordinate<C> + Debug,
     C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive + GeoFloat,
     Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
-    pub fn new(oracle: Arc<Mutex<Oracle<C>>>, style: S) -> Self {
+    pub fn new(oracle: Arc<Mutex<Oracle<G, C>>>, style: S) -> Self {
         Self {
             layer: Mutex::new(FeatureLayer::with_lods(
                 vec![],
@@ -121,9 +128,12 @@ where
     }
 }
 
-impl<S, C> GalileoLayer for BlocksLayer<S, C>
+impl<S, G, C> GalileoLayer for BlocksLayer<S, G, C>
 where
     S: Symbol<Blocks<C>> + MaybeSend + MaybeSync + 'static,
+    G: DirectedGraph + CachedDijkstra + MaybeSync + MaybeSend + 'static,
+    G::EV: FloatCore,
+    G::NV: Coordinate<C> + Debug,
     C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive + MaybeSend + MaybeSync,
     Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
@@ -148,9 +158,12 @@ where
     }
 }
 
-impl<S, C> EventLayer for BlocksLayer<S, C>
+impl<S, G, C> EventLayer for BlocksLayer<S, G, C>
 where
     S: Symbol<Blocks<C>> + MaybeSend + MaybeSync + 'static,
+    G: DirectedGraph + CachedDijkstra + MaybeSync + MaybeSend + 'static,
+    G::EV: FloatCore + MaybeSync + MaybeSend,
+    G::NV: Coordinate<C> + Debug + MaybeSync + MaybeSend,
     C: CoordFloat + GeoFloat + RTreeNum + Bounded + Scalar + FromPrimitive + MaybeSync + MaybeSend,
     Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
@@ -201,9 +214,12 @@ where
     }
 }
 
-impl<S, C> UserEventHandler for BlocksLayer<S, C>
+impl<S, G, C> UserEventHandler for BlocksLayer<S, G, C>
 where
     S: Symbol<Blocks<C>> + MaybeSend + MaybeSync + 'static,
+    G: DirectedGraph + CachedDijkstra + MaybeSync + MaybeSend + 'static,
+    G::EV: FloatCore + MaybeSync + MaybeSend,
+    G::NV: Coordinate<C> + Debug + MaybeSync + MaybeSend,
     C: CoordFloat + GeoFloat + RTreeNum + Bounded + Scalar + FromPrimitive + MaybeSync + MaybeSend,
     Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {

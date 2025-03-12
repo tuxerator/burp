@@ -11,6 +11,7 @@ keywords.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+serde = { version = "1.0", features = ["derive", "rc"] }
 geo-types = { version = "0.7.9", features = ["serde", "use-rstar_0_12"] }
 env_logger = { version = "0.11", default-features = false }
 graph-rs = { path = "../graph-rs/" }
@@ -22,7 +23,6 @@ rfd = { version = "0.14", default-features = false, features = [
   "tokio",
 ] }
 log = "0.4.20"
-serde = { version = "1.0", features = ["derive"] }
 flexbuffers = { version = "2.0" }
 rayon = { version = "1.10" }
 num-traits = "0.2"

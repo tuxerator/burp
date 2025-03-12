@@ -397,9 +397,9 @@ dependencies = [
 
 [[package]]
 name = "avif-serialize"
-version = "0.8.2"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e335041290c43101ca215eed6f43ec437eb5a42125573f600fc3fa42b9bddd62"
+checksum = "98922d6a4cfbcb08820c69d8eeccc05bb1f29bfa06b4f5b1dbfe9a868bd7608e"
 dependencies = [
  "arrayvec",
 ]
@@ -531,9 +531,9 @@ dependencies = [
 
 [[package]]
 name = "built"
-version = "0.7.6"
+version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73848a43c5d63a1251d17adf6c2bf78aa94830e60a335a95eeea45d6ba9e1e4d"
+checksum = "56ed6191a7e78c36abdb16ab65341eefd73d64d303fffccdbb00d51e4205967b"
 
 [[package]]
 name = "bumpalo"
@@ -557,7 +557,6 @@ dependencies = [
  "log",
  "num-traits",
  "ordered-float",
- "petgraph",
  "priority-queue",
  "qutee",
  "rand",
@@ -584,13 +583,11 @@ dependencies = [
  "geozero 0.13.0",
  "graph-rs",
  "image 0.25.5",
- "lazy_static",
  "log",
  "maybe-sync",
  "nalgebra",
  "num-traits",
  "ordered-float",
- "petgraph",
  "rfd",
  "rstar",
  "serde",
@@ -1756,7 +1753,6 @@ dependencies = [
 [[package]]
 name = "galileo"
 version = "0.1.1"
-source = "git+https://github.com/tuxerator/galileo.git#27103b2c3ae19db41959ef78f4b97c471e75e9cc"
 dependencies = [
  "async-trait",
  "bincode",
@@ -1799,7 +1795,6 @@ dependencies = [
 [[package]]
 name = "galileo-mvt"
 version = "0.1.1"
-source = "git+https://github.com/tuxerator/galileo.git#27103b2c3ae19db41959ef78f4b97c471e75e9cc"
 dependencies = [
  "bytes",
  "galileo-types",
@@ -1815,7 +1810,6 @@ dependencies = [
 [[package]]
 name = "galileo-types"
 version = "0.1.1"
-source = "git+https://github.com/tuxerator/galileo.git#27103b2c3ae19db41959ef78f4b97c471e75e9cc"
 dependencies = [
  "geo-types",
  "geodesy",
@@ -2085,7 +2079,6 @@ dependencies = [
  "num-traits",
  "ordered-float",
  "osmpbfreader",
- "petgraph",
  "priority-queue",
  "qutee",
  "rayon",
@@ -3197,7 +3190,7 @@ version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af1844ef2428cc3e1cb900be36181049ef3d3193c63e43026cfe202983b27a56"
 dependencies = [
- "proc-macro-crate 3.2.0",
+ "proc-macro-crate 1.3.1",
  "proc-macro2",
  "quote",
  "syn 2.0.98",
@@ -3812,7 +3805,7 @@ checksum = "22505a5c94da8e3b7c2996394d1c933236c4d743e81a410bcca4e6989fc066a4"
 dependencies = [
  "bytes",
  "heck 0.5.0",
- "itertools 0.12.1",
+ "itertools 0.11.0",
  "log",
  "multimap 0.10.0",
  "once_cell",
@@ -3845,7 +3838,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.11.0",
  "proc-macro2",
  "quote",
  "syn 2.0.98",

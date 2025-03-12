@@ -9,7 +9,7 @@ use std::{
 
 use cached::proc_macro::cached;
 use log::{debug, info};
-use num_traits::Num;
+use num_traits::{Num, Zero};
 use ordered_float::{FloatCore, OrderedFloat};
 use priority_queue::PriorityQueue;
 use rayon::iter::ParallelIterator;
@@ -18,37 +18,44 @@ use serde::{Deserialize, Serialize};
 use crate::{
     graph::{Path, Target},
     types::Direction,
-    DirectedGraph,
+    DirectedGraph, Graph,
 };
 
-pub trait Dijkstra<T: FloatCore, V> {
+pub trait Dijkstra: Graph
+where
+    Self::EV: Num,
+{
     fn dijkstra(
         &self,
         start_node: usize,
         target_set: HashSet<usize>,
         direction: Direction,
-    ) -> Option<DijkstraResult<T>>;
+    ) -> Option<DijkstraResult<Self::EV>>;
 
-    fn dijkstra_full(&self, start_node: usize, direction: Direction) -> Option<DijkstraResult<T>>;
+    fn dijkstra_full(
+        &self,
+        start_node: usize,
+        direction: Direction,
+    ) -> Option<DijkstraResult<Self::EV>>;
 }
 
-impl<T, V, U> Dijkstra<T, V> for U
+impl<G> Dijkstra for G
 where
-    T: FloatCore,
-    U: DirectedGraph<T, V>,
+    G: DirectedGraph,
+    G::EV: FloatCore,
 {
     fn dijkstra(
         &self,
         start_node: usize,
         mut target_set: HashSet<usize>,
         direction: Direction,
-    ) -> Option<DijkstraResult<T>> {
+    ) -> Option<DijkstraResult<Self::EV>> {
         let mut frontier = PriorityQueue::new();
         let mut result = HashSet::new();
         let mut visited = HashSet::new();
         frontier.push(
-            ResultNode::new(start_node, None, T::zero()),
-            Reverse(OrderedFloat(T::zero())),
+            ResultNode::new(start_node, None, Self::EV::zero()),
+            Reverse(OrderedFloat(Self::EV::zero())),
         );
 
         while !target_set.is_empty() && !frontier.is_empty() {
@@ -57,7 +64,7 @@ where
                 continue;
             }
 
-            let neighbours: Box<dyn Iterator<Item = &Target<T>>> = match direction {
+            let neighbours: Box<dyn Iterator<Item = &Target<Self::EV>>> = match direction {
                 Direction::Outgoing => Box::new(self.out_neighbors(node.node_id())),
                 Direction::Incoming => Box::new(self.in_neighbors(node.node_id())),
                 Direction::Undirected => Box::new(self.neighbors(node.node_id())),
@@ -92,7 +99,11 @@ where
         Some(DijkstraResult::new(result))
     }
 
-    fn dijkstra_full(&self, start_node: usize, direction: Direction) -> Option<DijkstraResult<T>> {
+    fn dijkstra_full(
+        &self,
+        start_node: usize,
+        direction: Direction,
+    ) -> Option<DijkstraResult<Self::EV>> {
         self.dijkstra(
             start_node,
             HashSet::from_iter(0..self.node_count()),
@@ -101,19 +112,22 @@ where
     }
 }
 
-pub trait CachedDijkstra<T: FloatCore, V>: Dijkstra<T, V> {
+pub trait CachedDijkstra: Dijkstra
+where
+    Self::EV: Num,
+{
     fn cached_dijkstra(
         &mut self,
         start_node: usize,
         target_set: HashSet<usize>,
         direction: Direction,
-    ) -> Option<DijkstraResult<T>>;
+    ) -> Option<DijkstraResult<Self::EV>>;
 
     fn cached_dijkstra_full(
         &mut self,
         start_node: usize,
         direction: Direction,
-    ) -> Option<DijkstraResult<T>>;
+    ) -> Option<DijkstraResult<Self::EV>>;
 }
 
 #[derive(PartialEq, Debug)]

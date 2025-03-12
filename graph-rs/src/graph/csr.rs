@@ -186,7 +186,6 @@ pub struct DirectedCsrGraph<EV, NV> {
 impl<EV, NV> DirectedCsrGraph<EV, NV>
 where
     EV: Clone + Default,
-    NV: Clone,
 {
     pub fn new(
         node_values: Vec<NV>,
@@ -218,6 +217,7 @@ where
     pub fn filter<F>(self, predicate: F) -> DirectedCsrGraph<EV, NV>
     where
         F: Fn(&(usize, &NV)) -> bool + Clone,
+        NV: Clone,
     {
         let mut index: usize = 0;
         let mut node_map = HashMap::new();
@@ -253,13 +253,10 @@ where
 
         new_graph
     }
-}
-
-impl<EV, NV> DirectedCsrGraph<EV, NV>
-where
-    EV: Send + Sync,
-{
-    pub fn par_out_neighbors(&self, node_id: usize) -> rayon::slice::Iter<'_, Target<EV>> {
+    pub fn par_out_neighbors(&self, node_id: usize) -> rayon::slice::Iter<'_, Target<EV>>
+    where
+        EV: Send + Sync,
+    {
         self.csr_out.targets(node_id).par_iter()
     }
 }
@@ -267,7 +264,6 @@ where
 impl<EV, NV> Default for DirectedCsrGraph<EV, NV>
 where
     EV: Clone + Default,
-    NV: Clone,
 {
     fn default() -> Self {
         DirectedCsrGraph::new(vec![], Csr::default(), Csr::default())
@@ -282,7 +278,9 @@ impl<EV: PartialEq, NV: PartialEq> PartialEq for DirectedCsrGraph<EV, NV> {
     }
 }
 
-impl<EV: Clone, NV> Graph<EV, NV> for DirectedCsrGraph<EV, NV> {
+impl<EV: Clone + Default, NV> Graph for DirectedCsrGraph<EV, NV> {
+    type EV = EV;
+    type NV = NV;
     fn node_count(&self) -> usize {
         self.csr_out.node_count()
     }
@@ -401,7 +399,7 @@ impl<EV: Clone, NV> Graph<EV, NV> for DirectedCsrGraph<EV, NV> {
     }
 }
 
-impl<EV: Clone, NV> DirectedGraph<EV, NV> for DirectedCsrGraph<EV, NV> {
+impl<EV: Clone + Default, NV> DirectedGraph for DirectedCsrGraph<EV, NV> {
     // TODO: Use Result<usize> as return value.
     fn out_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
     where
@@ -429,16 +427,16 @@ impl<EV: Clone, NV> DirectedGraph<EV, NV> for DirectedCsrGraph<EV, NV> {
     }
 }
 
-impl<EV, NV> CachedDijkstra<EV, NV> for DirectedCsrGraph<EV, NV>
+impl<EV, NV> CachedDijkstra for DirectedCsrGraph<EV, NV>
 where
-    EV: FloatCore,
+    EV: FloatCore + Default,
 {
     fn cached_dijkstra(
         &mut self,
         start_node: usize,
         target_set: HashSet<usize>,
         direction: Direction,
-    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<EV>> {
+    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<Self::EV>> {
         let s_t_pairs = std::iter::repeat(start_node).zip(target_set.into_iter());
         let mut result_set = DijkstraResult(HashSet::new());
         let mut cache_misses = HashSet::new();
@@ -465,7 +463,7 @@ where
         &mut self,
         start_node: usize,
         direction: Direction,
-    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<EV>> {
+    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<Self::EV>> {
         todo!()
     }
 }

@@ -1,7 +1,7 @@
 use std::{error::Error, fmt::Display};
 
-use ::geo_types::{Coord, CoordNum, Point};
-use geo::Rect;
+use ::geo_types::{Coord, CoordNum, CoordinateType, Point};
+use geo::{CoordinatePosition, Rect};
 use graph::Target;
 use num_traits::Num;
 
@@ -45,56 +45,59 @@ pub trait Coordinate<T: CoordNum + Num = f64> {
     fn as_coord(&self) -> Coord<T>;
 }
 
-pub trait Graph<EV, NV> {
+pub trait Graph: Default {
+    type EV;
+    type NV;
     fn node_count(&self) -> usize;
 
     fn edge_count(&self) -> usize;
 
-    fn neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
+    fn neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<Self::EV>>
     where
-        EV: 'a;
+        Self::EV: 'a;
 
     fn edges(&self) -> impl Iterator<Item = (usize, usize)> + '_;
 
     fn degree(&self, node: usize) -> usize;
 
-    fn node_value(&self, node: usize) -> Option<&NV>;
+    fn node_value(&self, node: usize) -> Option<&Self::NV>;
 
-    fn nodes_iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
+    fn nodes_iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a Self::NV)>
     where
-        NV: 'a;
+        Self::NV: 'a;
 
-    fn node_value_mut(&mut self, node: usize) -> Option<&mut NV>;
+    fn node_value_mut(&mut self, node: usize) -> Option<&mut Self::NV>;
 
-    fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), GraphError>;
+    fn set_node_value(&mut self, node: usize, value: Self::NV) -> Result<(), GraphError>;
 
-    fn add_node(&mut self, weight: NV) -> usize;
+    fn add_node(&mut self, weight: Self::NV) -> usize;
 
-    fn add_edge(&mut self, a: usize, b: usize, weight: EV) -> bool;
+    fn add_edge(&mut self, a: usize, b: usize, weight: Self::EV) -> bool;
 
-    fn remove_node(&mut self, node: usize) -> Option<NV>;
+    fn remove_node(&mut self, node: usize) -> Option<Self::NV>;
 
-    fn remove_edge(&mut self, edge: (usize, usize)) -> Option<EV>;
+    fn remove_edge(&mut self, edge: (usize, usize)) -> Option<Self::EV>;
 }
 
-pub trait DirectedGraph<EV, NV>: Graph<EV, NV> {
-    fn out_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
+pub trait DirectedGraph: Graph {
+    fn out_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<Self::EV>>
     where
-        EV: 'a;
+        Self::EV: 'a;
 
-    fn in_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<EV>>
+    fn in_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a Target<Self::EV>>
     where
-        EV: 'a;
+        Self::EV: 'a;
 
     fn out_degree(&self, node: usize) -> usize;
 
     fn in_degree(&self, node: usize) -> usize;
 }
 
-pub trait CoordGraph<EV, NV: Coordinate<C>, C: CoordNum>: Graph<EV, NV> {
-    fn nearest_node(&self, point: &Coord<C>) -> Option<usize>;
+pub trait CoordGraph: Graph {
+    type C: CoordNum;
+    fn nearest_node(&self, point: &Coord<Self::C>) -> Option<usize>;
 
-    fn nearest_node_bound(&self, point: &Coord<C>, tolerance: C) -> Option<usize>;
+    fn nearest_node_bound(&self, point: &Coord<Self::C>, tolerance: Self::C) -> Option<usize>;
 
-    fn bounding_rect(&self) -> Option<Rect<C>>;
+    fn bounding_rect(&self) -> Option<Rect<Self::C>>;
 }

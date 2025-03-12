@@ -19,6 +19,7 @@ use galileo_types::geo::{GeoPoint, NewGeoPoint};
 use geo::{coord, Coord, LineString};
 use geo_types::geometry::Polygon;
 use geozero::geojson::read_geojson;
+use graph_rs::graph::csr::DirectedCsrGraph;
 use graph_rs::graph::quad_tree::QuadGraph;
 use graph_rs::graph::rstar::RTreeGraph;
 use graph_rs::Graph;
@@ -41,7 +42,7 @@ type StartEndPos<T> = (
 
 pub struct UiState {
     graph: Option<PoiGraph<Poi>>,
-    oracle: Option<Arc<Mutex<Oracle<f64>>>>,
+    oracle: Option<Arc<Mutex<Oracle<DirectedCsrGraph<f64, CoordNode<f64, Poi>>>>>>,
     map: Arc<RwLock<Map<String>>>,
     sender: Sender<Events>,
     state: State,
@@ -180,7 +181,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
 
             read_geojson(buf_reader, &mut graph_writer);
             let graph = RTreeGraph::new_from_graph(graph_writer.get_graph());
-            state.graph = Some(PoiGraph::new(graph));
+            state.graph = Some(PoiGraph::new(Arc::new(RwLock::new(graph))));
 
             state.state = State::LoadedGraph;
         }
@@ -230,7 +231,9 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
                     layer
                         .write()
                         .expect("poisoned lock")
-                        .insert_coord_graph(&*state.graph.as_ref().unwrap().graph());
+                        .insert_coord_graph::<RTreeGraph<
+                            DirectedCsrGraph<f64, CoordNode<f64, Poi>>, f64>,
+                        >(&*state.graph.as_ref().unwrap().graph());
 
                     Ok(())
                 });
@@ -505,16 +508,26 @@ fn build_oracle(state: &mut UiState) {
         return;
     };
 
-    state.oracle = Oracle::build(&mut graph.graph_mut(), pos.0, state.epsilon)
-        .ok()
-        .map(|oracle| Arc::new(Mutex::new(oracle)));
+    state.oracle = Some(Arc::new(Mutex::new(Oracle::new(graph.graph_ref()))));
 
     let mut map = state.map.write().expect("poisoned lock");
     {
-        let layer: &mut Arc<RwLock<BlocksLayer<BlocksSymbol<f64>, f64>>> = map
+        let layer: &mut Arc<
+            RwLock<
+                BlocksLayer<
+                    BlocksSymbol<f64>,
+                    DirectedCsrGraph<f64, CoordNode<f64, Poi>>,
+                    f64,
+                >,
+            >,
+        > = map
             .or_insert(
                 "points".to_string(),
-                BlocksLayer::<BlocksSymbol<f64>, f64>::new(
+                BlocksLayer::<
+                    BlocksSymbol<f64>,
+                    DirectedCsrGraph<f64, CoordNode<f64, Poi>>,
+                    f64,
+                >::new(
                     state.oracle.clone().expect("Oracle not present"),
                     BlocksSymbol::new(),
                 ),

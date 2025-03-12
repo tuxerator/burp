@@ -24,7 +24,7 @@ impl TarjanSCCData {
         }
     }
 
-    fn run<EV, NV, G: DirectedGraph<EV, NV>>(&mut self, g: &G) {
+    fn run<G: DirectedGraph>(&mut self, g: &G) {
         println!("SCC for graph with {} nodes", g.node_count());
         self.nodes.clear();
         self.nodes
@@ -38,7 +38,7 @@ impl TarjanSCCData {
         }
     }
 
-    fn visit<EV, NV, G: DirectedGraph<EV, NV>>(&mut self, g: &G, v: usize) {
+    fn visit<G: DirectedGraph>(&mut self, g: &G, v: usize) {
         let node_v = &mut self.nodes[v];
         let mut v_is_local_root = true;
         node_v.rootindex = Some(self.index);
@@ -70,13 +70,13 @@ impl TarjanSCCData {
         }
     }
 }
-pub trait TarjanSCC<EV, NV> {
+pub trait TarjanSCC {
     fn tarjan_scc(&self) -> Vec<Vec<usize>>;
 }
 
-impl<EV, NV, G> TarjanSCC<EV, NV> for G
+impl<G> TarjanSCC for G
 where
-    G: DirectedGraph<EV, NV>,
+    G: DirectedGraph,
 {
     fn tarjan_scc(&self) -> Vec<Vec<usize>> {
         let mut tarjan_scc = TarjanSCCData::new();

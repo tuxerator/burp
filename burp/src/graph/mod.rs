@@ -19,6 +19,7 @@ use graph_rs::{
     CoordGraph, Coordinate, DirectedGraph, Graph,
 };
 use log::{info, warn};
+use num_traits::{NumCast, Zero};
 use ordered_float::{FloatCore, OrderedFloat};
 use priority_queue::PriorityQueue;
 use rayon::prelude::*;
@@ -33,50 +34,49 @@ pub mod oracle;
 
 pub trait NodeTrait: Clone + Debug + Send + Sync {}
 
-type RTreeGraphType<T> =
-    RTreeGraph<f64, CoordNode<f64, T>, DirectedCsrGraph<f64, CoordNode<f64, T>>, f64>;
-type RwLockGraph<T> = RwLock<RTreeGraphType<T>>;
+type RTreeGraphType<T> = RTreeGraph<DirectedCsrGraph<f64, CoordNode<f64, T>>, f64>;
 
-#[derive(Serialize, Deserialize)]
-pub struct PoiGraph<T>
+#[derive(Default, Serialize, Deserialize)]
+pub struct PoiGraph<NV>
 where
-    T: NodeTrait,
+    NV: NodeTrait,
 {
-    graph: RwLockGraph<T>,
+    graph: Arc<RwLock<RTreeGraphType<NV>>>,
     poi_nodes: HashSet<usize>,
 }
 
-impl<T> PoiGraph<T>
+impl<NV> PoiGraph<NV>
 where
-    T: NodeTrait + Serialize + DeserializeOwned,
+    NV: NodeTrait + Serialize + DeserializeOwned,
 {
-    pub fn new(graph: RTreeGraphType<T>) -> Self {
-        let poi_nodes = graph
-            .nodes_iter()
-            .fold(HashSet::default(), |mut poi_nodes, node| {
+    pub fn new(graph: Arc<RwLock<RTreeGraphType<NV>>>) -> Self {
+        let poi_nodes = graph.read().expect("RwLock poisoned").nodes_iter().fold(
+            HashSet::default(),
+            |mut poi_nodes, node| {
                 if node.1.has_data() {
                     poi_nodes.insert(node.0);
                 }
                 poi_nodes
-            });
+            },
+        );
         Self {
-            graph: RwLock::new(graph),
+            graph: graph,
             poi_nodes,
         }
     }
 
-    pub fn add_poi(&mut self, mut poi: CoordNode<f64, T>) -> Result<(), Error> {
+    pub fn add_poi(&mut self, mut poi: CoordNode<f64, NV>) -> Result<(), Error> {
         let nearest_node;
         {
             nearest_node = self
                 .graph
                 .read()
-                .expect("poisioned lock")
+                .expect("RwLock poisoned")
                 .nearest_node(poi.get_coord())
                 .ok_or(Error::NoValue(format!("quad graph empty")))?;
         }
         {
-            let mut graph = self.graph.write().expect("poisioned lock");
+            let mut graph = self.graph.write().expect("RwLock");
             let node = graph
                 .node_value_mut(nearest_node)
                 .ok_or(Error::NoValue(format!("node: {:?}", nearest_node)))?;
@@ -94,9 +94,8 @@ where
         &self,
         coord: &Coord<f64>,
         tolerance: f64,
-    ) -> Result<(usize, CoordNode<f64, T>), Error> {
-        let graph = self.graph.read().expect("poisoned lock");
-
+    ) -> Result<(usize, CoordNode<f64, NV>), Error> {
+        let graph = self.graph.read().expect("RwLock poisoned");
         let node_id = graph
             .nearest_node_bound(coord, tolerance)
             .ok_or(Error::NoValue(format!(
@@ -113,7 +112,7 @@ where
         Ok((node_id, node_value))
     }
 
-    pub fn add_pois(&mut self, pois: &[CoordNode<f64, T>]) -> Result<(), Vec<Error>> {
+    pub fn add_pois(&mut self, pois: &[CoordNode<f64, NV>]) -> Result<(), Vec<Error>> {
         pois.iter().for_each(|poi| {
             self.add_poi(poi.to_owned());
         });
@@ -140,12 +139,15 @@ where
 }
 
 impl<T: NodeTrait> PoiGraph<T> {
+    pub fn graph_ref(&self) -> Arc<RwLock<RTreeGraphType<T>>> {
+        self.graph.clone()
+    }
     pub fn graph(&self) -> RwLockReadGuard<RTreeGraphType<T>> {
-        self.graph.read().expect("poisoned lock")
+        self.graph.read().expect("RwLock poisoned")
     }
 
-    pub fn graph_mut(&self) -> RwLockWriteGuard<RTreeGraphType<T>> {
-        self.graph.write().expect("poisoned lock")
+    pub fn graph_mut(&mut self) -> RwLockWriteGuard<RTreeGraphType<T>> {
+        self.graph.write().expect("RwLock poisoned")
     }
 
     pub fn dijkstra(
@@ -221,8 +223,6 @@ impl<T: NodeTrait> PoiGraph<T> {
         frontier.push((start_id, Label::Forward), Reverse(OrderedFloat(0.0)));
         frontier.push((end_id, Label::Backward), Reverse(OrderedFloat(0.0)));
 
-        let frontier = Arc::new(RwLock::new(frontier));
-
         thread::scope(|s| {
             s.spawn(|| {
                 shared_dijkstra(
@@ -257,6 +257,7 @@ impl<T: NodeTrait> PoiGraph<T> {
             .expect("poisioned lock")
     }
 }
+
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 enum Label {
     Forward,
@@ -274,22 +275,25 @@ impl Label {
     }
 }
 
-fn shared_dijkstra<EV, NV, G>(
+fn shared_dijkstra<G>(
     graph: &G,
     start_node: usize,
     direction: Label,
-    visited: Arc<RwLock<HashMap<(usize, Label), OrderedFloat<EV>>>>,
+    visited: Arc<RwLock<HashMap<(usize, Label), OrderedFloat<G::EV>>>>,
     targets: &HashSet<usize>,
-    result: Arc<Mutex<HashMap<usize, EV>>>,
-    bound: Arc<RwLock<EV>>,
-    epsilon: EV,
+    result: Arc<Mutex<HashMap<usize, G::EV>>>,
+    bound: Arc<RwLock<G::EV>>,
+    epsilon: G::EV,
 ) where
-    EV: FloatCore + Send + Sync + Debug,
-    NV: Send + Sync,
-    G: DirectedGraph<EV, NV>,
+    G: DirectedGraph,
+    G::EV: FloatCore + Send + Sync + Debug,
+    G::NV: Send + Sync,
 {
     let mut frontier = PriorityQueue::new();
-    frontier.push((start_node, direction), Reverse(OrderedFloat(EV::zero())));
+    frontier.push(
+        (start_node, direction),
+        Reverse(OrderedFloat(G::EV::zero())),
+    );
     let mut next_node = frontier.pop();
     while let Some(node) = next_node.take() {
         if node.1 .0 .0 > *bound.read().expect("poisoned lock") {
@@ -325,7 +329,7 @@ fn shared_dijkstra<EV, NV, G>(
 
             *bound = *cmp::min(
                 OrderedFloat(*bound),
-                distance * OrderedFloat(EV::from(1.0).unwrap() + epsilon),
+                distance * OrderedFloat(<G::EV as NumCast>::from(1.0).unwrap() + epsilon),
             );
 
             if targets.contains(&node.0 .0) {
@@ -338,7 +342,7 @@ fn shared_dijkstra<EV, NV, G>(
             .expect("poisoned lock")
             .insert((node.0 .0, direction), node.1 .0);
 
-        let neighbours: Box<dyn Iterator<Item = &Target<EV>>> = match node.0 .1 {
+        let neighbours: Box<dyn Iterator<Item = &Target<G::EV>>> = match node.0 .1 {
             Label::Forward => Box::new(graph.neighbors(node.0 .0)),
             Label::Backward => Box::new(graph.neighbors(node.0 .0)),
             _ => continue,
@@ -372,7 +376,7 @@ where
     T: NodeTrait + PartialEq,
 {
     fn eq(&self, other: &Self) -> bool {
-        *self.graph.read().expect("poisoned lock") == *other.graph.read().expect("poisoned lock")
+        *self.graph() == *other.graph()
     }
 }
 
@@ -390,7 +394,7 @@ where
                 poi_nodes
             });
         Self {
-            graph: RwLock::new(graph),
+            graph: Arc::new(RwLock::new(graph)),
             poi_nodes,
         }
     }

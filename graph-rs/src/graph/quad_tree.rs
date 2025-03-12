@@ -28,28 +28,22 @@ use crate::{
 use super::csr::DirectedCsrGraph;
 
 #[derive(Serialize, PartialEq, Debug)]
-pub struct QuadGraph<EV, NV, C, G>
+pub struct QuadGraph<G, C>
 where
-    G: Graph<EV, NV>,
-    NV: Coordinate<C>,
+    G: Graph,
+    G::NV: Coordinate<C>,
     C: qutee::Coordinate + Num,
 {
     graph: G,
 
     #[serde(skip_serializing)]
     quad_tree: Box<QuadTree<C, usize>>,
-
-    #[serde(skip_serializing)]
-    _marker_0: PhantomData<EV>,
-
-    #[serde(skip_serializing)]
-    _marker_1: PhantomData<NV>,
 }
 
-impl<EV, NV, C, G> QuadGraph<EV, NV, C, G>
+impl<G, C> QuadGraph<G, C>
 where
-    G: DirectedGraph<EV, NV>,
-    NV: Coordinate<C>,
+    G: Graph,
+    G::NV: Coordinate<C>,
     C: qutee::Coordinate + Num,
 {
     pub fn new_from_graph(graph: G) -> Self {
@@ -68,12 +62,7 @@ where
 
         info!("Created quad-tree");
 
-        Self {
-            graph,
-            quad_tree,
-            _marker_0: PhantomData,
-            _marker_1: PhantomData,
-        }
+        Self { graph, quad_tree }
     }
 
     pub fn graph(&self) -> &G {
@@ -103,14 +92,14 @@ where
     }
 }
 
-impl<EV, NV, C, G> QuadGraph<EV, NV, C, G>
+impl<G, C> QuadGraph<G, C>
 where
-    G: DirectedGraph<EV, NV> + CachedDijkstra<EV, NV>,
+    G: DirectedGraph + CachedDijkstra,
     C: qutee::Coordinate + Num,
-    NV: Coordinate<C> + Debug,
-    EV: FloatCore,
+    G::NV: Coordinate<C>,
+    G::EV: FloatCore,
 {
-    pub fn radius<A>(&mut self, node: usize, area: &A, direction: Direction) -> Option<EV>
+    pub fn radius<A>(&mut self, node: usize, area: &A, direction: Direction) -> Option<G::EV>
     where
         A: qutee::Area<C> + Debug,
     {
@@ -134,19 +123,33 @@ where
     }
 }
 
-impl<EV, NV, C, G> Graph<EV, NV> for QuadGraph<EV, NV, C, G>
+impl<G, C> Default for QuadGraph<G, C>
 where
-    G: Graph<EV, NV>,
-    NV: Coordinate<C> + Debug,
-    C: CoordNum + Num,
+    G: Graph,
+    G::NV: Coordinate<C>,
+    C: qutee::Coordinate + Num,
 {
+    fn default() -> Self {
+        let graph = G::default();
+        QuadGraph::new_from_graph(graph)
+    }
+}
+
+impl<G, C> Graph for QuadGraph<G, C>
+where
+    G: Graph,
+    G::NV: Coordinate<C>,
+    C: qutee::Coordinate + Num,
+{
+    type NV = G::NV;
+    type EV = G::EV;
     fn degree(&self, node: usize) -> usize {
         self.graph.degree(node)
     }
 
-    fn neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a super::Target<EV>>
+    fn neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a super::Target<Self::EV>>
     where
-        EV: 'a,
+        Self::EV: 'a,
     {
         self.graph.neighbors(node)
     }
@@ -159,11 +162,11 @@ where
         self.graph.edge_count()
     }
 
-    fn node_value(&self, node: usize) -> Option<&NV> {
+    fn node_value(&self, node: usize) -> Option<&Self::NV> {
         self.graph.node_value(node)
     }
 
-    fn node_value_mut(&mut self, node: usize) -> Option<&mut NV> {
+    fn node_value_mut(&mut self, node: usize) -> Option<&mut Self::NV> {
         self.graph.node_value_mut(node)
     }
 
@@ -171,39 +174,39 @@ where
         self.graph.edges()
     }
 
-    fn nodes_iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
+    fn nodes_iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a Self::NV)>
     where
-        NV: 'a,
+        Self::NV: 'a,
     {
         self.graph.nodes_iter()
     }
 
-    fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), crate::GraphError> {
+    fn set_node_value(&mut self, node: usize, value: G::NV) -> Result<(), crate::GraphError> {
         self.graph.set_node_value(node, value)
     }
 
-    fn add_node(&mut self, weight: NV) -> usize {
+    fn add_node(&mut self, weight: Self::NV) -> usize {
         self.graph.add_node(weight)
     }
 
-    fn add_edge(&mut self, a: usize, b: usize, weight: EV) -> bool {
+    fn add_edge(&mut self, a: usize, b: usize, weight: Self::EV) -> bool {
         self.graph.add_edge(a, b, weight)
     }
 
-    fn remove_node(&mut self, node: usize) -> Option<NV> {
+    fn remove_node(&mut self, node: usize) -> Option<Self::NV> {
         self.graph.remove_node(node)
     }
 
-    fn remove_edge(&mut self, edge: (usize, usize)) -> Option<EV> {
+    fn remove_edge(&mut self, edge: (usize, usize)) -> Option<Self::EV> {
         self.graph.remove_edge(edge)
     }
 }
 
-impl<EV, NV, C, G> DirectedGraph<EV, NV> for QuadGraph<EV, NV, C, G>
+impl<G, C> DirectedGraph for QuadGraph<G, C>
 where
-    G: DirectedGraph<EV, NV>,
+    G: DirectedGraph,
     C: qutee::Coordinate + Num,
-    NV: Coordinate<C> + Debug,
+    G::NV: Coordinate<C>,
 {
     fn in_degree(&self, node: usize) -> usize {
         self.graph.in_degree(node)
@@ -213,27 +216,28 @@ where
         self.graph.out_degree(node)
     }
 
-    fn in_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a super::Target<EV>>
+    fn in_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a super::Target<Self::EV>>
     where
-        EV: 'a,
+        Self::EV: 'a,
     {
         self.graph.in_neighbors(node)
     }
 
-    fn out_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a super::Target<EV>>
+    fn out_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a super::Target<Self::EV>>
     where
-        EV: 'a,
+        Self::EV: 'a,
     {
         self.graph.out_neighbors(node)
     }
 }
 
-impl<EV, NV, C, G> CoordGraph<EV, NV, C> for QuadGraph<EV, NV, C, G>
+impl<G, C> CoordGraph for QuadGraph<G, C>
 where
-    G: DirectedGraph<EV, NV>,
+    G: DirectedGraph,
     C: qutee::Coordinate + Num + CoordFloat + FromPrimitive,
-    NV: Coordinate<C> + Debug,
+    G::NV: Coordinate<C> + Debug,
 {
+    type C = C;
     fn nearest_node(&self, point: &Coord<C>) -> Option<usize> {
         self.nearest_node_bound(point, C::max_value())
     }
@@ -282,19 +286,19 @@ where
     }
 }
 
-impl<EV, NV, C, G> CachedDijkstra<EV, NV> for QuadGraph<EV, NV, C, G>
+impl<G, C> CachedDijkstra for QuadGraph<G, C>
 where
-    EV: FloatCore,
-    NV: Coordinate<C> + Debug,
+    G: DirectedGraph + CachedDijkstra,
+    G::NV: Coordinate<C>,
+    G::EV: FloatCore,
     C: qutee::Coordinate + Num,
-    G: DirectedGraph<EV, NV> + CachedDijkstra<EV, NV>,
 {
     fn cached_dijkstra(
         &mut self,
         start_node: usize,
         target_set: HashSet<usize>,
         direction: Direction,
-    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<EV>> {
+    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<Self::EV>> {
         self.graph
             .cached_dijkstra(start_node, target_set, direction)
     }
@@ -303,14 +307,14 @@ where
         &mut self,
         start_node: usize,
         direction: Direction,
-    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<EV>> {
+    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<Self::EV>> {
         self.graph.cached_dijkstra_full(start_node, direction)
     }
 }
 
-impl<'de, EV, NV, C> Deserialize<'de> for QuadGraph<EV, NV, C, DirectedCsrGraph<EV, NV>>
+impl<'de, EV, NV, C> Deserialize<'de> for QuadGraph<DirectedCsrGraph<EV, NV>, C>
 where
-    EV: Copy + Deserialize<'de>,
+    EV: Copy + Default + Deserialize<'de>,
     NV: Coordinate<C> + Debug + Clone + Deserialize<'de>,
     C: qutee::Coordinate + Num,
 {
@@ -379,11 +383,11 @@ where
 
         impl<'de, EV, NV, C> Visitor<'de> for QuadGraphVisitor<EV, NV, C>
         where
-            EV: Copy + Deserialize<'de>,
+            EV: Copy + Default + Deserialize<'de>,
             NV: Coordinate<C> + Deserialize<'de>,
             C: qutee::Coordinate + Num,
         {
-            type Value = QuadGraph<EV, NV, C, DirectedCsrGraph<EV, NV>>;
+            type Value = QuadGraph<DirectedCsrGraph<EV, NV>, C>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("struct QuadGraph")

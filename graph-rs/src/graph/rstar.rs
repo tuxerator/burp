@@ -31,27 +31,21 @@ use crate::{
 use super::csr::DirectedCsrGraph;
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct RTreeGraph<EV, NV, G, C>
+pub struct RTreeGraph<G, C>
 where
-    G: Graph<EV, NV>,
-    NV: Coordinate<C>,
+    G: Graph,
+    G::NV: Coordinate<C>,
     C: RTreeNum + CoordFloat,
 {
     graph: G,
 
     r_tree: Box<RTree<GeomWithData<Coord<C>, usize>>>,
-
-    #[serde(skip)]
-    _marker_0: PhantomData<EV>,
-
-    #[serde(skip)]
-    _marker_1: PhantomData<NV>,
 }
 
-impl<EV, NV, G, C> RTreeGraph<EV, NV, G, C>
+impl<G, C> RTreeGraph<G, C>
 where
-    G: Graph<EV, NV>,
-    NV: Coordinate<C>,
+    G: Graph,
+    G::NV: Coordinate<C>,
     C: RTreeNum + CoordFloat,
 {
     pub fn new_from_graph(graph: G) -> Self {
@@ -66,12 +60,7 @@ where
 
         info!("Created r-tree");
 
-        Self {
-            graph,
-            r_tree,
-            _marker_0: PhantomData,
-            _marker_1: PhantomData,
-        }
+        Self { graph, r_tree }
     }
 
     pub fn graph(&self) -> &G {
@@ -86,11 +75,11 @@ where
     }
 }
 
-impl<EV, NV, G, C> RTreeGraph<EV, NV, G, C>
+impl<G, C> RTreeGraph<G, C>
 where
-    G: DirectedGraph<EV, NV> + CachedDijkstra<EV, NV>,
-    NV: Coordinate<C>,
-    EV: FloatCore,
+    G: DirectedGraph + CachedDijkstra,
+    G::NV: Coordinate<C>,
+    G::EV: FloatCore,
     C: RTreeNum + CoordFloat,
 {
     pub fn radius(
@@ -98,7 +87,7 @@ where
         node: usize,
         envelope: &<GeomWithData<Coord<C>, usize> as RTreeObject>::Envelope,
         direction: Direction,
-    ) -> Option<EV> {
+    ) -> Option<G::EV> {
         let nodes = self.query(envelope).map(|node| node.data);
         let nodes = HashSet::from_iter(nodes);
 
@@ -119,10 +108,21 @@ where
     }
 }
 
-impl<EV, NV, G, C> PartialEq for RTreeGraph<EV, NV, G, C>
+impl<G, C> Default for RTreeGraph<G, C>
 where
-    G: Graph<EV, NV> + PartialEq,
-    NV: Coordinate<C>,
+    G: Graph,
+    G::NV: Coordinate<C>,
+    C: RTreeNum + CoordFloat,
+{
+    fn default() -> Self {
+        let graph = G::default();
+        RTreeGraph::new_from_graph(graph)
+    }
+}
+impl<G, C> PartialEq for RTreeGraph<G, C>
+where
+    G: Graph + PartialEq,
+    G::NV: Coordinate<C>,
     C: RTreeNum + CoordFloat,
 {
     fn eq(&self, other: &Self) -> bool {
@@ -130,19 +130,21 @@ where
     }
 }
 
-impl<EV, NV, G, C> Graph<EV, NV> for RTreeGraph<EV, NV, G, C>
+impl<G, C> Graph for RTreeGraph<G, C>
 where
-    G: Graph<EV, NV>,
-    NV: Coordinate<C>,
+    G: Graph,
+    G::NV: Coordinate<C>,
     C: RTreeNum + CoordFloat,
 {
+    type EV = G::EV;
+    type NV = G::NV;
     fn degree(&self, node: usize) -> usize {
         self.graph.degree(node)
     }
 
-    fn neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a super::Target<EV>>
+    fn neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a super::Target<Self::EV>>
     where
-        EV: 'a,
+        Self::EV: 'a,
     {
         self.graph.neighbors(node)
     }
@@ -155,11 +157,11 @@ where
         self.graph.edge_count()
     }
 
-    fn node_value(&self, node: usize) -> Option<&NV> {
+    fn node_value(&self, node: usize) -> Option<&Self::NV> {
         self.graph.node_value(node)
     }
 
-    fn node_value_mut(&mut self, node: usize) -> Option<&mut NV> {
+    fn node_value_mut(&mut self, node: usize) -> Option<&mut Self::NV> {
         self.graph.node_value_mut(node)
     }
 
@@ -167,18 +169,18 @@ where
         self.graph.edges()
     }
 
-    fn nodes_iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
+    fn nodes_iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a Self::NV)>
     where
-        NV: 'a,
+        Self::NV: 'a,
     {
         self.graph.nodes_iter()
     }
 
-    fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), crate::GraphError> {
+    fn set_node_value(&mut self, node: usize, value: Self::NV) -> Result<(), crate::GraphError> {
         self.graph.set_node_value(node, value)
     }
 
-    fn add_node(&mut self, weight: NV) -> usize {
+    fn add_node(&mut self, weight: Self::NV) -> usize {
         let coord = weight.as_coord();
         let node_id = self.graph.add_node(weight);
 
@@ -187,23 +189,23 @@ where
         node_id
     }
 
-    fn add_edge(&mut self, a: usize, b: usize, weight: EV) -> bool {
+    fn add_edge(&mut self, a: usize, b: usize, weight: Self::EV) -> bool {
         self.graph.add_edge(a, b, weight)
     }
 
-    fn remove_node(&mut self, node: usize) -> Option<NV> {
+    fn remove_node(&mut self, node: usize) -> Option<Self::NV> {
         self.graph.remove_node(node)
     }
 
-    fn remove_edge(&mut self, edge: (usize, usize)) -> Option<EV> {
+    fn remove_edge(&mut self, edge: (usize, usize)) -> Option<Self::EV> {
         self.graph.remove_edge(edge)
     }
 }
 
-impl<EV, NV, G, C> DirectedGraph<EV, NV> for RTreeGraph<EV, NV, G, C>
+impl<G, C> DirectedGraph for RTreeGraph<G, C>
 where
-    G: DirectedGraph<EV, NV>,
-    NV: Coordinate<C>,
+    G: DirectedGraph,
+    G::NV: Coordinate<C>,
     C: RTreeNum + CoordFloat,
 {
     fn in_degree(&self, node: usize) -> usize {
@@ -214,27 +216,28 @@ where
         self.graph.out_degree(node)
     }
 
-    fn in_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a super::Target<EV>>
+    fn in_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a super::Target<Self::EV>>
     where
-        EV: 'a,
+        Self::EV: 'a,
     {
         self.graph.in_neighbors(node)
     }
 
-    fn out_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a super::Target<EV>>
+    fn out_neighbors<'a>(&'a self, node: usize) -> impl Iterator<Item = &'a super::Target<Self::EV>>
     where
-        EV: 'a,
+        Self::EV: 'a,
     {
         self.graph.out_neighbors(node)
     }
 }
 
-impl<EV, NV, G, C> CoordGraph<EV, NV, C> for RTreeGraph<EV, NV, G, C>
+impl<G, C> CoordGraph for RTreeGraph<G, C>
 where
-    G: DirectedGraph<EV, NV>,
-    NV: Coordinate<C>,
+    G: DirectedGraph,
+    G::NV: Coordinate<C>,
     C: RTreeNum + CoordFloat,
 {
+    type C = C;
     fn nearest_node(&self, point: &Coord<C>) -> Option<usize> {
         self.r_tree.nearest_neighbor(point).map(|n| n.data)
     }
@@ -263,11 +266,11 @@ where
     }
 }
 
-impl<EV, NV, G, C> CachedDijkstra<EV, NV> for RTreeGraph<EV, NV, G, C>
+impl<G, C> CachedDijkstra for RTreeGraph<G, C>
 where
-    G: DirectedGraph<EV, NV> + CachedDijkstra<EV, NV>,
-    EV: FloatCore,
-    NV: Coordinate<C>,
+    G: DirectedGraph + CachedDijkstra,
+    G::EV: FloatCore,
+    G::NV: Coordinate<C>,
     C: RTreeNum + CoordFloat,
 {
     fn cached_dijkstra(
@@ -275,7 +278,7 @@ where
         start_node: usize,
         target_set: HashSet<usize>,
         direction: Direction,
-    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<EV>> {
+    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<Self::EV>> {
         self.graph
             .cached_dijkstra(start_node, target_set, direction)
     }
@@ -284,7 +287,7 @@ where
         &mut self,
         start_node: usize,
         direction: Direction,
-    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<EV>> {
+    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<Self::EV>> {
         self.graph.cached_dijkstra_full(start_node, direction)
     }
 }

@@ -2,6 +2,7 @@ use std::{
     fs::File,
     io::{BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
+    sync::{Arc, RwLock},
 };
 
 use burp::{
@@ -46,7 +47,9 @@ fn main() {
             let mut graph_writer = GraphWriter::default();
             read_geojson(reader, &mut graph_writer).unwrap();
 
-            let graph = PoiGraph::new(RTreeGraph::new_from_graph(graph_writer.get_graph()));
+            let graph = PoiGraph::new(Arc::new(RwLock::new(RTreeGraph::new_from_graph(
+                graph_writer.get_graph(),
+            ))));
 
             let mut writer = BufWriter::new(File::create(out_file).unwrap());
             writer.write_all(graph.to_flexbuffer().as_slice()).unwrap();
@@ -59,7 +62,7 @@ fn main() {
 
             let node = thread_rng().gen_range(0..graph.graph().node_count());
 
-            let oracle = oracle::Oracle::build(&mut graph.graph_mut(), node, epsilon);
+            let oracle = oracle::Oracle::new(graph.graph_ref());
         }
     }
 }

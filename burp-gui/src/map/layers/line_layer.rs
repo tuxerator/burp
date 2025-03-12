@@ -64,11 +64,11 @@ where
         lines.into_iter().for_each(|line| self.insert_line(line));
     }
 
-    pub fn insert_coord_graph<T, EV, NV>(&mut self, graph: &T)
+    pub fn insert_coord_graph<T>(&mut self, graph: &T)
     where
-        T: CoordGraph<EV, NV, C>,
-        NV: Coordinate<C> + Send + Sync,
-        EV: Send + Sync,
+        T: CoordGraph,
+        T::NV: Coordinate<C> + Send + Sync,
+        T::EV: Send + Sync,
     {
         let nodes = graph.nodes_iter();
 
