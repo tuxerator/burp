@@ -113,6 +113,7 @@ where
     }
 
     pub fn add_pois(&mut self, pois: &[CoordNode<f64, NV>]) -> Result<(), Vec<Error>> {
+        info!("Adding {} pois", pois.len());
         pois.iter().for_each(|poi| {
             self.add_poi(poi.to_owned());
         });
