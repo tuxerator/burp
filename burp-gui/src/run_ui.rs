@@ -502,13 +502,9 @@ fn build_oracle(state: &mut UiState) {
         return;
     };
 
-    let State::Oracle(Some(ref pos)) = state.state else {
-        let node = get_node_click_pos(state.map.clone(), graph);
-        state.state = State::Oracle(node);
-        return;
-    };
-
-    state.oracle = Some(Arc::new(Mutex::new(Oracle::new(graph.graph_ref()))));
+    let mut oracle = Oracle::new(graph.graph_ref());
+    oracle.build_for_points_par(graph.poi_nodes(), state.epsilon);
+    state.oracle = Some(Arc::new(Mutex::new(oracle)));
 
     let mut map = state.map.write().expect("poisoned lock");
     {

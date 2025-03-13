@@ -1,7 +1,7 @@
 use std::{
     collections::{HashSet, VecDeque},
     fmt::Debug,
-    hash::RandomState,
+    hash::{Hash, RandomState},
     ops::{Deref, DerefMut},
     sync::{Arc, Mutex, RwLock},
 };
@@ -23,6 +23,7 @@ use rstar::{
     primitives::{GeomWithData, ObjectRef, Rectangle},
     RTree, RTreeNum, RTreeObject, RTreeParams, AABB,
 };
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 macro_rules! unwrap_or_continue {
     ($e:expr) => {
@@ -33,7 +34,7 @@ macro_rules! unwrap_or_continue {
     };
 }
 
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct BlockPair<C>
 where
     C: RTreeNum + CoordFloat,
@@ -43,7 +44,7 @@ where
     pub poi_id: usize,
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct Oracle<G, C = f64>
 where
     G: DirectedGraph + CachedDijkstra,
@@ -69,6 +70,10 @@ where
             r_tree: RTree::new(),
             block_pairs: vec![],
         }
+    }
+
+    pub fn get_graph_ref(&self) -> Arc<RwLock<RTreeGraph<G, C>>> {
+        self.graph.clone()
     }
 
     fn add_block_pair(&mut self, s_block: Rect<C>, t_block: Rect<C>, poi: usize) -> BlockPair<C> {
@@ -118,7 +123,7 @@ where
             .collect()
     }
 
-    pub fn get_pois(&self, s_coord: &Coord<C>, t_coord: &Coord<C>) -> Vec<usize> {
+    pub fn get_pois(&self, s_coord: &Coord<C>, t_coord: &Coord<C>) -> HashSet<usize> {
         let block_pairs = self.get_block_pairs(s_coord, t_coord);
 
         block_pairs.into_iter().map(|b| b.poi_id).collect()
@@ -142,6 +147,7 @@ where
 
         Self::build_for_point_par(oracle, point, epsilon);
     }
+
     fn build_for_point_par(oracle: Arc<RwLock<&mut Self>>, point: usize, epsilon: G::EV)
     where
         G::EV: FloatCore,
@@ -283,18 +289,39 @@ where
         }
     }
 
-    pub fn build_for_points(&mut self, points: Vec<usize>, epsilon: G::EV) {
+    pub fn build_for_points(&mut self, points: &HashSet<usize>, epsilon: G::EV) {
         points
             .iter()
             .for_each(|point| self.build_for_point(*point, epsilon));
     }
 
-    pub fn build_for_points_par(&mut self, points: Vec<usize>, epsilon: G::EV) {
+    pub fn build_for_points_par(&mut self, points: &HashSet<usize>, epsilon: G::EV) {
         let self_ref = Arc::new(RwLock::new(self));
 
         points
             .into_par_iter()
-            .for_each(|point| Self::build_for_point_par(self_ref.clone(), point, epsilon));
+            .for_each(|point| Self::build_for_point_par(self_ref.clone(), *point, epsilon));
+    }
+}
+
+impl<G, C> Oracle<G, C>
+where
+    G: DirectedGraph + CachedDijkstra + Send + Sync + Serialize + DeserializeOwned,
+    G::EV: FloatCore + Send + Sync,
+    G::NV: Coordinate<C> + Debug + Send + Sync,
+    C: RTreeNum + CoordFloat + Send + Sync + Serialize + DeserializeOwned,
+{
+    pub fn to_flexbuffer(&self) -> Vec<u8> {
+        let mut ser = flexbuffers::FlexbufferSerializer::new();
+        self.serialize(&mut ser).unwrap();
+
+        ser.view().to_vec()
+    }
+
+    pub fn read_flexbuffer(f_buf: &[u8]) -> Self {
+        let reader = flexbuffers::Reader::get_root(f_buf).unwrap();
+
+        Self::deserialize(reader).unwrap()
     }
 }
 

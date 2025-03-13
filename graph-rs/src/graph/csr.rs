@@ -180,6 +180,7 @@ pub struct DirectedCsrGraph<EV, NV> {
     pub node_values: Vec<NV>,
     pub csr_out: Csr<EV>,
     pub csr_inc: Csr<EV>,
+    #[serde(skip)]
     dijkstra_cache: HashMap<(usize, usize), ResultNode<EV>>,
 }
 
