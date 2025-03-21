@@ -38,23 +38,24 @@
           inherit src;
           strictDeps = true;
 
-          buildInputs = with pkgs; [
-            # Add additional build inputs here
-            openssl
-            wayland
-            wayland-protocols
-            wayland.dev
-            xorg.libX11
-            xorg.libXcursor
-            xorg.libxcb
-            libxkbcommon
-            vulkan-loader
-            vulkan-headers
-            libGL
-          ] ++ lib.optionals stdenv.isDarwin [
-            # Additional darwin specific inputs can be set here
-            libiconv
-          ];
+          buildInputs = with pkgs;
+            [
+              # Add additional build inputs here
+              openssl
+              wayland
+              wayland-protocols
+              wayland.dev
+              xorg.libX11
+              xorg.libXcursor
+              xorg.libxcb
+              libxkbcommon
+              vulkan-loader
+              vulkan-headers
+              libGL
+            ] ++ lib.optionals stdenv.isDarwin [
+              # Additional darwin specific inputs can be set here
+              libiconv
+            ];
 
           nativeBuildInputs = with pkgs; [
             pkg-config
@@ -65,12 +66,12 @@
           # Additional environment variables can be set directly
           # MY_CUSTOM_VAR = "some value";
 
-          LD_LIBRARY_PATH = "$LD_LIBRARY_PATH:${lib.makeLibraryPath buildInputs}";
+          LD_LIBRARY_PATH =
+            "$LD_LIBRARY_PATH:${lib.makeLibraryPath buildInputs}";
         };
 
-        libPath = lib.makeLibraryPath (with pkgs; [
-          xdg-desktop-portal
-        ] ++ commonArgs.buildInputs);
+        libPath = lib.makeLibraryPath
+          (with pkgs; [ xdg-desktop-portal ] ++ commonArgs.buildInputs);
 
         craneLibLLvmTools = craneLib.overrideToolchain
           (fenix.packages.${system}.complete.withComponents [
@@ -92,18 +93,17 @@
           doCheck = false;
         };
 
-        fileSetForCrate = crate: lib.fileset.toSource {
-          root = ./.;
-          fileset = lib.fileset.unions [
-            ./Cargo.toml
-            ./Cargo.lock
-            ./workspace-hack
-            ./graph-rs
-            crate
-          ];
-        };
-
-
+        fileSetForCrate = crate:
+          lib.fileset.toSource {
+            root = ./.;
+            fileset = lib.fileset.unions [
+              ./Cargo.toml
+              ./Cargo.lock
+              ./workspace-hack
+              ./graph-rs
+              crate
+            ];
+          };
 
         # Build the top-level crates of the workspace as individual derivations.
         # This allows consumers to only depend on (and build) only what they need.
@@ -112,18 +112,12 @@
         burp = craneLib.buildPackage (individualCrateArgs // {
           pname = "burp";
           cargoExtraArgs = "-p burp";
-          src = fileSetForCrate (lib.fileset.unions [
-            ./burp
-            ./burp-gui
-          ]);
+          src = fileSetForCrate (lib.fileset.unions [ ./burp ./burp-gui ]);
         });
         burp-gui = craneLib.buildPackage (individualCrateArgs // {
           pname = "burp-gui";
           cargoExtraArgs = "-p burp-gui";
-          src = fileSetForCrate (lib.fileset.unions [
-            ./burp
-            ./burp-gui
-          ]);
+          src = fileSetForCrate (lib.fileset.unions [ ./burp ./burp-gui ]);
           postInstall = ''
             wrapProgram "$out/bin/burp-gui" --prefix LD_LIBRARY_PATH : "${libPath}"
           '';
@@ -133,8 +127,7 @@
           cargoExtraArgs = "-p graph-rs";
           src = fileSetForCrate ./graph-rs;
         });
-      in
-      {
+      in {
         checks = {
           # Build the crates as part of `nix flake check` for convenience
           burp = burp;
@@ -151,24 +144,17 @@
             cargoClippyExtraArgs = "--all-targets -- --deny warnings";
           });
 
-          my-workspace-doc = craneLib.cargoDoc (commonArgs // {
-            inherit cargoArtifacts;
-          });
+          my-workspace-doc =
+            craneLib.cargoDoc (commonArgs // { inherit cargoArtifacts; });
 
           # Check formatting
-          my-workspace-fmt = craneLib.cargoFmt {
-            inherit src;
-          };
+          my-workspace-fmt = craneLib.cargoFmt { inherit src; };
 
           # Audit dependencies
-          my-workspace-audit = craneLib.cargoAudit {
-            inherit src advisory-db;
-          };
+          my-workspace-audit = craneLib.cargoAudit { inherit src advisory-db; };
 
           # Audit licenses
-          my-workspace-deny = craneLib.cargoDeny {
-            inherit src;
-          };
+          my-workspace-deny = craneLib.cargoDeny { inherit src; };
 
           # Run tests with cargo-nextest
           # Consider setting `doCheck = false` on other crate derivations
@@ -192,9 +178,7 @@
               cargo hakari verify
             '';
 
-            nativeBuildInputs = [
-              pkgs.cargo-hakari
-            ];
+            nativeBuildInputs = [ pkgs.cargo-hakari ];
           };
         };
 
@@ -204,24 +188,18 @@
           graph-rs = graph-rs;
           default = burp-gui;
         } // lib.optionalAttrs (!pkgs.stdenv.isDarwin) {
-          my-workspace-llvm-coverage = craneLibLLvmTools.cargoLlvmCov (commonArgs // {
-            inherit cargoArtifacts;
-          });
+          my-workspace-llvm-coverage = craneLibLLvmTools.cargoLlvmCov
+            (commonArgs // { inherit cargoArtifacts; });
         };
 
         apps = {
-          burp = flake-utils.lib.mkApp {
-            drv = burp;
-          };
-          burp-gui = flake-utils.lib.mkApp {
-            drv = burp-gui;
-          };
+          burp = flake-utils.lib.mkApp { drv = burp; };
+          burp-gui = flake-utils.lib.mkApp { drv = burp-gui; };
         };
 
         devShells.default = craneLib.devShell {
           # Inherit inputs from checks.
           checks = self.checks.${system};
-
 
           # Additional dev-shell environment variables can be set directly
           # MY_CUSTOM_DEVELOPMENT_VAR = "something else";
@@ -232,6 +210,7 @@
             pkgs.cargo-hakari
             pkgs.gdb
             pkgs.vscode-extensions.vadimcn.vscode-lldb.adapter
+            pkgs.typst
           ];
         };
       });
