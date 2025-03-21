@@ -3,14 +3,14 @@ use std::{
     fmt::Debug,
     hash::{Hash, RandomState},
     ops::{Deref, DerefMut},
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, RwLock, Weak},
     time::Duration,
 };
 
 use geo::{Coord, CoordFloat, Rect};
 use graph_rs::{
     algorithms::dijkstra::{CachedDijkstra, Dijkstra},
-    graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph, rstar::RTreeGraph},
+    graph::{self, csr::DirectedCsrGraph, quad_tree::QuadGraph, rstar::RTreeGraph},
     types::Direction,
     CoordGraph, Coordinate, DirectedGraph, Graph,
 };
@@ -27,6 +27,10 @@ use rstar::{
 use rustc_hash::FxHashSet;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
+use crate::types::RTreeObjectArc;
+
+use super::PoiGraph;
+
 macro_rules! unwrap_or_continue {
     ($e:expr) => {
         match $e {
@@ -36,92 +40,85 @@ macro_rules! unwrap_or_continue {
     };
 }
 
-#[derive(PartialEq, Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct BlockPair<C>
 where
     C: RTreeNum + CoordFloat,
 {
-    pub s_block: Rectangle<Coord<C>>,
-    pub t_block: Rectangle<Coord<C>>,
+    pub s_block: Arc<Rectangle<Coord<C>>>,
+    pub t_block: Arc<Rectangle<Coord<C>>>,
     pub poi_id: usize,
 }
 
 #[derive(Default, Serialize, Deserialize)]
-pub struct Oracle<G, C = f64>
+pub struct Oracle<C = f64>
 where
-    G: DirectedGraph + CachedDijkstra,
-    G::EV: FloatCore,
-    G::NV: Coordinate<C> + Debug,
     C: RTreeNum + CoordFloat,
 {
-    graph: Arc<RwLock<RTreeGraph<G, C>>>,
-    r_tree: RTree<GeomWithData<Rectangle<Coord<C>>, usize>>,
-    block_pairs: Vec<BlockPair<C>>,
+    r_tree: RTree<GeomWithData<RTreeObjectArc<Rectangle<Coord<C>>>, Weak<BlockPair<C>>>>,
+    block_pairs: Vec<Arc<BlockPair<C>>>,
 }
 
-impl<G, C> Oracle<G, C>
+impl<C> Oracle<C>
 where
-    G: DirectedGraph + CachedDijkstra + Send + Sync,
-    G::EV: FloatCore + Send + Sync,
-    G::NV: Coordinate<C> + Debug + Send + Sync,
-    C: RTreeNum + CoordFloat + Send + Sync,
+    C: RTreeNum + CoordFloat,
 {
-    pub fn new(graph: Arc<RwLock<RTreeGraph<G, C>>>) -> Self {
+    pub fn new() -> Self {
         Oracle {
-            graph,
             r_tree: RTree::new(),
             block_pairs: vec![],
         }
     }
 
-    pub fn get_graph_ref(&self) -> Arc<RwLock<RTreeGraph<G, C>>> {
-        self.graph.clone()
-    }
+    fn add_block_pair(
+        &mut self,
+        s_block: Rect<C>,
+        t_block: Rect<C>,
+        poi: usize,
+    ) -> Arc<BlockPair<C>> {
+        let s_geom = Arc::new(Rectangle::from_corners(s_block.min(), s_block.max()));
 
-    fn add_block_pair(&mut self, s_block: Rect<C>, t_block: Rect<C>, poi: usize) -> BlockPair<C> {
-        let s_geom = Rectangle::from_corners(s_block.min(), s_block.max());
+        let t_geom = Arc::new(Rectangle::from_corners(t_block.min(), t_block.max()));
 
-        let t_geom = Rectangle::from_corners(t_block.min(), t_block.max());
-
-        let block_pair = BlockPair {
-            s_block: s_geom,
-            t_block: t_geom,
+        let block_pair = Arc::new(BlockPair {
+            s_block: s_geom.clone(),
+            t_block: t_geom.clone(),
             poi_id: poi,
-        };
+        });
 
-        self.block_pairs.push(block_pair);
-
-        let block_pair = self.block_pairs.last().expect("block_pairs is empty");
-
-        let s_rect = GeomWithData::new(block_pair.s_block, self.block_pairs.len() - 1);
-        let t_rect = GeomWithData::new(block_pair.t_block, self.block_pairs.len() - 1);
+        let s_rect = GeomWithData::new(RTreeObjectArc::new(s_geom), Arc::downgrade(&block_pair));
+        let t_rect = GeomWithData::new(RTreeObjectArc::new(t_geom), Arc::downgrade(&block_pair));
 
         self.r_tree.insert(s_rect);
         self.r_tree.insert(t_rect);
+        self.block_pairs.push(block_pair.clone());
 
-        *block_pair
+        block_pair
     }
 
-    pub fn get_block_pairs(&self, s_coord: &Coord<C>, t_coord: &Coord<C>) -> Vec<&BlockPair<C>> {
+    pub fn get_block_pairs(
+        &self,
+        s_coord: &Coord<C>,
+        t_coord: &Coord<C>,
+    ) -> Vec<&Arc<BlockPair<C>>> {
         let s_blocks = self
             .r_tree
             .locate_all_at_point(s_coord)
-            .map(|geom| geom.data);
+            .filter_map(|geom| geom.data.upgrade());
         let t_blocks = self
             .r_tree
             .locate_all_at_point(t_coord)
-            .map(|geom| geom.data);
+            .filter_map(|geom| geom.data.upgrade());
 
-        let s_blocks = HashSet::<_, RandomState>::from_iter(s_blocks);
-        let t_blocks = HashSet::<_, RandomState>::from_iter(t_blocks);
+        let s_blocks_ptr = FxHashSet::from_iter(s_blocks.map(|block| Arc::as_ptr(&block)));
+        let t_blocks_ptr = FxHashSet::from_iter(t_blocks.map(|block| Arc::as_ptr(&block)));
 
-        let block_pair_ids = HashSet::<_, RandomState>::from_iter(s_blocks.intersection(&t_blocks));
+        let block_pair_ptrs =
+            HashSet::<_, RandomState>::from_iter(s_blocks_ptr.intersection(&t_blocks_ptr));
 
         self.block_pairs
             .iter()
-            .enumerate()
-            .filter(|(i, _)| block_pair_ids.contains(i))
-            .map(|e| e.1)
+            .filter(|e| block_pair_ptrs.contains(&Arc::as_ptr(e)))
             .collect()
     }
 
@@ -131,50 +128,23 @@ where
         block_pairs.into_iter().map(|b| b.poi_id).collect()
     }
 
-    pub fn get_blocks_at(&self, coord: &Coord<C>) -> Vec<&BlockPair<C>> {
-        let block_pairs = self.r_tree.locate_all_at_point(coord).map(|geom| geom.data);
-
-        let block_pairs = HashSet::<_, RandomState>::from_iter(block_pairs);
-
-        self.block_pairs
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| block_pairs.contains(i))
-            .map(|e| e.1)
+    pub fn get_blocks_at(&self, coord: &Coord<C>) -> Vec<Arc<BlockPair<C>>> {
+        self.r_tree
+            .locate_all_at_point(coord)
+            .filter_map(|geom| geom.data.upgrade())
             .collect()
     }
 
-    pub fn build_for_node(
-        &mut self,
-        point: usize,
-        epsilon: G::EV,
-        progress_bar: Option<ProgressBar>,
-    ) {
-        let oracle = Arc::new(RwLock::new(self));
-
-        Self::build_for_node_par(oracle, point, epsilon, progress_bar);
-    }
-
-    fn build_for_node_par(
-        oracle: Arc<RwLock<&mut Self>>,
-        node: usize,
-        epsilon: G::EV,
-        progress_bar: Option<ProgressBar>,
-    ) where
+    pub fn build_for_node<G>(&mut self, graph: &mut RTreeGraph<G, C>, node: usize, epsilon: G::EV)
+    where
         G::EV: FloatCore,
         G::NV: Coordinate<C> + Debug,
         G: DirectedGraph + CachedDijkstra,
     {
-        let oracle_ref = oracle.read().expect("RwLock poisoned");
-        let graph = oracle_ref.graph.read().expect("RwLock poisoned");
-
         let Some(root) = graph.bounding_rect() else {
             error!("Could not get bounding rect of graph");
             return;
         };
-
-        drop(graph);
-        drop(oracle_ref);
 
         let mut queue = VecDeque::new();
 
@@ -185,9 +155,7 @@ where
                 let s: GeomWithData<Coord<C>, usize>;
                 let t: GeomWithData<Coord<C>, usize>;
 
-                let oracle_ref = oracle.read().expect("RwLock poisoned");
                 {
-                    let graph = oracle_ref.graph.read().expect("RwLock poisoned");
                     let mut points = (
                         graph
                             .query(&AABB::from_corners(block_pair.0.min(), block_pair.0.max()))
@@ -197,8 +165,6 @@ where
                             .cloned(),
                     );
 
-                    let size = (points.0.size_hint(), points.1.size_hint());
-
                     let (Some(p_0), Some(p_1)) = (points.0.next(), points.1.next()) else {
                         debug!("At least one block is empty. {:?}", &block_pair);
                         continue;
@@ -207,26 +173,14 @@ where
                     s = p_0;
                     t = p_1;
                 }
-                let Some(values) = Values::<G::EV>::new(
-                    &mut oracle_ref.graph.write().expect("RwLock poisoned"),
-                    s,
-                    t,
-                    block_pair,
-                    node,
-                ) else {
+                let Some(values) = Values::<G::EV>::new(graph, s, t, block_pair, node) else {
                     continue;
                 };
-
-                drop(oracle_ref);
 
                 if values.in_path(epsilon) {
                     debug!("Found in-path block pair: {:#?}", &block_pair);
 
-                    oracle.write().expect("Mutex poisoned").add_block_pair(
-                        block_pair.0,
-                        block_pair.1,
-                        node,
-                    );
+                    self.add_block_pair(block_pair.0, block_pair.1, node);
 
                     continue;
                 } else if values.not_in_path(epsilon) {
@@ -249,9 +203,6 @@ where
                     .flat_map(|split| split.split_x()),
             );
 
-            let oracle_ref = oracle.read().expect("RwLock poisoned");
-
-            let graph = oracle_ref.graph.read().expect("RwLock poisoned");
             let children = (
                 children
                     .0
@@ -302,23 +253,28 @@ where
         }
     }
 
-    pub fn build_for_points(
+    pub fn build_for_nodes<G>(
         &mut self,
-        points: &FxHashSet<usize>,
+        graph: &mut RTreeGraph<G, C>,
+        nodes: &FxHashSet<usize>,
         epsilon: G::EV,
         progress_bar: Option<ProgressBar>,
-    ) {
+    ) where
+        G::EV: FloatCore,
+        G::NV: Coordinate<C> + Debug,
+        G: DirectedGraph + CachedDijkstra,
+    {
         if let Some(pb) = progress_bar {
             pb.reset();
-            pb.set_length(points.len().as_());
+            pb.set_length(nodes.len().as_());
             pb.set_message("Building oracle for pois");
 
-            points.iter().progress_with(pb).for_each(|point| {
-                self.build_for_node(*point, epsilon, None);
+            nodes.iter().progress_with(pb).for_each(|point| {
+                self.build_for_node(graph, *point, epsilon);
             });
         } else {
-            points.iter().for_each(|point| {
-                self.build_for_node(*point, epsilon, None);
+            nodes.iter().for_each(|point| {
+                self.build_for_node(graph, *point, epsilon);
             });
         };
         info!(
@@ -326,42 +282,10 @@ where
             self.r_tree.size()
         );
     }
-
-    pub fn build_for_points_par(
-        &mut self,
-        points: &FxHashSet<usize>,
-        epsilon: G::EV,
-        progress_bar: Option<ProgressBar>,
-    ) {
-        let self_ref = Arc::new(RwLock::new(self));
-
-        if let Some(pb_outer) = progress_bar {
-            pb_outer.reset();
-            pb_outer.set_length(points.len().as_());
-
-            points.into_par_iter().for_each(|point| {
-                Self::build_for_node_par(self_ref.clone(), *point, epsilon, None);
-                pb_outer.inc(1);
-            });
-
-            pb_outer.finish_and_clear();
-        } else {
-            points.into_par_iter().for_each(|point| {
-                Self::build_for_node_par(self_ref.clone(), *point, epsilon, None);
-            });
-        };
-        info!(
-            "created oracle containing {} block pair",
-            self_ref.read().expect("RwLock poisoned").r_tree.size()
-        );
-    }
 }
 
-impl<G, C> Oracle<G, C>
+impl<C> Oracle<C>
 where
-    G: DirectedGraph + CachedDijkstra + Send + Sync + Serialize + DeserializeOwned,
-    G::EV: FloatCore + Send + Sync,
-    G::NV: Coordinate<C> + Debug + Send + Sync,
     C: RTreeNum + CoordFloat + Send + Sync + Serialize + DeserializeOwned,
 {
     pub fn to_flexbuffer(&self) -> Vec<u8> {
@@ -513,7 +437,7 @@ mod test {
     use std::{f64, ops::Bound};
 
     use geo::{Coord, Rect};
-    use graph_rs::graph::csr::DirectedCsrGraph;
+    use graph_rs::graph::{csr::DirectedCsrGraph, rstar::RTreeGraph};
     use qutee::{Area, Boundary, Point};
     use rand::random;
 
@@ -563,7 +487,7 @@ mod test {
 
     #[test]
     fn add_block_pair_test() {
-        let mut oracle: Oracle<DirectedCsrGraph<f64, Coord<f64>>> = Oracle::default();
+        let mut oracle = Oracle::default();
 
         let rect_0 = Rect::new((0.5, 0.5), (1.0, 1.0));
         let rect_1 = Rect::new((10., 9.), (11., 12.));
@@ -573,7 +497,7 @@ mod test {
 
     #[test]
     fn get_block_pairs_test() {
-        let mut oracle: Oracle<DirectedCsrGraph<f64, Coord<f64>>> = Oracle::default();
+        let mut oracle = Oracle::default();
 
         let rect_0 = Rect::new((0.5, 0.5), (1.0, 1.0));
         let rect_1 = Rect::new((10., 9.), (11., 12.));

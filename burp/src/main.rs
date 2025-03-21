@@ -85,9 +85,7 @@ fn main() {
 
             read_geojson(reader, &mut graph_writer).unwrap();
 
-            let mut graph = PoiGraph::new(Arc::new(RwLock::new(RTreeGraph::new_from_graph(
-                graph_writer.get_graph(),
-            ))));
+            let mut graph = PoiGraph::new(RTreeGraph::new_from_graph(graph_writer.get_graph()));
 
             if let Some(pois) = pois {
                 let mut poi_writer = PoiWriter::new(|_| true);
@@ -116,20 +114,16 @@ fn main() {
                 .read_to_end(&mut f_buf)
                 .unwrap();
 
-            let graph: PoiGraph<Poi> = PoiGraph::read_flexbuffer(f_buf.as_slice());
+            let mut graph: PoiGraph<Poi> = PoiGraph::read_flexbuffer(f_buf.as_slice());
 
-            let mut oracle = oracle::Oracle::new(graph.graph_ref());
+            let mut oracle = oracle::Oracle::new();
 
-            match parallel {
-                false => {
-                    oracle.build_for_points(graph.poi_nodes(), epsilon, Some(ProgressBar::new(0)))
-                }
-                true => oracle.build_for_points_par(
-                    graph.poi_nodes(),
-                    epsilon,
-                    Some(ProgressBar::new(0)),
-                ),
-            }
+            oracle.build_for_nodes(
+                &mut graph.graph,
+                &graph.poi_nodes,
+                epsilon,
+                Some(ProgressBar::new(0)),
+            );
 
             let mut writer = BufWriter::new(File::create(out_file).unwrap());
             writer.write_all(oracle.to_flexbuffer().as_slice()).unwrap();

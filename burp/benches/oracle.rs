@@ -18,8 +18,8 @@ pub fn build_poi_oracle(c: &mut Criterion) {
     let mut file = File::open(path).unwrap();
     let mut f_buf = vec![];
     file.read_to_end(&mut f_buf);
-    let graph: PoiGraph<Poi> = PoiGraph::read_flexbuffer(f_buf.as_slice());
-    let mut oracle = Oracle::new(graph.graph_ref());
+    let mut graph: PoiGraph<Poi> = PoiGraph::read_flexbuffer(f_buf.as_slice());
+    let mut oracle = Oracle::new();
 
     let nodes = sample(&mut thread_rng(), graph.graph().node_count(), 100);
 
@@ -27,7 +27,7 @@ pub fn build_poi_oracle(c: &mut Criterion) {
         group.sample_size(10);
         group.bench_with_input(BenchmarkId::new("poi_oracle", node), &node, |b, n| {
             b.iter(|| {
-                oracle.build_for_node(node, 0.2, None);
+                oracle.build_for_node(&mut graph.graph, node, 0.2);
             });
         });
     }

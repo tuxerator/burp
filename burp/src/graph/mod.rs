@@ -42,24 +42,23 @@ pub struct PoiGraph<NV>
 where
     NV: NodeTrait,
 {
-    graph: Arc<RwLock<RTreeGraphType<NV>>>,
-    poi_nodes: FxHashSet<usize>,
+    pub graph: RTreeGraphType<NV>,
+    pub poi_nodes: FxHashSet<usize>,
 }
 
 impl<NV> PoiGraph<NV>
 where
     NV: NodeTrait + Serialize + DeserializeOwned,
 {
-    pub fn new(graph: Arc<RwLock<RTreeGraphType<NV>>>) -> Self {
-        let poi_nodes = graph.read().expect("RwLock poisoned").nodes_iter().fold(
-            HashSet::default(),
-            |mut poi_nodes, node| {
+    pub fn new(graph: RTreeGraphType<NV>) -> Self {
+        let poi_nodes = graph
+            .nodes_iter()
+            .fold(HashSet::default(), |mut poi_nodes, node| {
                 if node.1.has_data() {
                     poi_nodes.insert(node.0);
                 }
                 poi_nodes
-            },
-        );
+            });
         Self {
             graph: graph,
             poi_nodes,
@@ -71,14 +70,12 @@ where
         {
             nearest_node = self
                 .graph
-                .read()
-                .expect("RwLock poisoned")
                 .nearest_node(poi.get_coord())
                 .ok_or(Error::NoValue(format!("quad graph empty")))?;
         }
         {
-            let mut graph = self.graph.write().expect("RwLock");
-            let node = graph
+            let node = self
+                .graph
                 .node_value_mut(nearest_node)
                 .ok_or(Error::NoValue(format!("node: {:?}", nearest_node)))?;
 
@@ -96,8 +93,8 @@ where
         coord: &Coord<f64>,
         tolerance: f64,
     ) -> Result<(usize, CoordNode<f64, NV>), Error> {
-        let graph = self.graph.read().expect("RwLock poisoned");
-        let node_id = graph
+        let node_id = self
+            .graph
             .nearest_node_bound(coord, tolerance)
             .ok_or(Error::NoValue(format!(
                 "no node at {:?} with tolerance {}",
@@ -105,7 +102,8 @@ where
                 tolerance
             )))?;
 
-        let node_value = graph
+        let node_value = self
+            .graph
             .node_value(node_id)
             .cloned()
             .ok_or(Error::NoValue(format!("no node with id {}", node_id)))?;
@@ -141,15 +139,12 @@ where
 }
 
 impl<T: NodeTrait> PoiGraph<T> {
-    pub fn graph_ref(&self) -> Arc<RwLock<RTreeGraphType<T>>> {
-        self.graph.clone()
-    }
-    pub fn graph(&self) -> RwLockReadGuard<RTreeGraphType<T>> {
-        self.graph.read().expect("RwLock poisoned")
+    pub fn graph(&self) -> &RTreeGraphType<T> {
+        &self.graph
     }
 
-    pub fn graph_mut(&mut self) -> RwLockWriteGuard<RTreeGraphType<T>> {
-        self.graph.write().expect("RwLock poisoned")
+    pub fn graph_mut(&mut self) -> &mut RTreeGraphType<T> {
+        &mut self.graph
     }
 
     pub fn dijkstra(
@@ -395,10 +390,7 @@ where
                 }
                 poi_nodes
             });
-        Self {
-            graph: Arc::new(RwLock::new(graph)),
-            poi_nodes,
-        }
+        Self { graph, poi_nodes }
     }
 }
 

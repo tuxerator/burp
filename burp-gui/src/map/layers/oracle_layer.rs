@@ -1,7 +1,8 @@
 use std::{
-    f32, f64,
+    f32,
     fmt::Debug,
     marker::PhantomData,
+    ops::Deref,
     sync::{Arc, Mutex, RwLock},
 };
 
@@ -41,12 +42,9 @@ use rstar::RTreeNum;
 
 use super::EventLayer;
 
-pub struct BlocksLayer<S, G, C>
+pub struct BlocksLayer<S, C>
 where
     S: Symbol<Blocks<C>>,
-    G: DirectedGraph + CachedDijkstra,
-    G::EV: FloatCore,
-    G::NV: Coordinate<C> + Debug,
     C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive,
 {
     layer: Mutex<
@@ -57,21 +55,18 @@ where
             CartesianSpace2d,
         >,
     >,
-    oracle: Arc<Mutex<Oracle<G, C>>>,
+    oracle: Arc<Mutex<Oracle<C>>>,
     shown_features: Mutex<Vec<usize>>,
     color_id: u32,
 }
 
-impl<S, G, C> BlocksLayer<S, G, C>
+impl<S, C> BlocksLayer<S, C>
 where
     S: Symbol<Blocks<C>>,
-    G: DirectedGraph + CachedDijkstra,
-    G::EV: FloatCore,
-    G::NV: Coordinate<C> + Debug,
     C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive + GeoFloat,
     Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
-    pub fn new(oracle: Arc<Mutex<Oracle<G, C>>>, style: S) -> Self {
+    pub fn new(oracle: Arc<Mutex<Oracle<C>>>, style: S) -> Self {
         Self {
             layer: Mutex::new(FeatureLayer::with_lods(
                 vec![],
@@ -128,12 +123,9 @@ where
     }
 }
 
-impl<S, G, C> GalileoLayer for BlocksLayer<S, G, C>
+impl<S, C> GalileoLayer for BlocksLayer<S, C>
 where
     S: Symbol<Blocks<C>> + MaybeSend + MaybeSync + 'static,
-    G: DirectedGraph + CachedDijkstra + MaybeSync + MaybeSend + 'static,
-    G::EV: FloatCore,
-    G::NV: Coordinate<C> + Debug,
     C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive + MaybeSend + MaybeSync,
     Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
@@ -158,12 +150,9 @@ where
     }
 }
 
-impl<S, G, C> EventLayer for BlocksLayer<S, G, C>
+impl<S, C> EventLayer for BlocksLayer<S, C>
 where
     S: Symbol<Blocks<C>> + MaybeSend + MaybeSync + 'static,
-    G: DirectedGraph + CachedDijkstra + MaybeSync + MaybeSend + 'static,
-    G::EV: FloatCore + MaybeSync + MaybeSend,
-    G::NV: Coordinate<C> + Debug + MaybeSync + MaybeSend,
     C: CoordFloat + GeoFloat + RTreeNum + Bounded + Scalar + FromPrimitive + MaybeSync + MaybeSend,
     Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {
@@ -195,7 +184,7 @@ where
 
                 let mut num = 0;
                 for block_pair in block_pairs {
-                    let mut block_pair: Blocks<C> = match block_pair.try_into() {
+                    let mut block_pair: Blocks<C> = match block_pair.deref().try_into() {
                         Ok(block_pair) => block_pair,
                         Err(e) => {
                             warn!("{}", e);
@@ -214,12 +203,9 @@ where
     }
 }
 
-impl<S, G, C> UserEventHandler for BlocksLayer<S, G, C>
+impl<S, C> UserEventHandler for BlocksLayer<S, C>
 where
     S: Symbol<Blocks<C>> + MaybeSend + MaybeSync + 'static,
-    G: DirectedGraph + CachedDijkstra + MaybeSync + MaybeSend + 'static,
-    G::EV: FloatCore + MaybeSync + MaybeSend,
-    G::NV: Coordinate<C> + Debug + MaybeSync + MaybeSend,
     C: CoordFloat + GeoFloat + RTreeNum + Bounded + Scalar + FromPrimitive + MaybeSync + MaybeSend,
     Coord<C>: NewCartesianPoint2d + NewGeoPoint,
 {

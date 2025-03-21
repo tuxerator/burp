@@ -6,11 +6,8 @@ use burp::{
 };
 use graph_rs::graph::csr::DirectedCsrGraph;
 
-pub fn setup() -> (
-    PoiGraph<Poi>,
-    Oracle<DirectedCsrGraph<f64, CoordNode<f64, Poi>>>,
-) {
-    let oracle_path = PathBuf::from_str("../resources/small.ocl").unwrap();
+pub fn setup() -> (PoiGraph<Poi>, Oracle) {
+    let oracle_path = PathBuf::from_str("../resources/small_poi.ocl").unwrap();
     let graph_path = PathBuf::from_str("../resources/small_poi.gfb").unwrap();
     let mut f_buf = vec![];
     File::open(oracle_path)
@@ -18,8 +15,7 @@ pub fn setup() -> (
         .read_to_end(&mut f_buf)
         .unwrap();
 
-    let mut oracle: Oracle<DirectedCsrGraph<f64, CoordNode<f64, Poi>>> =
-        Oracle::read_flexbuffer(f_buf.as_slice());
+    let mut oracle: Oracle = Oracle::read_flexbuffer(f_buf.as_slice());
 
     let mut f_buf = vec![];
     File::open(graph_path)

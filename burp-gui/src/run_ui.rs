@@ -43,7 +43,7 @@ type StartEndPos<T> = (
 
 pub struct UiState {
     graph: Option<PoiGraph<Poi>>,
-    oracle: Option<Arc<Mutex<Oracle<DirectedCsrGraph<f64, CoordNode<f64, Poi>>>>>>,
+    oracle: Option<Arc<Mutex<Oracle>>>,
     map: Arc<RwLock<Map<String>>>,
     sender: Sender<Events>,
     state: State,
@@ -182,7 +182,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
 
             read_geojson(buf_reader, &mut graph_writer);
             let graph = RTreeGraph::new_from_graph(graph_writer.get_graph());
-            state.graph = Some(PoiGraph::new(Arc::new(RwLock::new(graph))));
+            state.graph = Some(PoiGraph::new(graph));
 
             state.state = State::LoadedGraph;
         }
@@ -498,33 +498,21 @@ fn get_node_click_pos(
 }
 
 fn build_oracle(state: &mut UiState) {
-    let Some(ref graph) = state.graph else {
+    let Some(ref mut graph) = state.graph else {
         warn!("No graph loaded");
         return;
     };
 
-    let mut oracle = Oracle::new(graph.graph_ref());
-    oracle.build_for_points_par(graph.poi_nodes(), state.epsilon, None);
+    let mut oracle = Oracle::new();
+    oracle.build_for_nodes(&mut graph.graph, &graph.poi_nodes, state.epsilon, None);
     state.oracle = Some(Arc::new(Mutex::new(oracle)));
 
     let mut map = state.map.write().expect("poisoned lock");
     {
-        let layer: &mut Arc<
-            RwLock<
-                BlocksLayer<
-                    BlocksSymbol<f64>,
-                    DirectedCsrGraph<f64, CoordNode<f64, Poi>>,
-                    f64,
-                >,
-            >,
-        > = map
+        let layer: &mut Arc<RwLock<BlocksLayer<BlocksSymbol<f64>, f64>>> = map
             .or_insert(
                 "points".to_string(),
-                BlocksLayer::<
-                    BlocksSymbol<f64>,
-                    DirectedCsrGraph<f64, CoordNode<f64, Poi>>,
-                    f64,
-                >::new(
+                BlocksLayer::<BlocksSymbol<f64>, f64>::new(
                     state.oracle.clone().expect("Oracle not present"),
                     BlocksSymbol::new(),
                 ),
