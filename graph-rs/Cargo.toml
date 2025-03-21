@@ -22,6 +22,7 @@ priority-queue = "2.0"
 rayon = "1.10"
 cached = { version = "0.53", features = ["proc_macro", "serde", "ahash"] }
 rstar = { version = "0.12", features = ["serde"] }
+rustc-hash = "2.1"
 
 [dev-dependencies]
 serde_test = "1.0"

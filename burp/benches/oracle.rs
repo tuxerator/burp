@@ -1,4 +1,4 @@
-use std::{fs::File, io::Read, ops::Deref, path::PathBuf};
+use std::{fs::File, io::Read, ops::Deref, path::PathBuf, sync::Arc};
 
 use burp::{
     graph::{
@@ -19,13 +19,16 @@ pub fn build_poi_oracle(c: &mut Criterion) {
     let mut f_buf = vec![];
     file.read_to_end(&mut f_buf);
     let graph: PoiGraph<Poi> = PoiGraph::read_flexbuffer(f_buf.as_slice());
+    let mut oracle = Oracle::new(graph.graph_ref());
 
     let nodes = sample(&mut thread_rng(), graph.graph().node_count(), 100);
 
     for node in nodes {
         group.sample_size(10);
         group.bench_with_input(BenchmarkId::new("poi_oracle", node), &node, |b, n| {
-            b.iter(|| Oracle::build(&mut graph.graph_mut(), node, 0.2));
+            b.iter(|| {
+                oracle.build_for_node(node, 0.2, None);
+            });
         });
     }
 }

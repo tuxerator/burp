@@ -25,6 +25,7 @@ use graph_rs::graph::rstar::RTreeGraph;
 use graph_rs::Graph;
 use log::{info, warn};
 use rfd::FileDialog;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::map::layers::oracle_layer::{BlocksLayer, BlocksSymbol};
 use crate::map::layers::{
@@ -66,7 +67,7 @@ enum State {
             Option<(usize, CoordNode<f64, Poi>)>,
         ),
     ),
-    DoubleDijkstraResult(HashMap<usize, f64>),
+    DoubleDijkstraResult(FxHashMap<usize, f64>),
     Oracle(Option<(usize, CoordNode<f64, Poi>)>),
 }
 
@@ -360,7 +361,7 @@ fn dijkstra(state: &mut UiState) {
             "Calculating shortes path from node {:?} to node {:?}",
             &start, &end
         );
-        let mut target = HashSet::new();
+        let mut target = FxHashSet::default();
         target.insert(end.0);
         let result = graph
             .dijkstra(start.0, target, graph_rs::types::Direction::Outgoing)
@@ -416,7 +417,7 @@ fn double_dijkstra(state: &mut UiState) {
             *pos = get_start_end_pos(pos.clone(), state.map.clone(), oracle);
             return;
         };
-        let mut target = HashSet::new();
+        let mut target = FxHashSet::default();
         target.insert(end.0);
         let result = oracle.beer_path_dijkstra_fast(start.0, end.0, oracle.poi_nodes(), 0.0);
 
@@ -503,7 +504,7 @@ fn build_oracle(state: &mut UiState) {
     };
 
     let mut oracle = Oracle::new(graph.graph_ref());
-    oracle.build_for_points_par(graph.poi_nodes(), state.epsilon);
+    oracle.build_for_points_par(graph.poi_nodes(), state.epsilon, None);
     state.oracle = Some(Arc::new(Mutex::new(oracle)));
 
     let mut map = state.map.write().expect("poisoned lock");

@@ -21,6 +21,7 @@ use osmpbfreader::{blocks, groups, primitive_block_from_blob, OsmPbfReader};
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
+use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -181,7 +182,7 @@ pub struct DirectedCsrGraph<EV, NV> {
     pub csr_out: Csr<EV>,
     pub csr_inc: Csr<EV>,
     #[serde(skip)]
-    dijkstra_cache: HashMap<(usize, usize), ResultNode<EV>>,
+    dijkstra_cache: FxHashMap<(usize, usize), ResultNode<EV>>,
 }
 
 impl<EV, NV> DirectedCsrGraph<EV, NV>
@@ -203,7 +204,10 @@ where
             node_values,
             csr_out,
             csr_inc,
-            dijkstra_cache: HashMap::with_capacity(node_count.pow(2)),
+            dijkstra_cache: FxHashMap::with_capacity_and_hasher(
+                node_count.pow(2),
+                FxBuildHasher::default(),
+            ),
         };
 
         info!(
@@ -432,6 +436,8 @@ impl<EV, NV> CachedDijkstra for DirectedCsrGraph<EV, NV>
 where
     EV: FloatCore + Default,
 {
+    /// Retrieves the result from the cache.
+    /// In case of a miss the cache gets build to all nodes.
     fn cached_dijkstra(
         &mut self,
         start_node: usize,
@@ -439,8 +445,8 @@ where
         direction: Direction,
     ) -> Option<crate::algorithms::dijkstra::DijkstraResult<Self::EV>> {
         let s_t_pairs = std::iter::repeat(start_node).zip(target_set.into_iter());
-        let mut result_set = DijkstraResult(HashSet::new());
-        let mut cache_misses = HashSet::new();
+        let mut result_set = DijkstraResult(FxHashSet::default());
+        let mut cache_misses = FxHashSet::default();
         for s_t in s_t_pairs {
             if let Some(result) = self.dijkstra_cache.cache_get(&s_t) {
                 result_set.0.insert(result.clone());
@@ -449,7 +455,7 @@ where
             };
         }
         if !cache_misses.is_empty() {
-            let result = self.dijkstra(start_node, cache_misses, direction)?;
+            let result = self.dijkstra_full(start_node, direction)?;
 
             for t in result.0.into_iter() {
                 result_set.0.insert(t.clone());

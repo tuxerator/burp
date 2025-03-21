@@ -1,11 +1,16 @@
 use core::fmt;
-use std::fmt::{Debug, Display};
+use std::{
+    fmt::{Debug, Display},
+    rc::{Rc, Weak},
+    sync::Arc,
+};
 
 use crate::{graph::NodeTrait, serde::CoordDef};
 use geo::{coord, CoordNum};
 use geo_types::Coord;
 use graph_rs::Coordinate;
 use num_traits::Num;
+use rstar::{PointDistance, RTreeObject};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -144,5 +149,45 @@ where
             coord: Coord::default(),
             data: Vec::default(),
         }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RTreeObjectArc<T: RTreeObject> {
+    inner: Arc<T>,
+}
+
+impl<T: RTreeObject> RTreeObject for RTreeObjectArc<T> {
+    type Envelope = T::Envelope;
+    fn envelope(&self) -> Self::Envelope {
+        self.inner.envelope()
+    }
+}
+
+impl<T: PointDistance> PointDistance for RTreeObjectArc<T> {
+    fn distance_2(
+        &self,
+        point: &<Self::Envelope as rstar::Envelope>::Point,
+    ) -> <<Self::Envelope as rstar::Envelope>::Point as rstar::Point>::Scalar {
+        self.inner.distance_2(point)
+    }
+
+    fn contains_point(&self, point: &<Self::Envelope as rstar::Envelope>::Point) -> bool {
+        self.inner.contains_point(point)
+    }
+
+    fn distance_2_if_less_or_equal(
+        &self,
+        point: &<Self::Envelope as rstar::Envelope>::Point,
+        max_distance_2: <<Self::Envelope as rstar::Envelope>::Point as rstar::Point>::Scalar,
+    ) -> Option<<<Self::Envelope as rstar::Envelope>::Point as rstar::Point>::Scalar> {
+        self.inner
+            .distance_2_if_less_or_equal(point, max_distance_2)
+    }
+}
+
+impl<T: RTreeObject> RTreeObjectArc<T> {
+    pub fn new(inner: Arc<T>) -> Self {
+        Self { inner }
     }
 }

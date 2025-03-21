@@ -4,6 +4,7 @@ use std::{
     hash::{Hash, RandomState},
     ops::{Deref, DerefMut},
     sync::{Arc, Mutex, RwLock},
+    time::Duration,
 };
 
 use geo::{Coord, CoordFloat, Rect};
@@ -13,9 +14,9 @@ use graph_rs::{
     types::Direction,
     CoordGraph, Coordinate, DirectedGraph, Graph,
 };
-use indicatif::ProgressBar;
-use log::{debug, error, warn};
-use num_traits::Num;
+use indicatif::{MultiProgress, ProgressBar, ProgressIterator};
+use log::{debug, error, info, warn};
+use num_traits::{pow, AsPrimitive, Num};
 use ordered_float::FloatCore;
 use qutee::{Boundary, DynCap, Point, QueryPoints};
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
@@ -23,6 +24,7 @@ use rstar::{
     primitives::{GeomWithData, ObjectRef, Rectangle},
     RTree, RTreeNum, RTreeObject, RTreeParams, AABB,
 };
+use rustc_hash::FxHashSet;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 macro_rules! unwrap_or_continue {
@@ -142,29 +144,36 @@ where
             .collect()
     }
 
-    pub fn build_for_point(&mut self, point: usize, epsilon: G::EV) {
+    pub fn build_for_node(
+        &mut self,
+        point: usize,
+        epsilon: G::EV,
+        progress_bar: Option<ProgressBar>,
+    ) {
         let oracle = Arc::new(RwLock::new(self));
 
-        Self::build_for_point_par(oracle, point, epsilon);
+        Self::build_for_node_par(oracle, point, epsilon, progress_bar);
     }
 
-    fn build_for_point_par(oracle: Arc<RwLock<&mut Self>>, point: usize, epsilon: G::EV)
-    where
+    fn build_for_node_par(
+        oracle: Arc<RwLock<&mut Self>>,
+        node: usize,
+        epsilon: G::EV,
+        progress_bar: Option<ProgressBar>,
+    ) where
         G::EV: FloatCore,
         G::NV: Coordinate<C> + Debug,
         G: DirectedGraph + CachedDijkstra,
     {
         let oracle_ref = oracle.read().expect("RwLock poisoned");
-        let Some(root) = oracle_ref
-            .graph
-            .read()
-            .expect("RwLock poisoned")
-            .bounding_rect()
-        else {
+        let graph = oracle_ref.graph.read().expect("RwLock poisoned");
+
+        let Some(root) = graph.bounding_rect() else {
             error!("Could not get bounding rect of graph");
             return;
         };
 
+        drop(graph);
         drop(oracle_ref);
 
         let mut queue = VecDeque::new();
@@ -187,6 +196,9 @@ where
                             .query(&AABB::from_corners(block_pair.1.min(), block_pair.1.max()))
                             .cloned(),
                     );
+
+                    let size = (points.0.size_hint(), points.1.size_hint());
+
                     let (Some(p_0), Some(p_1)) = (points.0.next(), points.1.next()) else {
                         debug!("At least one block is empty. {:?}", &block_pair);
                         continue;
@@ -200,7 +212,7 @@ where
                     s,
                     t,
                     block_pair,
-                    point,
+                    node,
                 ) else {
                     continue;
                 };
@@ -213,12 +225,13 @@ where
                     oracle.write().expect("Mutex poisoned").add_block_pair(
                         block_pair.0,
                         block_pair.1,
-                        point,
+                        node,
                     );
 
                     continue;
                 } else if values.not_in_path(epsilon) {
                     debug!("Found not in-path block pair: {:#?}", &block_pair);
+
                     continue;
                 }
             }
@@ -289,18 +302,58 @@ where
         }
     }
 
-    pub fn build_for_points(&mut self, points: &HashSet<usize>, epsilon: G::EV) {
-        points
-            .iter()
-            .for_each(|point| self.build_for_point(*point, epsilon));
+    pub fn build_for_points(
+        &mut self,
+        points: &FxHashSet<usize>,
+        epsilon: G::EV,
+        progress_bar: Option<ProgressBar>,
+    ) {
+        if let Some(pb) = progress_bar {
+            pb.reset();
+            pb.set_length(points.len().as_());
+            pb.set_message("Building oracle for pois");
+
+            points.iter().progress_with(pb).for_each(|point| {
+                self.build_for_node(*point, epsilon, None);
+            });
+        } else {
+            points.iter().for_each(|point| {
+                self.build_for_node(*point, epsilon, None);
+            });
+        };
+        info!(
+            "created oracle containing {} block pair",
+            self.r_tree.size()
+        );
     }
 
-    pub fn build_for_points_par(&mut self, points: &HashSet<usize>, epsilon: G::EV) {
+    pub fn build_for_points_par(
+        &mut self,
+        points: &FxHashSet<usize>,
+        epsilon: G::EV,
+        progress_bar: Option<ProgressBar>,
+    ) {
         let self_ref = Arc::new(RwLock::new(self));
 
-        points
-            .into_par_iter()
-            .for_each(|point| Self::build_for_point_par(self_ref.clone(), *point, epsilon));
+        if let Some(pb_outer) = progress_bar {
+            pb_outer.reset();
+            pb_outer.set_length(points.len().as_());
+
+            points.into_par_iter().for_each(|point| {
+                Self::build_for_node_par(self_ref.clone(), *point, epsilon, None);
+                pb_outer.inc(1);
+            });
+
+            pb_outer.finish_and_clear();
+        } else {
+            points.into_par_iter().for_each(|point| {
+                Self::build_for_node_par(self_ref.clone(), *point, epsilon, None);
+            });
+        };
+        info!(
+            "created oracle containing {} block pair",
+            self_ref.read().expect("RwLock poisoned").r_tree.size()
+        );
     }
 }
 
@@ -313,9 +366,11 @@ where
 {
     pub fn to_flexbuffer(&self) -> Vec<u8> {
         let mut ser = flexbuffers::FlexbufferSerializer::new();
+
+        info!("serializing oracle to flexbuffer");
         self.serialize(&mut ser).unwrap();
 
-        ser.view().to_vec()
+        ser.take_buffer()
     }
 
     pub fn read_flexbuffer(f_buf: &[u8]) -> Self {

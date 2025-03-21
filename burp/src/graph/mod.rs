@@ -23,6 +23,7 @@ use num_traits::{NumCast, Zero};
 use ordered_float::{FloatCore, OrderedFloat};
 use priority_queue::PriorityQueue;
 use rayon::prelude::*;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 
 use crate::{
@@ -42,7 +43,7 @@ where
     NV: NodeTrait,
 {
     graph: Arc<RwLock<RTreeGraphType<NV>>>,
-    poi_nodes: HashSet<usize>,
+    poi_nodes: FxHashSet<usize>,
 }
 
 impl<NV> PoiGraph<NV>
@@ -134,7 +135,7 @@ where
         Self::deserialize(reader).unwrap()
     }
 
-    pub fn poi_nodes(&self) -> &HashSet<usize> {
+    pub fn poi_nodes(&self) -> &FxHashSet<usize> {
         &self.poi_nodes
     }
 }
@@ -154,7 +155,7 @@ impl<T: NodeTrait> PoiGraph<T> {
     pub fn dijkstra(
         &self,
         start_node: usize,
-        targets: HashSet<usize>,
+        targets: FxHashSet<usize>,
         direction: Direction,
     ) -> Option<DijkstraResult<f64>> {
         self.graph().dijkstra(start_node, targets, direction)
@@ -172,7 +173,7 @@ impl<T: NodeTrait> PoiGraph<T> {
         &self,
         start_node: usize,
         end_node: usize,
-        pois: HashSet<usize>,
+        pois: FxHashSet<usize>,
     ) -> Option<BeerPathResult<f64>> {
         info!(
             "Calculating {} beer paths between nodes {}, {}",
@@ -194,9 +195,9 @@ impl<T: NodeTrait> PoiGraph<T> {
         &self,
         start_id: usize,
         end_id: usize,
-        pois_id: &HashSet<usize>,
+        pois_id: &FxHashSet<usize>,
         epsilon: f64,
-    ) -> HashMap<usize, f64> {
+    ) -> FxHashMap<usize, f64> {
         info!(
             "Calculating {} beer paths between nodes {}, {}",
             self.poi_nodes.len(),
@@ -204,8 +205,8 @@ impl<T: NodeTrait> PoiGraph<T> {
             &end_id
         );
         let mut frontier = PriorityQueue::new();
-        let visited = Arc::new(RwLock::new(HashMap::new()));
-        let result = Arc::new(Mutex::new(HashMap::new()));
+        let visited = Arc::new(RwLock::new(FxHashMap::default()));
+        let result = Arc::new(Mutex::new(FxHashMap::default()));
         let bound = Arc::new(RwLock::new(f64::INFINITY));
         let Some(_) = self.graph().node_value(start_id) else {
             warn!("start_id {} not found in graph", start_id);
@@ -280,9 +281,9 @@ fn shared_dijkstra<G>(
     graph: &G,
     start_node: usize,
     direction: Label,
-    visited: Arc<RwLock<HashMap<(usize, Label), OrderedFloat<G::EV>>>>,
-    targets: &HashSet<usize>,
-    result: Arc<Mutex<HashMap<usize, G::EV>>>,
+    visited: Arc<RwLock<FxHashMap<(usize, Label), OrderedFloat<G::EV>>>>,
+    targets: &FxHashSet<usize>,
+    result: Arc<Mutex<FxHashMap<usize, G::EV>>>,
     bound: Arc<RwLock<G::EV>>,
     epsilon: G::EV,
 ) where
@@ -405,7 +406,7 @@ where
 pub struct BeerPathResult<T: FloatCore> {
     start_result: DijkstraResult<T>,
     end_result: DijkstraResult<T>,
-    pois: HashSet<usize>,
+    pois: FxHashSet<usize>,
 }
 
 impl<T: FloatCore + Debug> BeerPathResult<T> {

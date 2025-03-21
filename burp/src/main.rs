@@ -54,9 +54,13 @@ enum Commands {
         #[arg(short, long, value_name = "FLOAT")]
         epsilon: f64,
 
-        /// Set output file to <FILE>. Defaults to '<in_file>.ocl'.
+        /// Set output file to <FILE>. Defaults to '<IN_FILE>.ocl'.
         #[arg(short = 'o', long)]
         out_file: Option<PathBuf>,
+
+        /// Enable parallel computation (experimental)
+        #[arg(short, long, default_value_t = false)]
+        parallel: bool,
     },
 }
 
@@ -98,6 +102,7 @@ fn main() {
             in_file,
             out_file,
             epsilon,
+            parallel,
         } => {
             let out_file = out_file.unwrap_or_else(|| {
                 let mut out_file = in_file.clone();
@@ -115,7 +120,16 @@ fn main() {
 
             let mut oracle = oracle::Oracle::new(graph.graph_ref());
 
-            oracle.build_for_points_par(graph.poi_nodes(), epsilon);
+            match parallel {
+                false => {
+                    oracle.build_for_points(graph.poi_nodes(), epsilon, Some(ProgressBar::new(0)))
+                }
+                true => oracle.build_for_points_par(
+                    graph.poi_nodes(),
+                    epsilon,
+                    Some(ProgressBar::new(0)),
+                ),
+            }
 
             let mut writer = BufWriter::new(File::create(out_file).unwrap());
             writer.write_all(oracle.to_flexbuffer().as_slice()).unwrap();

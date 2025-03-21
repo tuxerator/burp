@@ -13,6 +13,7 @@ use num_traits::{Num, Zero};
 use ordered_float::{FloatCore, OrderedFloat};
 use priority_queue::PriorityQueue;
 use rayon::iter::ParallelIterator;
+use rustc_hash::{FxBuildHasher, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -28,7 +29,7 @@ where
     fn dijkstra(
         &self,
         start_node: usize,
-        target_set: HashSet<usize>,
+        target_set: FxHashSet<usize>,
         direction: Direction,
     ) -> Option<DijkstraResult<Self::EV>>;
 
@@ -47,12 +48,12 @@ where
     fn dijkstra(
         &self,
         start_node: usize,
-        mut target_set: HashSet<usize>,
+        mut target_set: FxHashSet<usize>,
         direction: Direction,
     ) -> Option<DijkstraResult<Self::EV>> {
-        let mut frontier = PriorityQueue::new();
-        let mut result = HashSet::new();
-        let mut visited = HashSet::new();
+        let mut frontier = PriorityQueue::with_hasher(FxBuildHasher);
+        let mut result = FxHashSet::default();
+        let mut visited = FxHashSet::default();
         frontier.push(
             ResultNode::new(start_node, None, Self::EV::zero()),
             Reverse(OrderedFloat(Self::EV::zero())),
@@ -131,10 +132,10 @@ where
 }
 
 #[derive(PartialEq, Debug)]
-pub struct DijkstraResult<T: Num>(pub HashSet<ResultNode<T>>);
+pub struct DijkstraResult<T: Num>(pub FxHashSet<ResultNode<T>>);
 
 impl<T: Num> DijkstraResult<T> {
-    pub fn new(hash_set: HashSet<ResultNode<T>>) -> Self {
+    pub fn new(hash_set: FxHashSet<ResultNode<T>>) -> Self {
         Self(hash_set)
     }
 
