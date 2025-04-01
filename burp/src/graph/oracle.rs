@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use deepsize::{known_deep_size, DeepSizeOf};
 use geo::{Coord, CoordFloat, Rect};
 use graph_rs::{
     algorithms::dijkstra::{CachedDijkstra, Dijkstra},
@@ -15,7 +16,7 @@ use graph_rs::{
     CoordGraph, Coordinate, DirectedGraph, Graph,
 };
 use indicatif::{MultiProgress, ProgressBar, ProgressIterator};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use num_traits::{pow, AsPrimitive, Num};
 use ordered_float::FloatCore;
 use qutee::{Boundary, DynCap, Point, QueryPoints};
@@ -27,7 +28,7 @@ use rstar::{
 use rustc_hash::FxHashSet;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::types::RTreeObjectArc;
+use crate::{types::RTreeObjectArc, util::r_tree_size};
 
 use super::PoiGraph;
 
@@ -64,10 +65,16 @@ where
     C: RTreeNum + CoordFloat,
 {
     pub fn new() -> Self {
+        debug!("BlockPair size: {}", size_of::<BlockPair<C>>());
+        debug!("Rectangle size: {}", size_of::<Rectangle<Coord<C>>>());
         Oracle {
             r_tree: RTree::new(),
             block_pairs: vec![],
         }
+    }
+
+    pub fn r_tree_size(&self) -> usize {
+        r_tree_size(self.r_tree.root())
     }
 
     fn add_block_pair(
@@ -93,6 +100,11 @@ where
         self.r_tree.insert(t_rect);
         self.block_pairs.push(block_pair.clone());
 
+        trace!("BlockPair value size: {}", size_of_val(&block_pair));
+        debug!(
+            "BlockPair vec size: {}",
+            self.block_pairs.len() * size_of_val(&block_pair)
+        );
         block_pair
     }
 
@@ -113,8 +125,7 @@ where
         let s_blocks_ptr = FxHashSet::from_iter(s_blocks.map(|block| Arc::as_ptr(&block)));
         let t_blocks_ptr = FxHashSet::from_iter(t_blocks.map(|block| Arc::as_ptr(&block)));
 
-        let block_pair_ptrs =
-            HashSet::<_, RandomState>::from_iter(s_blocks_ptr.intersection(&t_blocks_ptr));
+        let block_pair_ptrs = FxHashSet::from_iter(s_blocks_ptr.intersection(&t_blocks_ptr));
 
         self.block_pairs
             .iter()
@@ -166,7 +177,7 @@ where
                     );
 
                     let (Some(p_0), Some(p_1)) = (points.0.next(), points.1.next()) else {
-                        debug!("At least one block is empty. {:?}", &block_pair);
+                        trace!("At least one block is empty. {:?}", &block_pair);
                         continue;
                     };
 
@@ -178,13 +189,13 @@ where
                 };
 
                 if values.in_path(epsilon) {
-                    debug!("Found in-path block pair: {:#?}", &block_pair);
+                    trace!("Found in-path block pair: {:#?}", &block_pair);
 
                     self.add_block_pair(block_pair.0, block_pair.1, node);
 
                     continue;
                 } else if values.not_in_path(epsilon) {
-                    debug!("Found not in-path block pair: {:#?}", &block_pair);
+                    trace!("Found not in-path block pair: {:#?}", &block_pair);
 
                     continue;
                 }
@@ -246,8 +257,6 @@ where
                     true
                 })
                 .collect();
-
-            debug!("inserting {} block pairs", child_block_pairs.len());
 
             queue.append(&mut child_block_pairs.into());
         }

@@ -23,7 +23,7 @@ use num_traits::{NumCast, Zero};
 use ordered_float::{FloatCore, OrderedFloat};
 use priority_queue::PriorityQueue;
 use rayon::prelude::*;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 
 use crate::{
@@ -65,7 +65,23 @@ where
         }
     }
 
-    pub fn add_poi(&mut self, mut poi: CoordNode<f64, NV>) -> Result<(), Error> {
+    pub fn add_node_poi(&mut self, mut node: (usize, Vec<NV>)) -> Option<&mut CoordNode<f64, NV>> {
+        let node_value = self.graph.node_value_mut(node.0)?;
+
+        node_value.append_data(&mut node.1);
+
+        self.poi_nodes.insert(node.0);
+
+        Some(node_value)
+    }
+
+    pub fn add_node_pois(&mut self, nodes: Vec<(usize, Vec<NV>)>) {
+        nodes.into_iter().for_each(|node| {
+            self.add_node_poi(node);
+        });
+    }
+
+    pub fn add_coord_poi(&mut self, mut poi: CoordNode<f64, NV>) -> Result<(), Error> {
         let nearest_node;
         {
             nearest_node = self
@@ -111,10 +127,10 @@ where
         Ok((node_id, node_value))
     }
 
-    pub fn add_pois(&mut self, pois: &[CoordNode<f64, NV>]) -> Result<(), Vec<Error>> {
+    pub fn add_coord_pois(&mut self, pois: &[CoordNode<f64, NV>]) -> Result<(), Vec<Error>> {
         info!("Adding {} pois", pois.len());
         pois.iter().for_each(|poi| {
-            self.add_poi(poi.to_owned());
+            self.add_coord_poi(poi.to_owned());
         });
 
         Ok(())
@@ -168,8 +184,8 @@ impl<T: NodeTrait> PoiGraph<T> {
         &self,
         start_node: usize,
         end_node: usize,
-        pois: FxHashSet<usize>,
-    ) -> Option<BeerPathResult<f64>> {
+        pois: &FxHashSet<usize>,
+    ) -> Option<FxHashMap<usize, f64>> {
         info!(
             "Calculating {} beer paths between nodes {}, {}",
             self.poi_nodes.len(),
@@ -179,11 +195,16 @@ impl<T: NodeTrait> PoiGraph<T> {
         let start_result = self.dijkstra(start_node, pois.clone(), Direction::Outgoing)?;
         let end_result = self.dijkstra(end_node, pois.clone(), Direction::Incoming)?;
 
-        Some(BeerPathResult {
-            start_result,
-            end_result,
-            pois,
-        })
+        let mut result = FxHashMap::with_hasher(FxBuildHasher);
+
+        for poi in pois {
+            result.insert(
+                *poi,
+                start_result.get(*poi)?.cost() + end_result.get(*poi)?.cost(),
+            );
+        }
+
+        Some(result)
     }
 
     pub fn beer_path_dijkstra_fast(

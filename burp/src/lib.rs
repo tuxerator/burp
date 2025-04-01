@@ -7,3 +7,4 @@ pub mod graph;
 pub mod input;
 mod serde;
 pub mod types;
+pub mod util;

@@ -14,7 +14,7 @@ use std::{
 use bincode::Options;
 use bytemuck::offset_of;
 use cached::{Cached, SizedCache};
-use log::{debug, info, warn};
+use log::{debug, info, trace, warn};
 use num_traits::AsPrimitive;
 use ordered_float::{FloatCore, OrderedFloat};
 use osmpbfreader::{blocks, groups, primitive_block_from_blob, OsmPbfReader};
@@ -449,13 +449,16 @@ where
         let mut cache_misses = FxHashSet::default();
         for s_t in s_t_pairs {
             if let Some(result) = self.dijkstra_cache.cache_get(&s_t) {
+                trace!("Cache hit for {:?}", &s_t);
                 result_set.0.insert(result.clone());
             } else {
+                trace!("Cache miss for {:?}", &s_t);
                 cache_misses.insert(s_t.1);
             };
         }
         if !cache_misses.is_empty() {
-            let result = self.dijkstra_full(start_node, direction)?;
+            // let result = self.dijkstra_full(start_node, direction)?;
+            let result = self.dijkstra(start_node, cache_misses, direction)?;
 
             for t in result.0.into_iter() {
                 result_set.0.insert(t.clone());

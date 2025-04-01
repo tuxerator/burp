@@ -204,7 +204,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
             read_geojson(buf_reader, &mut poi_writer);
 
             if let Some(ref mut oracel) = state.graph {
-                oracel.add_pois(poi_writer.pois());
+                oracel.add_coord_pois(poi_writer.pois());
 
                 info!("Loaded Pois");
             }
