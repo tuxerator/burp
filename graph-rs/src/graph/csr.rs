@@ -11,8 +11,6 @@ use std::{
     usize, vec,
 };
 
-use bincode::Options;
-use bytemuck::offset_of;
 use cached::{Cached, SizedCache};
 use log::{debug, info, trace, warn};
 use num_traits::AsPrimitive;
@@ -183,6 +181,10 @@ pub struct DirectedCsrGraph<EV, NV> {
     pub csr_inc: Csr<EV>,
     #[serde(skip)]
     dijkstra_cache: FxHashMap<(usize, usize), ResultNode<EV>>,
+    #[serde(skip)]
+    total_cache_misses: usize,
+    #[serde(skip)]
+    total_cache_hits: usize,
 }
 
 impl<EV, NV> DirectedCsrGraph<EV, NV>
@@ -208,6 +210,8 @@ where
                 node_count.pow(2),
                 FxBuildHasher::default(),
             ),
+            total_cache_misses: usize::default(),
+            total_cache_hits: usize::default(),
         };
 
         info!(
@@ -451,12 +455,20 @@ where
             if let Some(result) = self.dijkstra_cache.cache_get(&s_t) {
                 trace!("Cache hit for {:?}", &s_t);
                 result_set.0.insert(result.clone());
+                self.total_cache_hits += 1;
             } else {
                 trace!("Cache miss for {:?}", &s_t);
                 cache_misses.insert(s_t.1);
+                self.total_cache_misses += 1;
             };
         }
         if !cache_misses.is_empty() {
+            debug!(
+                "cache misses: {}, total cache misses: {}/{}",
+                cache_misses.len(),
+                self.total_cache_misses,
+                self.node_count().pow(2)
+            );
             // let result = self.dijkstra_full(start_node, direction)?;
             let result = self.dijkstra(start_node, cache_misses, direction)?;
 
@@ -464,6 +476,8 @@ where
                 result_set.0.insert(t.clone());
                 self.dijkstra_cache.cache_set((start_node, t.node_id()), t);
             }
+        } else {
+            debug!("total_cache_hits: {}", self.total_cache_hits);
         }
 
         Some(result_set)

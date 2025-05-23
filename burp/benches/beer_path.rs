@@ -20,11 +20,14 @@ use rand::{
 use rmp_serde::Deserializer;
 use serde::Deserialize;
 
+criterion_group!(query, beer_path_small, beer_path_big);
+criterion_main!(query);
+
 pub fn beer_path_small(c: &mut Criterion) {
     let mut group = c.benchmark_group("beer-path small");
 
-    let graph_file = File::open("../resources/small_poi.gmb").unwrap();
-    let oracle_file = File::open("../resources/small_poi.omb").unwrap();
+    let graph_file = File::open("../resources/small_poi.gmp").unwrap();
+    let oracle_file = File::open("../resources/small_poi.omp").unwrap();
 
     let graph_mmap = unsafe { MmapOptions::new().map(&graph_file).unwrap() };
     let oracle_mmap = unsafe { MmapOptions::new().map(&oracle_file).unwrap() };
@@ -51,10 +54,10 @@ pub fn beer_path_small(c: &mut Criterion) {
 
     for size in size.take(10) {
         let s_t_pairs: Vec<(Coord, Coord)> = s_t_iter.take(size).collect();
-        group.sample_size(10);
+        group.sample_size(100);
         group.throughput(Throughput::Elements(s_t_pairs.len() as u64));
         group.bench_with_input(
-            BenchmarkId::new("oracel", size),
+            BenchmarkId::new("oracle", size),
             &s_t_pairs,
             |b, s_t_pairs| {
                 b.iter(|| {
@@ -99,8 +102,8 @@ pub fn beer_path_small(c: &mut Criterion) {
 pub fn beer_path_big(c: &mut Criterion) {
     let mut group = c.benchmark_group("beer-path big");
 
-    let graph_file = File::open("../resources/medium_poi.gmb").unwrap();
-    let oracle_file = File::open("../resources/medium_poi.omb").unwrap();
+    let graph_file = File::open("../resources/medium_poi.gmp").unwrap();
+    let oracle_file = File::open("../resources/medium_poi.omp").unwrap();
 
     let graph_mmap = unsafe { MmapOptions::new().map(&graph_file).unwrap() };
     let oracle_mmap = unsafe { MmapOptions::new().map(&oracle_file).unwrap() };
@@ -127,10 +130,10 @@ pub fn beer_path_big(c: &mut Criterion) {
 
     for size in size.take(10) {
         let s_t_pairs: Vec<(Coord, Coord)> = s_t_iter.take(size).collect();
-        group.sample_size(10);
+        group.sample_size(100);
         group.throughput(Throughput::Elements(s_t_pairs.len() as u64));
         group.bench_with_input(
-            BenchmarkId::new("oracel", size),
+            BenchmarkId::new("oracle", size),
             &s_t_pairs,
             |b, s_t_pairs| {
                 b.iter(|| {
@@ -171,9 +174,6 @@ pub fn beer_path_big(c: &mut Criterion) {
     }
     group.finish();
 }
-
-criterion_group!(query, beer_path_small, beer_path_big);
-criterion_main!(query);
 
 struct SampleCoord<C: CoordNum>(Coord<C>);
 

@@ -24,9 +24,11 @@
   };
 
   outputs = { self, nixpkgs, crane, fenix, flake-utils, advisory-db, ... }:
-    flake-utils.lib.eachDefaultSystem (system:
+    flake-utils.lib.eachDefaultSystem (localSystem:
       let
-        pkgs = nixpkgs.legacyPackages.${system};
+        crossSystem = "x86_64-unknown-linux-gnu";
+
+        pkgs = import nixpkgs { inherit crossSystem localSystem; };
 
         inherit (pkgs) lib;
 
@@ -74,7 +76,7 @@
           (with pkgs; [ xdg-desktop-portal ] ++ commonArgs.buildInputs);
 
         craneLibLLvmTools = craneLib.overrideToolchain
-          (fenix.packages.${system}.complete.withComponents [
+          (fenix.packages.${localSystem}.complete.withComponents [
             "cargo"
             "llvm-tools"
             "rustc"
@@ -199,7 +201,7 @@
 
         devShells.default = craneLib.devShell {
           # Inherit inputs from checks.
-          checks = self.checks.${system};
+          checks = self.checks.${localSystem};
 
           # Additional dev-shell environment variables can be set directly
           # MY_CUSTOM_DEVELOPMENT_VAR = "something else";
@@ -211,7 +213,10 @@
             pkgs.gdb
             pkgs.vscode-extensions.vadimcn.vscode-lldb.adapter
             pkgs.typst
+            pkgs.tinymist
+            pkgs.gnuplot
           ];
         };
+
       });
 }

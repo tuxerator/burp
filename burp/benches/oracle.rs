@@ -1,22 +1,24 @@
 use geozero::geojson::read_geojson;
 use graph_rs::{graph::rstar::RTreeGraph, Graph};
 use rand::{rng, seq::index::sample};
-use std::{fs::File, iter::successors};
-
-use burp::{
-    graph::{
-        oracle::{self, Oracle},
-        PoiGraph,
-    },
-    input::geo_zero::GraphWriter,
-    types::Poi,
+use rustc_hash::FxHashSet;
+use std::{
+    fs::File,
+    iter::{self, successors},
 };
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use memmap2::MmapOptions;
-use rmp_serde::Deserializer;
-use serde::Deserialize;
 
-pub fn build_oracle(c: &mut Criterion) {
+use burp::graph::oracle::Oracle;
+use criterion::measurement::{Measurement, ValueFormatter};
+use geo::{CoordFloat, CoordNum};
+use rstar::RTreeNum;
+
+use burp::{graph::PoiGraph, input::geo_zero::GraphWriter, types::Poi};
+use criterion::{
+    criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode, Throughput,
+};
+use memmap2::MmapOptions;
+
+pub fn build_oracle_time(c: &mut Criterion) {
     let mut group = c.benchmark_group("oracle");
 
     let in_file = File::open("../resources/Konstanz_Paradies.geojson").unwrap();
@@ -38,15 +40,69 @@ pub fn build_oracle(c: &mut Criterion) {
         graph.add_node_pois(pois);
 
         group.sample_size(10);
+        group.sampling_mode(SamplingMode::Flat);
         group.throughput(Throughput::Elements(size as u64));
-        group.bench_function(BenchmarkId::new("build", size), |b| {
+        group.bench_function(BenchmarkId::new("time", size), |b| {
             let mut oracle = Oracle::new();
             b.iter(|| {
                 oracle.build_for_nodes(&mut graph.graph, &graph.poi_nodes, 0.2, None);
             });
         });
     }
+    group.finish();
 }
 
-criterion_group!(oracle, build_oracle);
+criterion_group!(oracle, build_oracle_time);
 criterion_main!(oracle);
+
+pub struct OracleSize;
+
+impl Measurement for OracleSize {
+    type Intermediate = usize;
+    type Value = usize;
+
+    fn start(&self) -> Self::Intermediate {
+        0
+    }
+
+    fn end(&self, i: Self::Intermediate) -> Self::Value {
+        i
+    }
+
+    fn add(&self, v1: &Self::Value, v2: &Self::Value) -> Self::Value {
+        v1 + v2
+    }
+
+    fn zero(&self) -> Self::Value {
+        0
+    }
+
+    fn to_f64(&self, value: &Self::Value) -> f64 {
+        *value as f64
+    }
+
+    fn formatter(&self) -> &dyn criterion::measurement::ValueFormatter {
+        &OracleSizeFormatter
+    }
+}
+
+pub struct OracleSizeFormatter;
+
+impl ValueFormatter for OracleSizeFormatter {
+    fn scale_values(&self, typical_value: f64, values: &mut [f64]) -> &'static str {
+        "block-pairs"
+    }
+
+    fn scale_throughputs(
+        &self,
+        typical_value: f64,
+        throughput: &criterion::Throughput,
+        values: &mut [f64],
+    ) -> &'static str {
+        "block-pairs/poi"
+    }
+
+    fn scale_for_machines(&self, values: &mut [f64]) -> &'static str {
+        "block-pairs"
+    }
+}

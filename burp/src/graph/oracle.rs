@@ -73,6 +73,30 @@ where
         }
     }
 
+    /// Returns the number of block-pairs stored in the oracle.
+    pub fn size(&self) -> usize {
+        self.block_pairs.len()
+    }
+
+    pub fn avg_block_ocupancy<G>(&self, graph: &RTreeGraph<G, C>) -> f64
+    where
+        G: DirectedGraph,
+        G::NV: Coordinate<C>,
+    {
+        self.block_pairs
+            .iter()
+            .flat_map(|block_pair| {
+                let s_ocupancy = graph.query(&block_pair.s_block.envelope()).count() as f64;
+                let t_ocupancy = graph.query(&block_pair.t_block.envelope()).count() as f64;
+
+                [s_ocupancy, t_ocupancy]
+            })
+            .enumerate()
+            .reduce(|a, n| (n.0, a.1 + ((n.1 - a.1) / (n.0 as f64))))
+            .unwrap()
+            .1
+    }
+
     pub fn r_tree_size(&self) -> usize {
         r_tree_size(self.r_tree.root())
     }
@@ -146,7 +170,7 @@ where
             .collect()
     }
 
-    pub fn build_for_node<G>(&mut self, graph: &mut RTreeGraph<G, C>, node: usize, epsilon: G::EV)
+    pub fn build_for_node<G>(&mut self, graph: &mut RTreeGraph<G, C>, node: &usize, epsilon: G::EV)
     where
         G::EV: FloatCore,
         G::NV: Coordinate<C> + Debug,
@@ -162,43 +186,41 @@ where
         queue.push_back((root, root));
 
         while let Some(block_pair) = queue.pop_front() {
-            if block_pair.0 != block_pair.1 {
-                let s: GeomWithData<Coord<C>, usize>;
-                let t: GeomWithData<Coord<C>, usize>;
+            let s: GeomWithData<Coord<C>, usize>;
+            let t: GeomWithData<Coord<C>, usize>;
 
-                {
-                    let mut points = (
-                        graph
-                            .query(&AABB::from_corners(block_pair.0.min(), block_pair.0.max()))
-                            .cloned(),
-                        graph
-                            .query(&AABB::from_corners(block_pair.1.min(), block_pair.1.max()))
-                            .cloned(),
-                    );
+            {
+                let mut points = (
+                    graph
+                        .query(&AABB::from_corners(block_pair.0.min(), block_pair.0.max()))
+                        .cloned(),
+                    graph
+                        .query(&AABB::from_corners(block_pair.1.min(), block_pair.1.max()))
+                        .cloned(),
+                );
 
-                    let (Some(p_0), Some(p_1)) = (points.0.next(), points.1.next()) else {
-                        trace!("At least one block is empty. {:?}", &block_pair);
-                        continue;
-                    };
-
-                    s = p_0;
-                    t = p_1;
-                }
-                let Some(values) = Values::<G::EV>::new(graph, s, t, block_pair, node) else {
+                let (Some(p_0), Some(p_1)) = (points.0.next(), points.1.next()) else {
+                    trace!("At least one block is empty. {:?}", &block_pair);
                     continue;
                 };
 
-                if values.in_path(epsilon) {
-                    trace!("Found in-path block pair: {:#?}", &block_pair);
+                s = p_0;
+                t = p_1;
+            }
+            let Some(values) = Values::<G::EV>::new(graph, s, t, block_pair, *node) else {
+                continue;
+            };
 
-                    self.add_block_pair(block_pair.0, block_pair.1, node);
+            if values.in_path(epsilon) {
+                trace!("Found in-path block pair: {:#?}", &block_pair);
 
-                    continue;
-                } else if values.not_in_path(epsilon) {
-                    trace!("Found not in-path block pair: {:#?}", &block_pair);
+                self.add_block_pair(block_pair.0, block_pair.1, *node);
 
-                    continue;
-                }
+                continue;
+            } else if values.not_in_path(epsilon) {
+                trace!("Found not in-path block pair: {:#?}", &block_pair);
+
+                continue;
             }
 
             let children = (
@@ -240,26 +262,31 @@ where
                 .0
                 .into_iter()
                 .flat_map(|block_a| children.1.iter().map(move |block_b| (block_a, *block_b)))
-                .filter(|block_pair| {
-                    let points = (
-                        graph
-                            .query(&AABB::from_corners(block_pair.0.min(), block_pair.0.max()))
-                            .collect::<Vec<_>>(),
-                        graph
-                            .query(&AABB::from_corners(block_pair.1.min(), block_pair.1.max()))
-                            .collect::<Vec<_>>(),
-                    );
-
-                    // If both blocks only contain the same node they can be discarded
-                    if points.0.len() == 1 && points.0 == points.1 {
-                        return false;
-                    }
-                    true
-                })
+                // .filter(|block_pair| {
+                //     let points = (
+                //         graph
+                //             .query(&AABB::from_corners(block_pair.0.min(), block_pair.0.max()))
+                //             .collect::<Vec<_>>(),
+                //         graph
+                //             .query(&AABB::from_corners(block_pair.1.min(), block_pair.1.max()))
+                //             .collect::<Vec<_>>(),
+                //     );
+                //
+                //     // If both blocks only contain the same node they can be discarded
+                //     if points.0.len() == 1 && points.0 == points.1 {
+                //         return false;
+                //     }
+                //     true
+                // })
                 .collect();
 
             queue.append(&mut child_block_pairs.into());
         }
+        info!(
+            "created oracle: {} block pairs, {} avg block ocupancy",
+            self.size(),
+            self.avg_block_ocupancy(graph)
+        );
     }
 
     pub fn build_for_nodes<G>(
@@ -279,17 +306,13 @@ where
             pb.set_message("Building oracle for pois");
 
             nodes.iter().progress_with(pb).for_each(|point| {
-                self.build_for_node(graph, *point, epsilon);
+                self.build_for_node(graph, point, epsilon);
             });
         } else {
             nodes.iter().for_each(|point| {
-                self.build_for_node(graph, *point, epsilon);
+                self.build_for_node(graph, point, epsilon);
             });
         };
-        info!(
-            "created oracle containing {} block pair",
-            self.r_tree.size()
-        );
     }
 }
 
@@ -337,17 +360,12 @@ impl<T: FloatCore> Values<T> {
         G::EV: FloatCore,
         C: RTreeNum + CoordFloat,
     {
+        let d_s = graph
+            .cached_dijkstra(s.data, HashSet::from([t.data, poi]), Direction::Outgoing)
+            .unwrap();
         Some(Values {
-            d_st: *graph
-                .cached_dijkstra(s.data, HashSet::from([t.data]), Direction::Outgoing)
-                .unwrap()
-                .get(t.data)?
-                .cost(),
-            d_sp: *graph
-                .cached_dijkstra(s.data, HashSet::from([poi]), Direction::Outgoing)
-                .unwrap()
-                .get(poi)?
-                .cost(),
+            d_st: *d_s.get(t.data)?.cost(),
+            d_sp: *d_s.get(poi)?.cost(),
             d_pt: *graph
                 .cached_dijkstra(poi, HashSet::from([t.data]), Direction::Outgoing)
                 .unwrap()
@@ -390,56 +408,12 @@ impl<T: FloatCore> Values<T> {
     }
 
     fn not_in_path(&self, epsilon: T) -> bool {
-        (self.d_sp + self.d_pt - (self.r_af + self.r_bb))
+        (self.d_sp + self.d_pt - (self.r_ab + self.r_bf))
             >= (self.d_st + (self.r_ab + self.r_bf)) * (T::from(1).unwrap() + epsilon)
     }
 }
 
-fn divide<C: qutee::Coordinate>(block: &Boundary<C>) -> [Boundary<C>; 4] {
-    let half_block_height = block.height()
-        / C::from(2).unwrap_or_else(|| {
-            panic!(
-                "Could not convert '2' into type '{}'",
-                std::any::type_name::<C>()
-            )
-        });
-    let half_block_width = block.width()
-        / C::from(2).unwrap_or_else(|| {
-            panic!(
-                "Could not convert '2' into type '{}'",
-                std::any::type_name::<C>()
-            )
-        });
-    let minus_one = C::from(-1).unwrap_or_else(|| {
-        panic!(
-            "Could not convert '-1' into type '{}'",
-            std::any::type_name::<C>()
-        )
-    });
-    let top_left = block.top_left();
-    let corner_points = [
-        *top_left,
-        Point::new(top_left.x + half_block_width, top_left.y),
-        Point::new(top_left.x, top_left.y - half_block_height),
-        Point::new(
-            top_left.x + half_block_width,
-            top_left.y - half_block_height,
-        ),
-    ];
 
-    corner_points
-        .into_iter()
-        .map(|corner| Boundary::new(corner, half_block_width, half_block_height * minus_one))
-        .collect::<Vec<Boundary<C>>>()
-        .try_into()
-        .unwrap_or_else(|_| {
-            panic!(
-                "Could not convert 'Vec<Boundary<{}> to '[Boundary<{}>; 4]'",
-                std::any::type_name::<C>(),
-                std::any::type_name::<C>()
-            )
-        })
-}
 
 #[cfg(test)]
 mod test {
@@ -450,7 +424,7 @@ mod test {
     use qutee::{Area, Boundary, Point};
     use rand::random;
 
-    use super::{divide, BlockPair, Oracle};
+    use super::{Oracle};
 
     #[test]
     fn corner_points_test() {

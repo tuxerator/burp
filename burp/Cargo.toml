@@ -58,3 +58,7 @@ harness = false
 [[bench]]
 name = "oracle"
 harness = false
+
+[[bench]]
+name = "beer_path"
+harness = false

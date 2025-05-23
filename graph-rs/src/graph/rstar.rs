@@ -49,7 +49,7 @@ where
     C: RTreeNum + CoordFloat,
 {
     pub fn new_from_graph(graph: G) -> Self {
-        let points = MultiPoint::from_iter(graph.nodes_iter().map(|c| c.1.as_coord()));
+        info!("Creating r-tree for graph...");
 
         let r_tree = Box::new(RTree::bulk_load(
             graph
@@ -58,7 +58,7 @@ where
                 .collect(),
         ));
 
-        info!("Created r-tree");
+        info!("Created r-tree: {} elements", r_tree.size());
 
         Self { graph, r_tree }
     }

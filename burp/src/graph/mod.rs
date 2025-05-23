@@ -337,6 +337,8 @@ fn shared_dijkstra<G>(
             next_node = frontier.pop();
             continue;
         }
+
+        // Check if other Dijkstra reached the node
         if let Some(visited_node) = visited
             .read()
             .expect("poisoned lock")
@@ -474,11 +476,12 @@ impl std::error::Error for Error {}
 
 #[cfg(test)]
 mod test {
+    use geozero::geojson::read_geojson;
     use graph_rs::graph::{quad_tree::QuadGraph, rstar::RTreeGraph};
 
     use crate::{
         graph::{self, PoiGraph},
-        input::geo_zero::{read_geojson, GraphWriter},
+        input::geo_zero::GraphWriter,
         types::Poi,
     };
 

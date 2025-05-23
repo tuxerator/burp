@@ -8,7 +8,7 @@ use std::{
 };
 
 use cached::proc_macro::cached;
-use log::{debug, info};
+use log::{debug, info, trace};
 use num_traits::{Num, Zero};
 use ordered_float::{FloatCore, OrderedFloat};
 use priority_queue::PriorityQueue;
@@ -87,7 +87,7 @@ where
             visited.insert(node.node_id());
 
             target_set.take(&node.node_id()).and_then(|node| {
-                debug!("found path to node {}", node);
+                trace!("found path to node {}", node);
                 Some(node)
             });
             result.insert(node);

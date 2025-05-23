@@ -35,6 +35,9 @@ use crate::map::layers::{
 use crate::map::Map;
 use crate::state::Events;
 use burp::input::geo_zero::{ColumnValueClonable, GraphWriter, PoiWriter};
+use memmap2::MmapOptions;
+use rmp_serde::{Deserializer, Serializer};
+use serde::{Deserialize, Serialize};
 
 type StartEndPos<T> = (
     Option<(usize, CoordNode<f64, T>)>,
@@ -319,14 +322,15 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
             state.state = State::Oracle(None);
         }
 
-        ui.add(egui::Slider::new(&mut state.epsilon, 0.0..=1.0));
+        ui.add(egui::Slider::new(&mut state.epsilon, 0.0..=50.0));
 
         if ui.button("Save").clicked() {
             if let Some(path) = FileDialog::new().save_file() {
                 if let Ok(file) = File::create(path) {
                     if let Some(ref oracle) = state.graph {
                         let mut buf_writer = BufWriter::new(file);
-                        let _ = buf_writer.write(oracle.to_flexbuffer().as_slice());
+                        let mut rmp_serializer = Serializer::new(buf_writer);
+                        oracle.serialize(&mut rmp_serializer).unwrap();
                     };
                 };
             };
@@ -334,13 +338,18 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
 
         if ui.button("Load").clicked() {
             if let Some(path) = FileDialog::new().pick_file() {
-                if let Ok(file) = File::open(path) {
-                    let mut buf_reader = BufReader::new(file);
+                if let Ok(in_file) = File::open(path) {
+            let in_file_mmap = unsafe { MmapOptions::new().map(&in_file).unwrap() };
 
-                    let mut flexbuffer = Vec::default();
+            let mut rmp_deserializer = Deserializer::new(in_file_mmap.as_ref());
 
-                    buf_reader.read_to_end(&mut flexbuffer);
-                    state.graph = Some(PoiGraph::read_flexbuffer(flexbuffer.as_slice()));
+            let mut graph: PoiGraph<Poi> = PoiGraph::deserialize(&mut rmp_deserializer).unwrap();
+            info!(
+                "Loaded graph: {} nodes, {} edges",
+                graph.graph().node_count(),
+                graph.graph().edge_count()
+            );
+                    state.graph = Some(graph);
                     state.state = State::LoadedPois;
                 }
             }

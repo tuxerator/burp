@@ -1,4 +1,13 @@
-use std::{cmp::max, error::Error, iter::Copied, slice::Iter, str::FromStr, usize};
+use std::{
+    cmp::max,
+    error::Error,
+    fmt::{format, Display},
+    io::{BufReader, Lines},
+    iter::Copied,
+    slice::Iter,
+    str::FromStr,
+    usize,
+};
 
 use crate::types::Direction;
 
@@ -63,6 +72,10 @@ where
         value_iter.try_for_each(|line| -> Result<(), Box<dyn Error>> {
             let mut tokens = line.split(' ');
 
+            if tokens.next().ok_or("No line descriptor found!")? != "a" {
+                return Ok(());
+            }
+
             let source = usize::from_str(tokens.next().ok_or("No source found!")?);
 
             let target = usize::from_str(tokens.next().ok_or("No target found!")?);
@@ -77,6 +90,56 @@ where
         Ok(EdgeList::new(result))
     }
 }
+
+impl TryFrom<Lines<BufReader<&[u8]>>> for EdgeList<usize> {
+    type Error = Box<dyn Error>;
+
+    fn try_from(value: Lines<BufReader<&[u8]>>) -> Result<Self, Self::Error> {
+        let mut edge_list = vec![];
+        value
+            .enumerate()
+            .try_for_each(|line| -> Result<(), Box<dyn Error>> {
+                let str = line.1?;
+                let mut tokens = str.split(' ');
+
+                if tokens.next().ok_or(ParseError::NoDescriptor(line.0))? != "a" {
+                    return Ok(());
+                }
+
+                let source = usize::from_str(tokens.next().ok_or(ParseError::NoSource(line.0))?);
+
+                let target = usize::from_str(tokens.next().ok_or(ParseError::NoTarget(line.0))?);
+
+                let value = usize::from_str(tokens.next().unwrap_or_default());
+                edge_list.push((source?, target?, value?));
+
+                Ok(())
+            })?;
+
+        Ok(EdgeList::new(edge_list))
+    }
+}
+
+#[derive(Debug)]
+pub enum ParseError {
+    NoDescriptor(usize),
+    NoSource(usize),
+    NoTarget(usize),
+}
+
+impl Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg = match self {
+            Self::NoDescriptor(line) => format!("line {line}: no line descriptor"),
+            Self::NoSource(line) => format!("line {line}: no source node"),
+            Self::NoTarget(line) => format!("line {line}: no target node"),
+        };
+
+        write!(f, "ParseError: {msg}")
+    }
+}
+
+impl Error for ParseError {}
 
 #[cfg(test)]
 mod tests {

@@ -55,14 +55,6 @@ pub struct GraphWriter {
     include_feature: bool,
 }
 
-pub fn read_geojson<R, P>(reader: R, processor: &mut P) -> Result<(), GeozeroError>
-where
-    R: Read,
-    P: FeatureProcessor,
-{
-    geozero::geojson::read_geojson(reader, processor)
-}
-
 impl GraphWriter {
     pub fn new(
         property_filter: impl Fn(&HashMap<String, ColumnValueClonable>) -> bool + 'static,
@@ -86,13 +78,22 @@ impl GraphWriter {
     }
 
     pub fn get_graph(self) -> DirectedCsrGraph<f64, CoordNode<f64, Poi>> {
+        info!("Computing scc...");
         let mut sccs = self.graph.tarjan_scc();
         let biggest_scc = sccs
-            .par_iter()
+            .iter()
             .max_by(|lhs, rhs| lhs.len().cmp(&rhs.len()))
             .expect("graph is empty");
 
-        self.graph.filter(|node| biggest_scc.contains(&node.0))
+        info!("Found biggest scc");
+
+        let graph = self.graph.filter(|node| biggest_scc.contains(&node.0));
+        info!(
+            "Graph: {} nodes, {} edges",
+            graph.node_count(),
+            graph.edge_count()
+        );
+        graph
     }
 }
 
@@ -219,6 +220,10 @@ impl GeomProcessor for GraphWriter {
 }
 
 impl FeatureProcessor for GraphWriter {
+    fn dataset_begin(&mut self, name: Option<&str>) -> geozero::error::Result<()> {
+        info!("Parsing geojson...");
+        Ok(())
+    }
     fn feature_begin(&mut self, idx: u64) -> geozero::error::Result<()> {
         self.include_feature = true;
         self.properties = HashMap::default();
@@ -228,6 +233,11 @@ impl FeatureProcessor for GraphWriter {
 
     fn properties_end(&mut self) -> geozero::error::Result<()> {
         self.include_feature = (self.property_filter)(&self.properties);
+        Ok(())
+    }
+
+    fn dataset_end(&mut self) -> geozero::error::Result<()> {
+        info!("Parsed geojson");
         Ok(())
     }
 

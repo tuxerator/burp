@@ -25,7 +25,7 @@ impl TarjanSCCData {
     }
 
     fn run<G: DirectedGraph>(&mut self, g: &G) {
-        println!("SCC for graph with {} nodes", g.node_count());
+        info!("SCC for graph with {} nodes", g.node_count());
         self.nodes.clear();
         self.nodes
             .resize(g.node_count(), NodeData { rootindex: None });
