@@ -1,6 +1,11 @@
 /target
-.tile_cache/tile.openstreetmap.org
-.tile_cache/api.maptiler.com/maps/openstreetmap/256
+.tile_cache/
+.tile_cache/
 result
 resources/map_styles
 .direnv
+resources/*
+!resources/small_poi.gmp
+!resources/medium_poi.gmp
+
+heaptrack*
