@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 use galileo::Map;
 use galileo_types::{
     cartesian::Point2d,
-    geo::{impls::GeoPoint2d, Projection},
+    geo::impls::GeoPoint2d,
 };
 
 pub struct MapPositions {

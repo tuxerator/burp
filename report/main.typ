@@ -1,6 +1,8 @@
 #import "@local/unikn-thesis:1.0.0": *
 #import "@preview/lovelace:0.3.0": *
+#import "@preview/algorithmic:1.0.0": *
 #import "@preview/cetz:0.3.4" as cetz
+#import "@preview/algo:0.3.6": algo, i, d, comment, code
 #import "@local/cetz-plot:0.1.1"
 #import "cetz-figures.typ"
 #import "acronyms.typ": acronyms
@@ -192,12 +194,12 @@ The following lemmas define bounds for the shortest and longest shortest-paths f
 ]
 
 #lemma("In-Path Property")[
-  A block-pair $(A,B)$ is in-path if the following condition is satisfied:
+  A block-pair $(A,B)$ is in-path if the following condition is satisfied and $d_N (a_r, b_r) - (r_a^F + r_b^B) > 0$:
   $ (r_a^B + d_N (a_r,p) + d_N (p, b_r) + r_b^F) / (d_N (a_r, b_r) - (r_a^F + r_b^B)) -1 <= epsilon $
 ]
 
 #proof[
-  For any given node $s$, $t$ in $A, B$, respectively, $d_N (s,t)$ is at least $d_N (a_r, b_r) - (r_a^F + r_b^B)$ (see @Shortest-Shortest-Path).
+  For any given node $s$, $t$ in $A, B$, respectively, $d_N (s,t)$ is at least $d_N (a_r, b_r) - (r_a^F + r_b^B)$ (see @lemma-Shortest-Shortest-Path).
   Considering the path $s -> a_r -> p -> b_r -> t$ it has a length of at most $r_a^B + d_N (a_r, p) + d_N (p, b_r) + r_b^F$.
   If $p$ is _in-path_ to $a_r -> b_r$ then we get the following inequality in order for all possible paths in $A, B$ to be _in-path_:
   $
@@ -206,13 +208,15 @@ The following lemmas define bounds for the shortest and longest shortest-paths f
   $
 ]
 
+Note that the condition $d_N (a_r, b_r) - (r_a^F + r_b^B) > 0$ is omitted by #cite(<Ghosh2023>, form: "prose") but is necessary because $d_N (a_r, b_r)$ can be 0 in which case $d_N (a_r, b_r) - (r_a^F, r_b^B) < 0$ and thus the condition would suddenly be satisfied if $d_N (a_r, b_r)$ is smaller than some specific value.
+
 #lemma("Not In-Path Property")[
   A block pair $(A,B)$ is not _in-path_ if the following condition is satisfied:
   $ (d_N (a_r,p) + d_N (p, b_r) - (r_a^B + r_b^F)) / (d_N (a_r, b_r) + (r_a^B + r_b^F)) -1 >= epsilon $
 ]
 
 #proof[
-  For any given node $s$, $t$ in $A, B$, respectively, $d_N (s,t)$ is at most $d_N (a_r, b_r) + (r_a^B + r_b^F)$ (see @Longest-Shortest-Path).
+  For any given node $s$, $t$ in $A, B$, respectively, $d_N (s,t)$ is at most $d_N (a_r, b_r) + (r_a^B + r_b^F)$ (see @lemma-Longest-Shortest-Path).
   Considering the path $s -> a_r -> p -> b_r -> t$ it has a length of at least $d_N (a_r, p) + d_N (p, b_r) - (r_a^B + r_b^F)$.
   We get the following inequality in order for all possible paths in $A,B$ to not be _in-path_ to $p$:
   $
@@ -221,18 +225,60 @@ The following lemmas define bounds for the shortest and longest shortest-paths f
   $
 ]
 
+#show: style-algorithm
+#algorithm-figure(
+  "In-Path Oracle for a given POI",
+  {
+    Assign[$R$][root block of the road network]
+    Assign[$#math.italic([result])$][$emptyset$]
+    Assign[$Q$][${R,R}$]
+    While(
+      $#math.italic("!Q.empty()")$,
+      {
+        Assign[$(A,B)$][$#math.italic("Q.pop_front()")$]
+        Assign[$s,t$][random node from $A, B$, respectively]
+        Assign[$#math.italic("values")$][Compute $d_n (s,t), d_N (s,p), d_N (p,t), r_a^F, r_a^B, r_b^F, r_b^B$]
+
+        If(
+          $#math.italic("values.in-path()")$,
+          {
+            [$#math.italic("resutl.add((A,B))")$]
+          },
+        )
+        If(
+          $#math.italic("values.not-in-path()")$,
+          {
+            [continue]
+          },
+        )
+        ([Subdivide $A$ and $B$ into 4 children blocks. Discard empty children blocks.],)
+        ([Insert all children blocks into $Q$],)
+      },
+    )
+  },
+) <algo-in-path-oracle>
+
+// #lemma("In-Path Oracle Size")[
+//   The size of the in-path oracle for a single $p$ is $O(1 / epsilon^2 n)$ since it is a Well-Seperated Pair Decomposition (WSPD) of the road network.
+// ]
+//
+// #proof[
+//   It can be easily seen that the _in-path_ oracle is a WSPD. Looking at @algo-in-path-oracle we can see that each block pair is either _in-path_ or _not-in-path_ or neither.
+//   In the later case we subdivide both blocks and
+// ]
+
 === R\*-Tree
 
 In order to get fast query times we used an _R\*-Tree_ @Beckmann1990 for storing the oracle.
 The _R\*-Tree_ is a variant of the _R-Tree_ @Guttman1984 which tries to minimize overlap.
 
-The idea behind _R-Trees_ is to group nearby objects into rectangles and in turn store them in a tree similar to a _B-Tree_ (see @fig_r-tree).
+The idea behind _R-Trees_ is to group nearby objects into rectangles and in turn store them in a tree similar to a _B-Tree_ (see @fig-r-tree).
 Also like in a _B-Tree_ the data is organized into pages of a fixed size.
 This enables search similarly to a _B-Tree_ recursively searching through all nodes which bounding boxes are overlapping with the search area.
 
 #figure(caption: [_R-Tree_ for 2D rectangles with a page size of 3])[
   #image("assets/R-tree.svg", height: 100pt)
-] <fig_r-tree>
+] <fig-r-tree>
 
 The performance of an _R-Tree_ greatly depends on the overlap of the bounding boxes in the tree.
 Generally less overlap leads to better performance.
@@ -271,11 +317,18 @@ As a query we used the sampled data points consisting of source and destination 
 
 == In-Path Oracle
 
-To measure the performance we examin the size of the oracle with varying the detour limits and road network size as well as the throughput.
+To measure the performance we examine the size of the oracle with varying the detour limits and road network size as well as the throughput.
 
 === Varying Detour Limits
 
 To measure the impact of the detour limit on the oracle size we varied the detour limit from 0.05 to 5.
+The test were performed on the Konstanz data set consisting of 2282 nodes and 4377 edges.
+As we can see in @fig-oracle-size the oracle size is roughly shaped like a bell which makes sense when looking at @lemma-In-Path-Property and @lemma-Not-In-Path-Property.
+When $epsilon$ is very small @lemma-Not-In-Path-Property is more easily satisfied.
+Similarly when $epsilon$ is very big @lemma-In-Path-Property is satisfied for bigger blocks.
+It is important to note #cite(<Ghosh2023>, form: "prose") report much smaller sizes for a graph of this size.
+For a graph with 5000 nodes they report a oracle size of a little bit more than 100,000 compared to the 3,010,095 (see @fig-oracle-size) for a graph with 2248 nodes we found.
+
 
 #figure(
   cetz.canvas({
@@ -298,30 +351,39 @@ To measure the impact of the detour limit on the oracle size we varied the detou
       (5, 3394786),
     )
 
-    set-style(
-      axes: (
-        // stroke: (dash: "dotted"),
-        x: (padding: 1),
-        y: (padding: 1),
-      ),
-    )
+    let x-tic-list = data
+      .enumerate()
+      .map(((i, t)) => {
+        (i, t.at(0))
+      })
+
+    let data-mapped = data
+      .enumerate()
+      .map(((i, t)) => {
+        (i, t.at(1))
+      })
+    let x-inset = 0.5
 
     plot.plot(
       size: (10, 10),
-      x-min: 0.04,
-      x-max: 6,
-      x-mode: "log",
+      x-min: -x-inset,
+      x-max: data-mapped.len() + x-inset - 1,
       y-min: 1600000,
       y-max: 4800000,
-      x-ticks: data.map(e => {
-        e.first()
-      }),
+      x-ticks: x-tic-list,
       x-tick-step: none,
       {
-        plot.add(data)
+        plot.add(data-mapped, mark: "o")
       },
     )
   }),
-)
+) <fig-oracle-size>
+
+== Throughput Experiment
+
+We tested the throughput of _in-path_ queries on both the baseline dual Dijkstra as well as the _in-path_ oracle.
+The experiments were performed on the Konstanz dataset.
+POIs were randomly sampled with a sampling rate from the dataset which was varied throughout the experiment.
+
 
 = Conclusions and Future Work

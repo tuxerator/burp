@@ -1,6 +1,5 @@
 pub mod geo_zero;
 
-use geo::coord;
 use geo_types::Coord;
 use graph_rs::Coordinate;
 

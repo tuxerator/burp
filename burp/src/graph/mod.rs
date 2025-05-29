@@ -1,20 +1,20 @@
 use core::fmt;
 use std::{
     cmp::{self, Reverse},
-    collections::{HashMap, HashSet},
-    f64::{self, consts::E},
+    collections::HashSet,
+    f64::{self},
     fmt::Debug,
     hash::Hash,
     io::Read,
     ops::Deref,
-    sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{Arc, Mutex, RwLock},
     thread, usize,
 };
 
-use geo::{Coord, Point};
+use geo::Coord;
 use graph_rs::{
     algorithms::dijkstra::{Dijkstra, DijkstraResult, ResultNode},
-    graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph, rstar::RTreeGraph, Target},
+    graph::{csr::DirectedCsrGraph, rstar::RTreeGraph, Target},
     types::Direction,
     CoordGraph, Coordinate, DirectedGraph, Graph,
 };
@@ -24,12 +24,9 @@ use ordered_float::{FloatCore, OrderedFloat};
 use priority_queue::PriorityQueue;
 use rayon::prelude::*;
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
-use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::{
-    serde::OrderedFloatDef,
-    types::{CoordNode, Poi},
-};
+use crate::types::CoordNode;
 
 pub mod oracle;
 
@@ -244,7 +241,7 @@ impl<T: NodeTrait> PoiGraph<T> {
         thread::scope(|s| {
             s.spawn(|| {
                 shared_dijkstra(
-                    self.graph().deref(),
+                    self.graph(),
                     start_id,
                     Label::Forward,
                     visited.clone(),
@@ -257,7 +254,7 @@ impl<T: NodeTrait> PoiGraph<T> {
 
             s.spawn(|| {
                 shared_dijkstra(
-                    self.graph().deref(),
+                    self.graph(),
                     end_id,
                     Label::Backward,
                     visited.clone(),

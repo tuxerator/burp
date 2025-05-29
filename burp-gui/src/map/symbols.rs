@@ -1,16 +1,11 @@
-use std::sync::Arc;
 
 use burp::types::Poi;
 use galileo::{
-    decoded_image::DecodedImage,
     error::GalileoError,
-    render::{point_paint::PointPaint, render_bundle::RenderPrimitive},
     symbol::{ImagePointSymbol, Symbol},
-    Color,
 };
 use galileo_types::geometry::Geom;
-use image::GenericImageView;
-use nalgebra::{dimension, Vector2};
+use nalgebra::Vector2;
 use num_traits::AsPrimitive;
 
 use crate::map::layers::node_layer::NodeMarker;

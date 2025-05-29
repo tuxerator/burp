@@ -1,16 +1,14 @@
 use std::{
     f32,
-    fmt::Debug,
     marker::PhantomData,
     ops::Deref,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
 };
 
 use burp::graph::oracle::{BlockPair, Oracle};
 use galileo::{
     control::{EventPropagation, UserEvent, UserEventHandler},
     layer::{feature_layer::Feature, FeatureLayer, Layer as GalileoLayer},
-    render::{render_bundle::RenderPrimitive, LineCap, LinePaint},
     symbol::{SimplePolygonSymbol, Symbol},
     Color, Map,
 };
@@ -19,25 +17,21 @@ use galileo_types::{
         CartesianPoint2d, CartesianPoint3d, NewCartesianPoint2d, NewCartesianPoint3d, Point2d,
     },
     geo::{
-        impls::{
-            projection::{self, WebMercator},
-            GeoPoint2d,
-        },
+        impls::projection::{WebMercator},
         Crs, Datum, NewGeoPoint, Projection,
     },
     geometry::{Geom, Geometry},
     geometry_type::CartesianSpace2d,
     impls::{Contour, MultiPolygon, Polygon as GalileoPolygon},
-    Disambig, Disambiguate, MultiPolygon as MultiPolygonTrait,
+    Disambig,
 };
-use geo::{Centroid, CoordFloat, CoordNum, GeoFloat, LineString, Rect};
+use geo::{Centroid, CoordFloat, GeoFloat, LineString, Rect};
 use geo_types::geometry::{Coord, Polygon};
-use graph_rs::{algorithms::dijkstra::CachedDijkstra, CoordGraph, Coordinate, DirectedGraph};
+use graph_rs::Coordinate;
 use log::{info, warn};
 use maybe_sync::{MaybeSend, MaybeSync};
-use nalgebra::{Point3, Scalar, Vector2};
-use num_traits::{AsPrimitive, Bounded, FromPrimitive, Num, ToPrimitive};
-use ordered_float::FloatCore;
+use nalgebra::{Point3, Scalar};
+use num_traits::{AsPrimitive, Bounded, FromPrimitive, ToPrimitive};
 use rstar::RTreeNum;
 
 use super::EventLayer;
@@ -178,7 +172,7 @@ where
                 info!("Blocks found: {:?}", block_pairs);
 
                 let mut layer = self.layer.lock().unwrap();
-                let mut features = layer.features_mut();
+                let features = layer.features_mut();
 
                 features.remove_all();
 

@@ -74,14 +74,21 @@ where
             neighbours.for_each(|n| {
                 let path_cost = *node.cost() + *n.value();
                 let new_node = ResultNode::new(n.target(), Some(node.node_id()), path_cost);
-                let path_cost = OrderedFloat(path_cost);
-                if !frontier.change_priority_by(&new_node, |p| {
-                    if p.0 > path_cost {
-                        p.0 = path_cost
+                let path_cost = Reverse(OrderedFloat(path_cost));
+                if let Some(priority) = frontier.get_priority(&new_node) {
+                    if priority < &path_cost {
+                        frontier.change_priority(&new_node, path_cost);
                     }
-                }) {
-                    frontier.push(new_node, Reverse(path_cost));
+                } else {
+                    frontier.push(new_node, path_cost);
                 }
+                // if !frontier.change_priority_by(&new_node, |p| {
+                //     if p.0 > path_cost {
+                //         p.0 = path_cost
+                //     }
+                // }) {
+                //     frontier.push(new_node, Reverse(path_cost));
+                // }
             });
 
             visited.insert(node.node_id());

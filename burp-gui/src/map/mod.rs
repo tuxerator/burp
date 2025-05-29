@@ -9,10 +9,9 @@ use ::galileo::{
         EventProcessor, EventPropagation, MapController, MouseButton, MouseEvent, RawUserEvent,
         UserEvent,
     },
-    layer::Layer,
     Map as GalileoMap,
 };
-use galileo_types::geo::{self, impls::GeoPoint2d};
+use galileo_types::geo::{impls::GeoPoint2d};
 use layers::EventLayer;
 
 use crate::types::MapPositions;

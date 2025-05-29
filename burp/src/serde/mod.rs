@@ -1,5 +1,5 @@
 use geo_types::{Coord, CoordNum};
-use ordered_float::{FloatCore, OrderedFloat};
+use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]

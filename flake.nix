@@ -210,6 +210,7 @@
           # Extra inputs can be added here; cargo and rustc are provided by default.
           packages = [
             pkgs.cargo-hakari
+            pkgs.cargo-machete
             pkgs.gdb
             pkgs.vscode-extensions.vadimcn.vscode-lldb.adapter
             pkgs.typst

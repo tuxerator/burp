@@ -12,19 +12,19 @@ mod common;
 fn oracle() {
     let (graph, oracle) = common::setup();
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let bounding_box = graph.graph().bounding_rect().unwrap();
 
     let s_t_pairs = Vec::from_iter(
         iter::repeat_with(|| {
             let s_coord = Coord::from((
-                rng.gen_range(bounding_box.min().x..bounding_box.max().y),
-                rng.gen_range(bounding_box.min().y..bounding_box.max().y),
+                rng.random_range(bounding_box.min().x..bounding_box.max().y),
+                rng.random_range(bounding_box.min().y..bounding_box.max().y),
             ));
             let t_coord = Coord::from((
-                rng.gen_range(bounding_box.min().x..bounding_box.max().y),
-                rng.gen_range(bounding_box.min().y..bounding_box.max().y),
+                rng.random_range(bounding_box.min().x..bounding_box.max().y),
+                rng.random_range(bounding_box.min().y..bounding_box.max().y),
             ));
             (s_coord, t_coord)
         })
@@ -49,6 +49,21 @@ fn oracle() {
         assert_eq!(
             HashSet::from_iter(dijkstra_result.into_keys()),
             oracle_result
+        );
+    }
+}
+
+#[test]
+fn oracle_invariant() {
+    let (graph, oracle) = common::setup();
+
+    let pois = graph.poi_nodes();
+
+    for poi in pois {
+        assert!(
+            oracle.invariant(graph.graph(), poi),
+            "Found more than one block pair in oracle for node {:#?}",
+            poi
         );
     }
 }

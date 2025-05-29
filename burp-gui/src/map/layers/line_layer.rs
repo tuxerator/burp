@@ -8,7 +8,7 @@ use galileo::{
 use galileo_types::{
     cartesian::NewCartesianPoint2d,
     geo::{
-        impls::projection::{self, WebMercator},
+        impls::projection::{WebMercator},
         Crs, Datum, NewGeoPoint,
     },
     geometry::{Geom, Geometry},
@@ -20,7 +20,7 @@ use geo_types::{geometry::Coord, CoordNum};
 use graph_rs::{CoordGraph, Coordinate};
 use maybe_sync::{MaybeSend, MaybeSync};
 use nalgebra::Scalar;
-use num_traits::{Bounded, Float, FromPrimitive, Num};
+use num_traits::{Bounded, Float, FromPrimitive};
 
 use super::EventLayer;
 

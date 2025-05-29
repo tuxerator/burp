@@ -45,7 +45,7 @@ pub fn build_oracle_time(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("time", size), |b| {
             let mut oracle = Oracle::new();
             b.iter(|| {
-                oracle.build_for_nodes(&mut graph.graph, &graph.poi_nodes, 0.2, None);
+                oracle.build_for_nodes(&mut graph.graph, &graph.poi_nodes, 0.25, None);
             });
         });
     }

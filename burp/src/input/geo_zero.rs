@@ -1,46 +1,34 @@
 pub use geozero;
 use log::{debug, info};
 use ordered_float::OrderedFloat;
-use rayon::iter::{
-    IntoParallelIterator, IntoParallelRefIterator, ParallelDrainRange, ParallelIterator,
-};
+use rayon::iter::ParallelIterator;
 
 use std::{
     cmp::Ordering,
-    collections::{self, HashMap},
+    collections::{HashMap},
     io::Read,
-    iter::Map,
-    marker::PhantomData,
     mem,
-    ops::Deref,
-    sync::{Arc, RwLock},
 };
 
 use geo::{
-    coord, line_string, point, Centroid, EuclideanDistance, GeodesicDistance, HaversineDistance,
+    coord, Centroid, EuclideanDistance, HaversineDistance,
 };
 use geo_types::{
     Coord, Geometry, GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon,
     Point, Polygon,
 };
 use geozero::{
-    error::GeozeroError, geojson::GeoJson, ColumnValue, FeatureProcessor, GeomProcessor,
+    error::GeozeroError, ColumnValue, FeatureProcessor, GeomProcessor,
     PropertyProcessor,
 };
 
 use graph_rs::{
-    algorithms::trajan_scc::TarjanSCC, graph::csr::DirectedCsrGraph, CoordGraph, Coordinate,
-    DirectedGraph, Graph,
+    algorithms::trajan_scc::TarjanSCC, graph::csr::DirectedCsrGraph, Graph,
 };
 
-use graph_rs::input::edgelist::EdgeList;
 
-use crate::{
-    graph::PoiGraph,
-    types::{Amenity, CoordNode, Poi},
-};
+use crate::types::{Amenity, CoordNode, Poi};
 
-use super::NodeValue;
 
 pub struct GraphWriter {
     node_map: HashMap<Coord<OrderedFloat<f64>>, usize>,
@@ -79,7 +67,7 @@ impl GraphWriter {
 
     pub fn get_graph(self) -> DirectedCsrGraph<f64, CoordNode<f64, Poi>> {
         info!("Computing scc...");
-        let mut sccs = self.graph.tarjan_scc();
+        let sccs = self.graph.tarjan_scc();
         let biggest_scc = sccs
             .iter()
             .max_by(|lhs, rhs| lhs.len().cmp(&rhs.len()))
@@ -530,7 +518,7 @@ where
             self.coords.take();
             return Ok(());
         }
-        let mut coords = self
+        let coords = self
             .coords
             .take()
             .ok_or(GeozeroError::Geometry("No coords in LineSting".to_string()))?;

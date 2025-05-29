@@ -1,25 +1,14 @@
 use std::{
-    collections::HashMap,
-    fs::File,
-    io::BufReader,
     iter,
     path::PathBuf,
     sync::{
         mpsc::{self, Receiver},
-        Arc, RwLock,
+        Arc,
     },
 };
 
 // use crate::run_ui::{run_ui, UiState};
 
-use burp::{
-    graph::PoiGraph,
-    input::geo_zero::{ColumnValueClonable, GraphWriter},
-    types::Poi,
-};
-use geo::Coord;
-use geozero::geojson::read_geojson;
-use graph_rs::graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph};
 use wgpu::TextureView;
 use winit::{event::*, window::Window};
 

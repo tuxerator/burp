@@ -1,44 +1,18 @@
-use core::panic;
 use std::f64;
 use std::sync::{Arc, RwLock};
 
 use crate::map::Map;
 use crate::state::WgpuFrame;
 use crate::types::MapPositions;
-use ::geo_types::Geometry::{self, GeometryCollection, LineString, Point};
-use ::geo_types::{coord, LineString as LineLineString, Point as PointPoint};
-use burp::graph::PoiGraph;
-use burp::types::{CoordNode, Poi};
-use galileo::control::{EventPropagation, MouseButton, MouseEvent, UserEvent};
-use galileo::layer::feature_layer::{self, Feature, FeatureStore};
 use galileo::layer::vector_tile_layer::style::VectorTileStyle;
-use galileo::layer::FeatureLayer;
-use galileo::symbol::{ArbitraryGeometrySymbol, SimpleContourSymbol};
-use galileo::Color;
 use galileo::{
-    control::{EventProcessor, MapController},
     render::WgpuRenderer,
     tile_scheme::TileIndex,
     winit::WinitInputHandler,
     Map as GalileoMap, MapBuilder, MapView, TileSchema,
 };
-use galileo_types::cartesian::{CartesianPoint2d, NewCartesianPoint2d, Point2d};
-use galileo_types::geo::impls::GeoPoint2d;
-use galileo_types::geo::{Crs, GeoPoint, NewGeoPoint};
-use galileo_types::geometry_type::GeoSpace2d;
-use galileo_types::impls::Contour;
+use galileo_types::cartesian::{CartesianPoint2d, NewCartesianPoint2d};
 use galileo_types::{cartesian::Size, latlon};
-use galileo_types::{Disambig, Disambiguate};
-use geo::Coord;
-use geozero::geojson::GeoJson;
-use geozero::{geo_types, ToGeo};
-use graph_rs::graph::csr::DirectedCsrGraph;
-use graph_rs::graph::quad_tree::QuadGraph;
-use graph_rs::input::geo_zero::geozero::geojson::read_geojson;
-use graph_rs::input::geo_zero::GraphWriter;
-use graph_rs::{CoordGraph, Coordinate, DirectedGraph, Graph};
-use log::info;
-use ordered_float::OrderedFloat;
 use wgpu::{Device, Queue, Surface, SurfaceConfiguration};
 use winit::dpi::PhysicalSize;
 use winit::window::Window;

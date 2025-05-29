@@ -1,17 +1,15 @@
 use core::fmt;
 use std::{
     fmt::{Debug, Display},
-    rc::{Rc, Weak},
     sync::Arc,
 };
 
-use crate::{graph::NodeTrait, serde::CoordDef};
+use crate::graph::NodeTrait;
 use geo::{coord, CoordNum};
 use geo_types::Coord;
 use graph_rs::Coordinate;
-use num_traits::Num;
 use rstar::{PointDistance, RTreeObject};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Poi {
@@ -154,7 +152,7 @@ where
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RTreeObjectArc<T: RTreeObject> {
-    inner: Arc<T>,
+    pub inner: Arc<T>,
 }
 
 impl<T: RTreeObject> RTreeObject for RTreeObjectArc<T> {

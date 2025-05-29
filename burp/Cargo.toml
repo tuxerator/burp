@@ -18,10 +18,6 @@ graph-rs = { path = "../graph-rs/" }
 geozero = "0.13"
 ordered-float = "4.2"
 geo = { version = "0.28", default-features = true, features = ["serde"] }
-rfd = { version = "0.14", default-features = false, features = [
-  "xdg-portal",
-  "tokio",
-] }
 log = "0.4.20"
 flexbuffers = { version = "2.0" }
 rayon = { version = "1.10" }

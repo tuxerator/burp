@@ -1,6 +1,6 @@
 extern crate geozero;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::error::Error;
 use std::f64;
 use std::fmt::Debug;
@@ -10,17 +10,15 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, RwLock};
 
 use burp::graph::oracle::Oracle;
-use burp::graph::{oracle, PoiGraph};
+use burp::graph::PoiGraph;
 use burp::types::{CoordNode, Poi};
 use egui::{Context, InnerResponse};
 use galileo::symbol::{CirclePointSymbol, SimpleContourSymbol};
 use galileo::Color;
 use galileo_types::geo::{GeoPoint, NewGeoPoint};
-use geo::{coord, Coord, LineString};
-use geo_types::geometry::Polygon;
+use geo::{Coord, LineString};
 use geozero::geojson::read_geojson;
 use graph_rs::graph::csr::DirectedCsrGraph;
-use graph_rs::graph::quad_tree::QuadGraph;
 use graph_rs::graph::rstar::RTreeGraph;
 use graph_rs::Graph;
 use log::{info, warn};
@@ -328,7 +326,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
             if let Some(path) = FileDialog::new().save_file() {
                 if let Ok(file) = File::create(path) {
                     if let Some(ref oracle) = state.graph {
-                        let mut buf_writer = BufWriter::new(file);
+                        let buf_writer = BufWriter::new(file);
                         let mut rmp_serializer = Serializer::new(buf_writer);
                         oracle.serialize(&mut rmp_serializer).unwrap();
                     };
@@ -343,7 +341,7 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
 
             let mut rmp_deserializer = Deserializer::new(in_file_mmap.as_ref());
 
-            let mut graph: PoiGraph<Poi> = PoiGraph::deserialize(&mut rmp_deserializer).unwrap();
+            let graph: PoiGraph<Poi> = PoiGraph::deserialize(&mut rmp_deserializer).unwrap();
             info!(
                 "Loaded graph: {} nodes, {} edges",
                 graph.graph().node_count(),
@@ -530,7 +528,7 @@ fn build_oracle(state: &mut UiState) {
             .downcast_mut()
             .unwrap();
 
-        let mut layer = layer.write().expect("poisoned lock");
+        let layer = layer.write().expect("poisoned lock");
     }
     state.state = State::LoadedPois;
 }

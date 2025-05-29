@@ -1,45 +1,27 @@
 use std::{
+    cmp::max,
     collections::{HashSet, VecDeque},
     fmt::Debug,
-    hash::{Hash, RandomState},
-    ops::{Deref, DerefMut},
-    sync::{Arc, Mutex, RwLock, Weak},
-    time::Duration,
+    sync::{Arc, Weak},
 };
 
-use deepsize::{known_deep_size, DeepSizeOf};
 use geo::{Coord, CoordFloat, Rect};
 use graph_rs::{
-    algorithms::dijkstra::{CachedDijkstra, Dijkstra},
-    graph::{self, csr::DirectedCsrGraph, quad_tree::QuadGraph, rstar::RTreeGraph},
-    types::Direction,
-    CoordGraph, Coordinate, DirectedGraph, Graph,
+    algorithms::dijkstra::CachedDijkstra, graph::rstar::RTreeGraph, types::Direction, CoordGraph,
+    Coordinate, DirectedGraph, Graph,
 };
-use indicatif::{MultiProgress, ProgressBar, ProgressIterator};
-use log::{debug, error, info, trace, warn};
-use num_traits::{pow, AsPrimitive, Num};
-use ordered_float::FloatCore;
-use qutee::{Boundary, DynCap, Point, QueryPoints};
-use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use indicatif::{ProgressBar, ProgressIterator};
+use log::{debug, error, info, trace};
+use num_traits::AsPrimitive;
+use ordered_float::{FloatCore, OrderedFloat};
 use rstar::{
-    primitives::{GeomWithData, ObjectRef, Rectangle},
-    RTree, RTreeNum, RTreeObject, RTreeParams, AABB,
+    primitives::{GeomWithData, Rectangle},
+    Envelope, RTree, RTreeNum, RTreeObject, AABB,
 };
 use rustc_hash::FxHashSet;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{types::RTreeObjectArc, util::r_tree_size};
-
-use super::PoiGraph;
-
-macro_rules! unwrap_or_continue {
-    ($e:expr) => {
-        match $e {
-            Some(x) => x,
-            None => continue,
-        }
-    };
-}
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct BlockPair<C>
@@ -97,10 +79,6 @@ where
             .1
     }
 
-    pub fn r_tree_size(&self) -> usize {
-        r_tree_size(self.r_tree.root())
-    }
-
     fn add_block_pair(
         &mut self,
         s_block: Rect<C>,
@@ -120,15 +98,21 @@ where
         let s_rect = GeomWithData::new(RTreeObjectArc::new(s_geom), Arc::downgrade(&block_pair));
         let t_rect = GeomWithData::new(RTreeObjectArc::new(t_geom), Arc::downgrade(&block_pair));
 
+        assert!(Arc::ptr_eq(
+            &s_rect.data.upgrade().unwrap().s_block,
+            &s_rect.geom().inner
+        ));
         self.r_tree.insert(s_rect);
         self.r_tree.insert(t_rect);
-        self.block_pairs.push(block_pair.clone());
-
-        trace!("BlockPair value size: {}", size_of_val(&block_pair));
-        debug!(
-            "BlockPair vec size: {}",
-            self.block_pairs.len() * size_of_val(&block_pair)
+        trace!("block paris length: {}", self.block_pairs.len());
+        assert!(
+            !self.block_pairs.contains(&block_pair),
+            "block pair already exists\n{:#?}",
+            &block_pair
         );
+        self.block_pairs.push(block_pair.clone());
+        trace!("Added block pair");
+
         block_pair
     }
 
@@ -136,25 +120,31 @@ where
         &self,
         s_coord: &Coord<C>,
         t_coord: &Coord<C>,
-    ) -> Vec<&Arc<BlockPair<C>>> {
-        let s_blocks = self
+    ) -> Vec<Arc<BlockPair<C>>> {
+        trace!(
+            "Searching block pair for points\n{:#?}, {:#?}",
+            s_coord,
+            t_coord
+        );
+        let mut block_pairs: Vec<_> = self
             .r_tree
             .locate_all_at_point(s_coord)
-            .filter_map(|geom| geom.data.upgrade());
-        let t_blocks = self
-            .r_tree
-            .locate_all_at_point(t_coord)
-            .filter_map(|geom| geom.data.upgrade());
+            .filter_map(|geom| {
+                if let Some(block_pair) = geom.data.upgrade() {
+                    if block_pair.s_block.envelope().contains_point(s_coord)
+                        && block_pair.t_block.envelope().contains_point(t_coord)
+                    {
+                        trace!("Found block pair {:#?}", block_pair);
+                        return Some(block_pair);
+                    }
+                    return None;
+                }
+                None
+            })
+            .collect();
 
-        let s_blocks_ptr = FxHashSet::from_iter(s_blocks.map(|block| Arc::as_ptr(&block)));
-        let t_blocks_ptr = FxHashSet::from_iter(t_blocks.map(|block| Arc::as_ptr(&block)));
-
-        let block_pair_ptrs = FxHashSet::from_iter(s_blocks_ptr.intersection(&t_blocks_ptr));
-
-        self.block_pairs
-            .iter()
-            .filter(|e| block_pair_ptrs.contains(&Arc::as_ptr(e)))
-            .collect()
+        block_pairs.dedup_by(|a, b| Arc::ptr_eq(a, b));
+        block_pairs
     }
 
     pub fn get_pois(&self, s_coord: &Coord<C>, t_coord: &Coord<C>) -> HashSet<usize> {
@@ -172,10 +162,11 @@ where
 
     pub fn build_for_node<G>(&mut self, graph: &mut RTreeGraph<G, C>, node: &usize, epsilon: G::EV)
     where
-        G::EV: FloatCore,
+        G::EV: FloatCore + Debug,
         G::NV: Coordinate<C> + Debug,
         G: DirectedGraph + CachedDijkstra,
     {
+        debug!("Building oracle for node {:#?}", &node);
         let Some(root) = graph.bounding_rect() else {
             error!("Could not get bounding rect of graph");
             return;
@@ -200,9 +191,11 @@ where
                 );
 
                 let (Some(p_0), Some(p_1)) = (points.0.next(), points.1.next()) else {
-                    trace!("At least one block is empty. {:?}", &block_pair);
-                    continue;
+                    panic!("Found empty block! This is a bug in the splitting operation");
                 };
+
+                trace!("A-Points: {:?}", points.0.count() + 1);
+                trace!("B-Points: {:?}", points.1.count() + 1);
 
                 s = p_0;
                 t = p_1;
@@ -211,14 +204,17 @@ where
                 continue;
             };
 
+            trace!("Epsilon: {:?}", &epsilon);
+            trace!("Values:\n{:#?}", &values);
+
             if values.in_path(epsilon) {
-                trace!("Found in-path block pair: {:#?}", &block_pair);
+                trace!("Found in-path block pair:\n{:#?}", &block_pair,);
 
                 self.add_block_pair(block_pair.0, block_pair.1, *node);
 
                 continue;
             } else if values.not_in_path(epsilon) {
-                trace!("Found not in-path block pair: {:#?}", &block_pair);
+                trace!("Found not in-path block pair:\n{:#?}", &block_pair,);
 
                 continue;
             }
@@ -282,6 +278,7 @@ where
 
             queue.append(&mut child_block_pairs.into());
         }
+
         info!(
             "created oracle: {} block pairs, {} avg block ocupancy",
             self.size(),
@@ -296,7 +293,7 @@ where
         epsilon: G::EV,
         progress_bar: Option<ProgressBar>,
     ) where
-        G::EV: FloatCore,
+        G::EV: FloatCore + Debug,
         G::NV: Coordinate<C> + Debug,
         G: DirectedGraph + CachedDijkstra,
     {
@@ -313,6 +310,28 @@ where
                 self.build_for_node(graph, point, epsilon);
             });
         };
+    }
+
+    pub fn invariant<G>(&self, graph: &RTreeGraph<G, C>, node: &usize) -> bool
+    where
+        G::EV: FloatCore + Debug,
+        G::NV: Coordinate<C> + Debug,
+        G: DirectedGraph + CachedDijkstra,
+    {
+        let mut points = graph
+            .nodes_iter()
+            .flat_map(|p| graph.nodes_iter().map(move |q| (p, q)))
+            .filter(|pair| pair.0 .0 != pair.1 .0);
+
+        points.all(|point| {
+            let block_pairs: Vec<_> = self
+                .get_block_pairs(&point.0 .1.as_coord(), &point.1 .1.as_coord())
+                .into_iter()
+                .filter(|pair| pair.poi_id == *node)
+                .collect();
+
+            !block_pairs.len() > 1
+        })
     }
 }
 
@@ -336,6 +355,7 @@ where
     }
 }
 
+#[derive(Debug)]
 struct Values<T: FloatCore> {
     d_st: T,
     d_sp: T,
@@ -403,17 +423,22 @@ impl<T: FloatCore> Values<T> {
     }
 
     fn in_path(&self, epsilon: T) -> bool {
-        (self.r_ab + self.d_sp + self.d_pt + self.r_bf)
-            <= (self.d_st - (self.r_af + self.r_bb)) * (T::from(1).unwrap() + epsilon)
+        ((self.r_ab + self.d_sp + self.d_pt + self.r_bf)
+            / max(
+                OrderedFloat(self.d_st - (self.r_af + self.r_bb)),
+                OrderedFloat(T::from(1).unwrap()),
+            )
+            .0)
+            - T::from(1).unwrap()
+            <= epsilon
     }
 
     fn not_in_path(&self, epsilon: T) -> bool {
-        (self.d_sp + self.d_pt - (self.r_ab + self.r_bf))
-            >= (self.d_st + (self.r_ab + self.r_bf)) * (T::from(1).unwrap() + epsilon)
+        ((self.d_sp + self.d_pt - (self.r_ab + self.r_bf)) / (self.d_st + (self.r_ab + self.r_bf)))
+            - T::from(1).unwrap()
+            >= epsilon
     }
 }
-
-
 
 #[cfg(test)]
 mod test {
@@ -424,49 +449,7 @@ mod test {
     use qutee::{Area, Boundary, Point};
     use rand::random;
 
-    use super::{Oracle};
-
-    #[test]
-    fn corner_points_test() {
-        for _ in 0..1000 {
-            let point: Point<f64> = Point::new(
-                random::<f64>() * 360.0 - 180.0,
-                random::<f64>() * 180.0 - 90.0,
-            );
-            let block = Boundary::new(point, random::<f64>() * 360.0, -random::<f64>() * 180.0);
-            let split = divide(&block);
-            let expected = [
-                Boundary::new(point, block.width() / 2.0, -block.height() / 2.0),
-                Boundary::new(
-                    Point::new(point.x + block.width() / 2.0, point.y),
-                    block.width() / 2.0,
-                    -block.height() / 2.0,
-                ),
-                Boundary::new(
-                    Point::new(point.x, point.y - block.height() / 2.0),
-                    block.width() / 2.0,
-                    -block.height() / 2.0,
-                ),
-                Boundary::new(
-                    Point::new(
-                        point.x + block.width() / 2.0,
-                        point.y - block.height() / 2.0,
-                    ),
-                    block.width() / 2.0,
-                    -block.height() / 2.0,
-                ),
-            ];
-
-            assert_eq!(split, expected);
-            for i in 0..4 {
-                for j in 0..4 {
-                    if i != j {
-                        assert!(!split[i].intersects(&split[j]));
-                    }
-                }
-            }
-        }
-    }
+    use super::Oracle;
 
     #[test]
     fn add_block_pair_test() {
@@ -489,6 +472,6 @@ mod test {
 
         let block_pairs = oracle.get_block_pairs(&(0.6, 0.8).into(), &(10.5, 10.).into());
 
-        assert_eq!(block_pairs, vec![&expected]);
+        assert_eq!(block_pairs, vec![expected]);
     }
 }
