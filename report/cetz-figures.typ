@@ -3,7 +3,7 @@
 #import "@preview/suiji:0.4.0": *
 #import "cetz-elements.typ"
 
-#let fig_in-path = figure(caption: [Weather $p$ is in-path with respect to all sources in $A$ to destinations in $B$.])[
+#let fig_in-path = figure(caption: [Whether $p$ is in-path with respect to all sources in $A$ to destinations in $B$.])[
   #cetz.canvas({
     import kn_color: *
     import cetz.draw: *

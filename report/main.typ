@@ -34,7 +34,7 @@
 
 = Introduction
 
-In the realm of graph theory and computer science, the beer-path problem presents a unique challenge that extends traditional shortest path queries by introducing the necessity to traverse specific vertices, known as "beer vertices."
+In graph theory and computer science, the beer-path problem presents a unique challenge that extends traditional shortest path queries by introducing the necessity to traverse specific vertices, known as "beer vertices."
 This problem is particularly relevant in scenarios where paths must include certain checkpoints or resources, analogous to visiting a "beer store" in a network of roads.
 The beer-path oracle is a specialized data structure designed to efficiently answer queries related to beer paths, providing all beer verticies which in-path for any two vertices.
 
@@ -372,6 +372,8 @@ For a graph with 5000 nodes they report a oracle size of a little bit more than 
       y-max: 4800000,
       x-ticks: x-tic-list,
       x-tick-step: none,
+      plot-style: (stroke: kn_seeblau, fill: kn_seeblau35),
+      mark-style: (stroke: kn_seeblau, fill: kn_seeblau35),
       {
         plot.add(data-mapped, mark: "o")
       },
@@ -381,9 +383,19 @@ For a graph with 5000 nodes they report a oracle size of a little bit more than 
 
 == Throughput Experiment
 
-We tested the throughput of _in-path_ queries on both the baseline dual Dijkstra as well as the _in-path_ oracle.
+We tested the throughput of _in-path_ queries on both the baseline dual Dijkstra and the _in-path_ oracle.
 The experiments were performed on the Konstanz dataset.
 POIs were randomly sampled with a sampling rate from the dataset which was varied throughout the experiment.
+We computed the _in-path_ oracle for each POI and inserted it into an R\*-Tree.
+Each query was performed on the dual Dijkstra, the parallel dual Dijkstra and the _in-path_ oracle.
 
+We observe a throughput of about 100-200? _in-path_ queries/second for the dual Dijkstra on most POI sampling rates running on only one single thread.
+The parallel version performed even worse most of the time.
+However, as expected the _in-path_ oracle has a much higher throughput than the dual Dijkstra.
+Figure ? clearly shows we get more than one million _in-path_ queries per second for all sampling rates.
+This confirms the findings of #cite(<Ghosh2023>, form: "prose").
 
 = Conclusions and Future Work
+
+We look at the solution to the _beer-path_ problem proposed by #cite(<Ghosh2023>, form: "prose") and implemented it in Rust.
+We could verify the results with regard to the throughput on small instances.
