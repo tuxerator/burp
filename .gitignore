@@ -9,3 +9,4 @@ resources/*
 !resources/medium_poi.gmp
 
 heaptrack*
+vendor

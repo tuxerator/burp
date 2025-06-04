@@ -4,16 +4,12 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
-    crane = {
-      url = "github:ipetkov/crane";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    crane = { url = "github:ipetkov/crane"; };
 
-    fenix = {
-      url = "github:nix-community/fenix";
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.rust-analyzer-src.follows = "";
-    };
+    # fenix = {
+    #   url = "github:nix-community/fenix";
+    #   inputs.nixpkgs.follows = "nixpkgs";
+    # };
 
     flake-utils.url = "github:numtide/flake-utils";
 
@@ -23,7 +19,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, crane, fenix, flake-utils, advisory-db, ... }:
+  outputs = { self, nixpkgs, crane, flake-utils, advisory-db, ... }:
     flake-utils.lib.eachDefaultSystem (localSystem:
       let
         crossSystem = "x86_64-unknown-linux-gnu";
@@ -47,9 +43,6 @@
               wayland
               wayland-protocols
               wayland.dev
-              xorg.libX11
-              xorg.libXcursor
-              xorg.libxcb
               libxkbcommon
               vulkan-loader
               vulkan-headers
@@ -75,12 +68,12 @@
         libPath = lib.makeLibraryPath
           (with pkgs; [ xdg-desktop-portal ] ++ commonArgs.buildInputs);
 
-        craneLibLLvmTools = craneLib.overrideToolchain
-          (fenix.packages.${localSystem}.complete.withComponents [
-            "cargo"
-            "llvm-tools"
-            "rustc"
-          ]);
+        # craneLibLLvmTools = craneLib.overrideToolchain
+        #   (fenix.packages.${localSystem}.complete.withComponents [
+        #     "cargo"
+        #     "llvm-tools"
+        #     "rustc"
+        #   ]);
 
         # Build *just* the cargo dependencies (of the entire workspace),
         # so we can reuse all of that work (e.g. via cachix) when running in CI
@@ -95,16 +88,15 @@
           doCheck = false;
         };
 
-        fileSetForCrate = crate:
+        fileSetForCrate = crates:
           lib.fileset.toSource {
             root = ./.;
-            fileset = lib.fileset.unions [
+            fileset = lib.fileset.unions ([
               ./Cargo.toml
               ./Cargo.lock
-              ./workspace-hack
-              ./graph-rs
-              crate
-            ];
+              (craneLib.fileset.commonCargoSources ./crates/workspace-hack)
+              (craneLib.fileset.commonCargoSources ./crates/graph-rs)
+            ] ++ (map (path: craneLib.fileset.commonCargoSources path) crates));
           };
 
         # Build the top-level crates of the workspace as individual derivations.
@@ -114,12 +106,12 @@
         burp = craneLib.buildPackage (individualCrateArgs // {
           pname = "burp";
           cargoExtraArgs = "-p burp";
-          src = fileSetForCrate (lib.fileset.unions [ ./burp ./burp-gui ]);
+          src = fileSetForCrate [ ./crates/burp ];
         });
         burp-gui = craneLib.buildPackage (individualCrateArgs // {
           pname = "burp-gui";
           cargoExtraArgs = "-p burp-gui";
-          src = fileSetForCrate (lib.fileset.unions [ ./burp ./burp-gui ]);
+          src = fileSetForCrate [ ./crates/burp ./crates/burp-gui ];
           postInstall = ''
             wrapProgram "$out/bin/burp-gui" --prefix LD_LIBRARY_PATH : "${libPath}"
           '';
@@ -127,7 +119,7 @@
         graph-rs = craneLib.buildPackage (individualCrateArgs // {
           pname = "graph-rs";
           cargoExtraArgs = "-p graph-rs";
-          src = fileSetForCrate ./graph-rs;
+          src = fileSetForCrate [ ./crates/graph-rs ];
         });
       in {
         checks = {
@@ -188,10 +180,7 @@
           burp = burp;
           burp-gui = burp-gui;
           graph-rs = graph-rs;
-          default = burp-gui;
-        } // lib.optionalAttrs (!pkgs.stdenv.isDarwin) {
-          my-workspace-llvm-coverage = craneLibLLvmTools.cargoLlvmCov
-            (commonArgs // { inherit cargoArtifacts; });
+          default = burp;
         };
 
         apps = {

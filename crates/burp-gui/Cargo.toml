@@ -23,13 +23,17 @@ egui-winit = { version = "0.28", default-features = false, features = [
   "clipboard",
   "links",
   "wayland",
-  "x11",
 ] }
 env_logger = { version = "0.11", default-features = false }
-galileo = { path = "../../../galileo/galileo/" }
-galileo-types = { path = "../../../galileo/galileo-types/" }
+galileo = { git = "https://github.com/tuxerator/galileo.git", rev = "ff2f83f49245c854f88286488a33158fcf4a61b8" }
+galileo-types = { git = "https://github.com/tuxerator/galileo.git", rev = "ff2f83f49245c854f88286488a33158fcf4a61b8" }
 wgpu = { version = "0.20", default-features = false }
-winit = { version = "0.29", default-features = false }
+winit = { version = "0.29", default-features = false, features = [
+  "rwh_06",
+  "wayland",
+  "wayland-csd-adwaita",
+  "wayland-dlopen",
+] }
 graph-rs = { path = "../graph-rs/" }
 geozero = "0.13"
 geo-types = "0.7"

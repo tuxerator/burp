@@ -1,6 +1,5 @@
 [workspace]
-members = ["burp", "burp-gui", "graph-rs", "workspace-hack"]
-default-members = ["burp-gui"]
+members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]

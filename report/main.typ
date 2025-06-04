@@ -9,8 +9,10 @@
 #import "glossary.typ": glossary
 
 #show: unikn-thesis.with(
-  title: "Beer-Paths",
-  authors: ((name: "Jakob Sanowski", student-id: "7654321", course: "TINF22B2", course-of-studies: "Informatik"),),
+  title: "Analysis of In-Path Oracles for Road Networks",
+  authors: (
+    (name: "Jakob Sanowski", student-id: "1095786", course: "Bachelorprojekt", course-of-studies: "Informatik"),
+  ),
   city: "Konstanz",
   type-of-thesis: "Bachelor Project",
   // displays the acronyms defined in the acronyms dictionary
@@ -18,16 +20,27 @@
   // if true the company name on the title page and the confidentiality statement are hidden
   bibliography: bibliography("sources.bib"),
   date: datetime.today(),
-  // displays the glossary terms defined in the glossary dictionary
   language: "en",
-  // en, de
   supervisor: (university: "Prof. Dr. Sabine Storandt"),
   university: "University",
   university-location: "Konstanz",
   university-short: "Uni KN",
   show-declaration-of-authorship: false,
   math-numbering: none,
-  // for more options check the package documentation (https://typst.app/universe/package/clean-dhbw)
+  abstract: [
+    This report examines the _in-path oracle_ proposed in the paper "In-Path Oracles for Road Networks" @Ghosh2023 for identifying Points of Interest (POIs) within a bounded detour from the shortest path between a source and destination in a road network.
+    It defines essential concepts like shortest distance, detour, and in-path POIs.
+    The study compares three algorithms: double Dijkstra, parallel dual Dijkstra, and an in-path oracle method that uses precomputed results to improve query times.
+
+    The double Dijkstra algorithm runs two separate Dijkstra instances from the source and destination to find detours through POIs.
+    The parallel dual Dijkstra runs these two Dijkstra instances simultaneously. The in-path oracle method leverages spatial coherence in road networks to precompute results, significantly reducing query times.
+
+    Experiments were conducted on datasets from OpenStreetMap, specifically Konstanz and San Francisco, with varying detour limits and POI sampling rates.
+    Results show that the in-path oracle method achieves higher throughput compared to the baseline dual Dijkstra, confirming its efficiency for large-scale applications.
+    However, the oracle size was larger than expected, indicating a need for further optimization and proof refinement.
+
+    // The report concludes with insights into the practical feasibility of these algorithms and highlights areas for future work, including the need for a concrete proof of the oracle size bounds and further investigation into the impact of insufficient lemmas on algorithm performance.
+  ],
 )
 
 // Edit this content to your liking
@@ -36,19 +49,18 @@
 
 In graph theory and computer science, the beer-path problem presents a unique challenge that extends traditional shortest path queries by introducing the necessity to traverse specific vertices, known as "beer vertices."
 This problem is particularly relevant in scenarios where paths must include certain checkpoints or resources, analogous to visiting a "beer store" in a network of roads.
-The beer-path oracle is a specialized data structure designed to efficiently answer queries related to beer paths, providing all beer verticies which in-path for any two vertices.
+The beer-path oracle @Ghosh2023 is a specialized data structure designed to efficiently answer queries related to beer paths, providing all beer verticies which in-path for any two vertices.
 
 This report delves into the performance of a beer-path oracle, exploring its efficiency, scalability, and practical applications.
-We begin by outlining the theoretical foundations of the beer-path problem, highlighting its significance in various computational contexts such as network routing and logistics.
+We begin by outlining the theoretical foundations of the beer-path problem and discussing some problems which arose during analysis.
 The core of this report focuses on the implementation details of the beer-path oracle, including the algorithms and data structures employed to achieve optimal query times.
 
 // #TODO: write more about the analysis
 We present a comprehensive performance analysis, evaluating the oracle's response time and memory usage across different types of graphs.
-Through empirical testing, we demonstrate the oracle's ability to handle large-scale (lol) graphs and discuss the trade-offs between preprocessing time and query efficiency.
+Through empirical testing, we analyse the oracle's ability to handle graphs of different sizes and discuss the trade-offs between oracle size and query time.
 Furthermore, we compare our beer-path oracle with a double dijkstra approach, underscoring its advantages and potential areas for improvement.
 
 The findings of this report contribute to the ongoing research in graph algorithms and data structures, offering insights into the development of efficient pathfinding techniques under constrained conditions.
-By understanding the performance characteristics of the beer-path oracle, we aim to provide a robust framework for future advancements in this field.
 
 // = Related Work
 
@@ -78,17 +90,6 @@ A driver travels from source $s$ and destination $t$, we want to find the set of
 under the conditions specified.
 
 // NOTE: Limitations probably should be under 'Algorithms & Implementation'
-Now that we have provided our problem statement we can also discuss the limitations of our approach.
-First, we are interested in retrieving all the POIs that satisfy the detour constraints.
-Our focus here is maximising the throughput where one can answer millions of in-path queries a second using a single machine.
-Our solution is not geared towards a driver that wants to visit multiple POIs yet stay within the detour bound.
-In our model,
-the expectation is that the user is presented with the POI choices and may choose one of the in-path POI to visit.
-Such examples include coffee shops, restaurants, gas stations,
-vaccination clinics, etc. The driver is unlikely to visit another POI of the same kind. Our
-work is in the context of the placement of relevant POIs on a map as an opportunistic
-service where speed is of the essence, so, the composition of complex trips that include
-visiting multiple POIs is not the focus of this work.
 
 = Algorithms & Implementation
 
@@ -125,7 +126,7 @@ If this node $n in P$ we mark it as $bb("POI")$ so it gets added to the result.
   kind: "algorithm",
   supplement: [Algorithm],
 )[
-  #pseudocode-list(booktabs: true, numbered-title: [Parallel dual Dijkstra])[
+  #pseudocode-list(booktabs: true, numbered-title: [Dual Dijkstra])[
     *Data:* \
     *Result:*
     + *while* $!italic("Q.empty()") && n := italic("Q.front()") && d(n) <= d_N$ *do*
@@ -160,6 +161,14 @@ It uses the _spatial coherence_ @Sankaranarayanan2005 property in road networks 
 Or more percisely the coherence between shortest paths and distances between nodes and their spatial locations @Sankaranarayanan2005 @Sankaranarayanan2009.
 We know for a set of source nodes $A$ and destination nodes $B$ they might share the same shortest paths if $A$ and $B$ are sufficiently far apart and the nodes contained in $A$ and $B$ are close together.
 This enables determining if a POI is in-path with respect to this group of nodes opposed to single pairs of nodes.
+
+The focus here is maximising the throughput where one can answer millions of in-path queries a second using a single machine.
+
+This approach though is not able to find multiple POIs one might want to visit without exceeding the detour bound.
+It is expected that the user only wants to visit one of the presented POIs.
+Such examples include coffee shops, restaurants, gas stations,
+vaccination clinics, etc.
+
 
 === In-Path Property
 
@@ -208,7 +217,8 @@ The following lemmas define bounds for the shortest and longest shortest-paths f
   $
 ]
 
-Note that the condition $d_N (a_r, b_r) - (r_a^F + r_b^B) > 0$ is omitted by #cite(<Ghosh2023>, form: "prose") but is necessary because $d_N (a_r, b_r)$ can be 0 in which case $d_N (a_r, b_r) - (r_a^F, r_b^B) < 0$ and thus the condition would suddenly be satisfied if $d_N (a_r, b_r)$ is smaller than some specific value.
+Note that the condition $d_N (a_r, b_r) - (r_a^F + r_b^B) > 0$ is omitted by #cite(<Ghosh2023>, form: "prose") but is necessary because $d_N (a_r, b_r)$ can be 0 in which case $d_N (a_r, b_r) - (r_a^F + r_b^B) < 0$ and thus the condition would suddenly be satisfied if $d_N (a_r, b_r)$ is smaller than some specific value.
+Even $d_N (a_r, b_r) > 0$ would not be enough because $d_N (a_r, b_r) > (r_a^F + r_b^B)$ still isn't guaranteed.
 
 #lemma("Not In-Path Property")[
   A block pair $(A,B)$ is not _in-path_ if the following condition is satisfied:
@@ -242,7 +252,7 @@ Note that the condition $d_N (a_r, b_r) - (r_a^F + r_b^B) > 0$ is omitted by #ci
         If(
           $#math.italic("values.in-path()")$,
           {
-            [$#math.italic("resutl.add((A,B))")$]
+            [$#math.italic("result.add((A,B))")$]
           },
         )
         If(
@@ -277,7 +287,7 @@ Also like in a _B-Tree_ the data is organized into pages of a fixed size.
 This enables search similarly to a _B-Tree_ recursively searching through all nodes which bounding boxes are overlapping with the search area.
 
 #figure(caption: [_R-Tree_ for 2D rectangles with a page size of 3])[
-  #image("assets/R-tree.svg", height: 100pt)
+  #image("assets/R-tree.svg", height: 300pt)
 ] <fig-r-tree>
 
 The performance of an _R-Tree_ greatly depends on the overlap of the bounding boxes in the tree.
@@ -294,7 +304,7 @@ To avoid infinite reinsertion, this may only be performed once per level of the 
 
 = Experimental Evaluation
 
-The experiments were performed on the AlgoServer.
+The experiments were performed on an AMD Ryzen 5 5600X with 6 cores and 12 threads at 4.651 GHz and 16 GB of RAM.
 
 == Dataset
 
@@ -318,6 +328,7 @@ As a query we used the sampled data points consisting of source and destination 
 == In-Path Oracle
 
 To measure the performance we examine the size of the oracle with varying the detour limits and road network size as well as the throughput.
+Unfortunately we could not compute an _in-path oracle_ for the San Francisco dataset in reasonable amount of time.
 
 === Varying Detour Limits
 
@@ -327,10 +338,11 @@ As we can see in @fig-oracle-size the oracle size is roughly shaped like a bell 
 When $epsilon$ is very small @lemma-Not-In-Path-Property is more easily satisfied.
 Similarly when $epsilon$ is very big @lemma-In-Path-Property is satisfied for bigger blocks.
 It is important to note #cite(<Ghosh2023>, form: "prose") report much smaller sizes for a graph of this size.
-For a graph with 5000 nodes they report a oracle size of a little bit more than 100,000 compared to the 3,010,095 (see @fig-oracle-size) for a graph with 2248 nodes we found.
+For a graph with 5000 nodes they report a oracle size of a little bit more than 100,000 compared to the 3,010,095 (see @fig-oracle-size) we found for a graph with 2248 nodes.
 
 
 #figure(
+  caption: [Size of the oracle for different $epsilon$.],
   cetz.canvas({
     import cetz.draw: *
     import cetz-plot: *
@@ -366,8 +378,10 @@ For a graph with 5000 nodes they report a oracle size of a little bit more than 
 
     plot.plot(
       size: (10, 10),
+      x-label: [$epsilon$],
       x-min: -x-inset,
       x-max: data-mapped.len() + x-inset - 1,
+      y-label: "# of block-pairs",
       y-min: 1600000,
       y-max: 4800000,
       x-ticks: x-tic-list,
@@ -388,14 +402,111 @@ The experiments were performed on the Konstanz dataset.
 POIs were randomly sampled with a sampling rate from the dataset which was varied throughout the experiment.
 We computed the _in-path_ oracle for each POI and inserted it into an R\*-Tree.
 Each query was performed on the dual Dijkstra, the parallel dual Dijkstra and the _in-path_ oracle.
+We will ignore the results of the parallel dual Dijkstra moving forward because it always performed worse than the normal dual Dijkstra.
 
-We observe a throughput of about 100-200? _in-path_ queries/second for the dual Dijkstra on most POI sampling rates running on only one single thread.
-The parallel version performed even worse most of the time.
-However, as expected the _in-path_ oracle has a much higher throughput than the dual Dijkstra.
-Figure ? clearly shows we get more than one million _in-path_ queries per second for all sampling rates.
+#figure(
+  caption: [Throughput of the dual Dijkstra and Oracle for different sampling rates.],
+  cetz.canvas({
+    import cetz.draw: *
+    import cetz-plot: *
+
+    let oracle = (
+      (0.0001, 58314),
+      (0.0005, 57903),
+      (0.001, 56733),
+      (0.005, 56433),
+      (0.01, 6366.6),
+      (0.05, 2074.6),
+      (0.1, 776.77),
+      (0.5, 183.21),
+    )
+    let dijkstra = (
+      (0.0001, 28.197),
+      (0.0005, 29.551),
+      (0.001, 27.656),
+      (0.005, 28.307),
+      (0.01, 28.350),
+      (0.05, 28.990),
+      (0.1, 28.498),
+      (0.5, 28.133),
+    )
+
+    let x-tick-list(data) = {
+      data
+        .enumerate()
+        .map(((i, t)) => {
+          (i, t.at(0))
+        })
+    }
+    //
+    //
+    let map-data(data) = {
+      data
+        .enumerate()
+        .map(((i, t)) => {
+          (i, t.at(1))
+        })
+    }
+
+    let x-inset = 0.5
+
+    plot.plot(
+      name: "o-size",
+      size: (10, 10),
+      x-label: [POI sampling rate],
+      x-min: -x-inset,
+      x-max: x-tick-list(oracle).len() + x-inset - 1,
+      x-ticks: x-tick-list(oracle),
+      x-tick-step: none,
+      y-label: [K queries/second],
+      y-mode: "log",
+      y-min: 5,
+      y-max: 100000,
+      y-ticks: (10, 50, 100, 500, 1000, 5000, 10000, 50000, 100000),
+      y-tick-step: none,
+      plot-style: (stroke: kn_seeblau, fill: kn_seeblau35),
+      mark-style: (stroke: kn_seeblau, fill: kn_seeblau35),
+      legend: (9.8, 9.8),
+      legend-anchor: "north-east",
+      {
+        plot.add(map-data(oracle), mark: "o")
+        plot.add-legend([Oracle])
+
+        plot.add(
+          map-data(dijkstra),
+          style: (stroke: kn_bordeaux, fill: kn_bordeaux35),
+          mark: "o",
+          mark-style: (stroke: kn_bordeaux, fill: kn_bordeaux35),
+        )
+        plot.add-legend(
+          [Dijkstra],
+          preview: () => {
+            line((0, 0.5), (1, 0.5), stroke: kn_bordeaux)
+          },
+        )
+      },
+    )
+  }),
+) <fig-throughput>
+
+
+
+We observe a constant throughput of about 28,000 _in-path_ queries/second for the dual Dijkstra on most POI sampling rates running on only one single thread. This is due to the search space being dependent on $epsilon$ an thus not changing for different sampling rates.
+As expected the _in-path_ oracle has a much higher throughput than the dual Dijkstra.
+@fig-throughput clearly shows we get more than 100,000 _in-path_ queries per second for all sampling rates.
 This confirms the findings of #cite(<Ghosh2023>, form: "prose").
 
 = Conclusions and Future Work
 
-We look at the solution to the _beer-path_ problem proposed by #cite(<Ghosh2023>, form: "prose") and implemented it in Rust.
-We could verify the results with regard to the throughput on small instances.
+We looked at the solution to the _beer-path_ problem proposed by #cite(<Ghosh2023>, form: "prose") and implemented it in Rust.
+We could somewhat verify the results with regard to the throughput on small instances.
+On bigger instances the time to compute the oracle is to long to be practically feasible which stays in contrast to the 30 minuets claimed by #cite(<Ghosh2023>, form: "prose").
+The oracle size though we find to be bigger by a factor of more than 10 and also exceeds the upper bound they presented which could be why the compute time is so high.
+This obviously has an impact on the throughput because of the massive increase in search space (see @fig-throughput).
+Because the size of the oracle exceeded the bound presented by #cite(<Ghosh2023>, form: "prose") further work should be conducted to provide a concrete proof.
+Furthermore we find @lemma-In-Path-Property to be insufficient.
+Precisely the term $d_N (a_r, b_r) - (r_a^F + r_b^B)$ can be less than 0 because $d_N (a_r, b_r) > (r_a^F + r_b^B)$ is not guaranteed which is why the isolation of $epsilon$ is not possible.
+It remains to be seen what the impact of this insufficiency is.
+
+Looking at the findings of this work we can see the potential of the _in-path oracle_ @Ghosh2023 though it lacks details to be easily reproducible.
+Especially with regards to the scalability we could not confirm the claims they made nor find their proofs sufficient.
