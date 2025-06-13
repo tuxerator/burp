@@ -1,20 +1,10 @@
-use std::{
-    env,
-    fmt::Debug,
-    fs::{self, File},
-    io::{BufReader, Read},
-    path::PathBuf,
-};
+use std::fs::File;
 
 use burp::{graph::PoiGraph, types::Poi};
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use graph_rs::{types::Direction, Graph};
 use memmap2::MmapOptions;
-use rand::{
-    rng,
-    seq::index::{self, sample},
-    thread_rng,
-};
+use rand::{rng, seq::index::sample};
 
 pub fn dijkstra_full_bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("dijkstra");
@@ -28,7 +18,7 @@ pub fn dijkstra_full_bench(c: &mut Criterion) {
     for node in nodes {
         group.sample_size(10);
         group.bench_with_input(BenchmarkId::new("dijkstra_full", node), &node, |b, n| {
-            b.iter(|| graph.dijkstra_full(*n, Direction::Outgoing).unwrap())
+            b.iter(|| graph.dijkstra_full(*n, Direction::Outgoing))
         });
     }
 

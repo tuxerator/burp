@@ -25,10 +25,10 @@ use crate::{
     CoordGraph, Coordinate, DirectedGraph, Graph,
 };
 
-use super::csr::DirectedCsrGraph;
+use super::{cache::DijkstraCache, csr::DirectedCsrGraph};
 
-#[derive(Serialize, PartialEq, Debug)]
-pub struct QuadGraph<G, C>
+#[derive(Serialize, Debug)]
+pub struct QuadGraph<'a, G, C>
 where
     G: Graph,
     G::NV: Coordinate<C>,
@@ -40,7 +40,7 @@ where
     quad_tree: Box<QuadTree<C, usize>>,
 }
 
-impl<G, C> QuadGraph<G, C>
+impl<G, C> QuadGraph<'_, G, C>
 where
     G: Graph,
     G::NV: Coordinate<C>,
@@ -111,7 +111,7 @@ where
             return None;
         }
 
-        let distances = self.cached_dijkstra(node, nodes, direction).unwrap();
+        let distances = self.dijkstra_cached(node, nodes, direction).unwrap();
 
         Some(
             *distances
@@ -125,7 +125,7 @@ where
 
 impl<G, C> Default for QuadGraph<G, C>
 where
-    G: Graph,
+    G: Graph + Default,
     G::NV: Coordinate<C>,
     C: qutee::Coordinate + Num,
 {
@@ -293,22 +293,22 @@ where
     G::EV: FloatCore,
     C: qutee::Coordinate + Num,
 {
-    fn cached_dijkstra(
+    fn dijkstra_cached(
         &mut self,
         start_node: usize,
         target_set: HashSet<usize>,
         direction: Direction,
     ) -> Option<crate::algorithms::dijkstra::DijkstraResult<Self::EV>> {
         self.graph
-            .cached_dijkstra(start_node, target_set, direction)
+            .dijkstra_cached(start_node, target_set, direction)
     }
 
-    fn cached_dijkstra_full(
+    fn dijkstra_full_cached(
         &mut self,
         start_node: usize,
         direction: Direction,
     ) -> Option<crate::algorithms::dijkstra::DijkstraResult<Self::EV>> {
-        self.graph.cached_dijkstra_full(start_node, direction)
+        self.graph.dijkstra_full_cached(start_node, direction)
     }
 }
 

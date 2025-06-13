@@ -1,32 +1,26 @@
 use std::{
-    any::Any,
     cell::RefCell,
+    cmp::Reverse,
     collections::{HashMap, HashSet},
     fmt::Debug,
-    hash::Hash,
-    io::Read,
-    marker::PhantomData,
     rc::Rc,
-    sync::atomic::AtomicI8,
-    usize, vec,
+    vec,
 };
 
-use cached::{Cached, SizedCache};
-use log::{debug, info, trace, warn};
-use num_traits::AsPrimitive;
+use log::{debug, info, trace};
 use ordered_float::{FloatCore, OrderedFloat};
-use osmpbfreader::{blocks, groups, primitive_block_from_blob, OsmPbfReader};
+use priority_queue::PriorityQueue;
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
+use crate::{DirectedGraph, Graph, GraphError, graph::Target, input::edgelist::EdgeList};
 use crate::{
-    algorithms::dijkstra::{CachedDijkstra, Dijkstra, DijkstraResult, ResultNode},
+    algorithms::dijkstra::{Dijkstra, DijkstraResult, ResultNode},
     types::Direction,
 };
-use crate::{graph::Target, input::edgelist::EdgeList, DirectedGraph, Graph, GraphError};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Csr<EV> {
@@ -180,11 +174,7 @@ pub struct DirectedCsrGraph<EV, NV> {
     pub csr_out: Csr<EV>,
     pub csr_inc: Csr<EV>,
     #[serde(skip)]
-    dijkstra_cache: FxHashMap<(usize, usize), ResultNode<EV>>,
-    #[serde(skip)]
-    total_cache_misses: usize,
-    #[serde(skip)]
-    total_cache_hits: usize,
+    dijkstra_cache: RefCell<FxHashMap<usize, DijkstraResult<EV>>>,
 }
 
 impl<EV, NV> DirectedCsrGraph<EV, NV>
@@ -206,12 +196,10 @@ where
             node_values,
             csr_out,
             csr_inc,
-            dijkstra_cache: FxHashMap::with_capacity_and_hasher(
+            dijkstra_cache: RefCell::new(FxHashMap::with_capacity_and_hasher(
                 node_count.pow(2),
-                FxBuildHasher::default(),
-            ),
-            total_cache_misses: usize::default(),
-            total_cache_hits: usize::default(),
+                FxBuildHasher,
+            )),
         };
 
         info!(
@@ -317,7 +305,7 @@ impl<EV: Clone + Default, NV> Graph for DirectedCsrGraph<EV, NV> {
     }
 
     fn edges(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
-        let mut visited: Rc<RefCell<HashSet<usize>>> = Rc::new(RefCell::new(HashSet::new()));
+        let visited: Rc<RefCell<FxHashSet<usize>>> = Rc::new(RefCell::new(FxHashSet::default()));
 
         self.nodes_iter().flat_map(move |node| {
             let node_id = node.0;
@@ -344,6 +332,10 @@ impl<EV: Clone + Default, NV> Graph for DirectedCsrGraph<EV, NV> {
         self.node_values.get(node)
     }
 
+    /// Returns an Iterator over all nodes.
+    ///
+    /// The Iterator yields pairs `(i, val)`, where `i` is the index
+    /// of the node and `val` the data accociated with that node.
     fn nodes_iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a NV)>
     where
         NV: 'a,
@@ -354,11 +346,6 @@ impl<EV: Clone + Default, NV> Graph for DirectedCsrGraph<EV, NV> {
     fn node_value_mut(&mut self, node: usize) -> Option<&mut NV> {
         self.node_values.get_mut(node)
     }
-
-    /// Returns an Iterator over all nodes.
-    ///
-    /// The Iterator yields pairs `(i, val)`, where `i` is the index
-    /// of the node and `val` the data accociated with that node.
 
     fn set_node_value(&mut self, node: usize, value: NV) -> Result<(), crate::GraphError> {
         let node_value = self
@@ -436,59 +423,81 @@ impl<EV: Clone + Default, NV> DirectedGraph for DirectedCsrGraph<EV, NV> {
     }
 }
 
-impl<EV, NV> CachedDijkstra for DirectedCsrGraph<EV, NV>
+impl<EV, NV> Dijkstra for DirectedCsrGraph<EV, NV>
 where
-    EV: FloatCore + Default,
+    EV: FloatCore + Default + Debug + Clone,
 {
-    /// Retrieves the result from the cache.
-    /// In case of a miss the cache gets build to all nodes.
-    fn cached_dijkstra(
-        &mut self,
+    fn dijkstra(
+        &self,
         start_node: usize,
-        target_set: HashSet<usize>,
+        target_set: FxHashSet<usize>,
         direction: Direction,
-    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<Self::EV>> {
-        let s_t_pairs = std::iter::repeat(start_node).zip(target_set.into_iter());
-        let mut result_set = DijkstraResult(FxHashSet::default());
-        let mut cache_misses = FxHashSet::default();
-        for s_t in s_t_pairs {
-            if let Some(result) = self.dijkstra_cache.cache_get(&s_t) {
-                trace!("Cache hit for {:?}", &s_t);
-                result_set.0.insert(result.clone());
-                self.total_cache_hits += 1;
-            } else {
-                trace!("Cache miss for {:?}", &s_t);
-                cache_misses.insert(s_t.1);
-                self.total_cache_misses += 1;
-            };
-        }
-        if !cache_misses.is_empty() {
-            debug!(
-                "cache misses: {}, total cache misses: {}/{}",
-                cache_misses.len(),
-                self.total_cache_misses,
-                self.node_count().pow(2)
-            );
-            // let result = self.dijkstra_full(start_node, direction)?;
-            let result = self.dijkstra(start_node, cache_misses, direction)?;
+    ) -> DijkstraResult<EV> {
+        let mut cache = self.dijkstra_cache.borrow_mut();
 
-            for t in result.0.into_iter() {
-                result_set.0.insert(t.clone());
-                self.dijkstra_cache.cache_set((start_node, t.node_id()), t);
+        let entry = cache.entry(start_node);
+
+        let result = entry.or_insert(DijkstraResult(FxHashSet::default()));
+
+        // Get nodes which are not in the cached result
+        let target_set: FxHashSet<ResultNode<EV>> =
+            FxHashSet::from_iter(target_set.iter().map(|e| (*e).into()));
+        let mut target_set = FxHashSet::from_iter(target_set.difference(&result.0).cloned());
+
+        let mut frontier = PriorityQueue::with_hasher(FxBuildHasher);
+        let mut visited = FxHashSet::default();
+        frontier.push(
+            ResultNode::new(start_node, None, Self::EV::zero()),
+            Reverse(OrderedFloat(EV::zero())),
+        );
+
+        debug!("Computing Dijkstra for {} nodes", target_set.len());
+
+        while !target_set.is_empty() && !frontier.is_empty() {
+            let node = frontier.pop().expect("This is a bug").0;
+            if visited.contains(&node.node_id()) {
+                continue;
             }
-        } else {
-            debug!("total_cache_hits: {}", self.total_cache_hits);
+
+            let neighbours: Box<dyn Iterator<Item = &Target<EV>>> = match direction {
+                Direction::Outgoing => Box::new(self.out_neighbors(node.node_id())),
+                Direction::Incoming => Box::new(self.in_neighbors(node.node_id())),
+                Direction::Undirected => Box::new(self.neighbors(node.node_id())),
+            };
+
+            neighbours.for_each(|n| {
+                let path_cost = *node.cost() + *n.value();
+                let new_node = ResultNode::new(n.target(), Some(node.node_id()), path_cost);
+                let path_cost = Reverse(OrderedFloat(path_cost));
+                if let Some(priority) = frontier.get_priority(&new_node) {
+                    if priority < &path_cost {
+                        frontier.change_priority(&new_node, path_cost);
+                    }
+                } else {
+                    frontier.push(new_node, path_cost);
+                }
+                // if !frontier.change_priority_by(&new_node, |p| {
+                //     if p.0 > path_cost {
+                //         p.0 = path_cost
+                //     }
+                // }) {
+                //     frontier.push(new_node, Reverse(path_cost));
+                // }
+            });
+
+            visited.insert(node.node_id());
+
+            target_set.take(&node).inspect(|node| {
+                trace!("found path to node {}", node.node_id());
+            });
+            result.0.insert(node);
         }
 
-        Some(result_set)
-    }
+        if !target_set.is_empty() {
+            debug!("could not find a path to these nodes: {:?}", target_set);
+        }
 
-    fn cached_dijkstra_full(
-        &mut self,
-        start_node: usize,
-        direction: Direction,
-    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<Self::EV>> {
-        todo!()
+        result.clone()
     }
 }
 
@@ -509,8 +518,7 @@ where
         // Should be equal.
         assert_eq!(
             edge_count_in, edge_count_out,
-            "edge_count_in and edge_count_out are not equal. edge_count_in: {}, edge_count_out: {}",
-            edge_count_in, edge_count_out
+            "edge_count_in and edge_count_out are not equal. edge_count_in: {edge_count_in}, edge_count_out: {edge_count_out}"
         );
 
         let mut targets_out = Vec::<Target<EV>>::with_capacity(*edge_count_out);
@@ -565,13 +573,8 @@ fn prefix_sum(degrees: Vec<usize>) -> Vec<usize> {
 
 #[cfg(test)]
 mod tests {
-    use core::panic;
-    use std::sync::Once;
-
     use super::*;
     use crate::graph::Target;
-
-    static INIT: Once = Once::new();
 
     fn setup() -> DirectedCsrGraph<i32, ()> {
         let edges = EdgeList::new(vec![

@@ -21,9 +21,10 @@ use clap::{Args, Command, Parser, Subcommand};
 use geo::Coord;
 use geozero::geojson::read_geojson;
 use graph_rs::{
-    algorithms::trajan_scc::TarjanSCC,
-    graph::{csr::DirectedCsrGraph, quad_tree::QuadGraph, rstar::RTreeGraph},
+    algorithms::{dijkstra::CachedDijkstra, trajan_scc::TarjanSCC},
+    graph::{csr::DirectedCsrGraph, rstar::RTreeGraph},
     input::edgelist::EdgeList,
+    types::Direction,
     Coordinate, Graph,
 };
 use indicatif::ProgressBar;
@@ -31,6 +32,7 @@ use log::{debug, info};
 use memmap2::MmapOptions;
 use rand::{prelude::*, rng, seq::index::sample};
 use rmp_serde::{Deserializer, Serializer};
+use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
 
 mod bench;
@@ -149,6 +151,12 @@ fn main() {
             let mut writer = BufWriter::new(out_file);
             let mut rmp_serializer = Serializer::new(writer);
             graph.serialize(&mut rmp_serializer);
+
+            // let mut cache = DijkstraCache::new(graph.graph());
+            //
+            // drop(graph);
+            //
+            // cache.dijkstra_cached(0, FxHashSet::from_iter([1]), Direction::Outgoing);
         }
         Commands::Build {
             in_file,

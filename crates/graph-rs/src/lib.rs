@@ -1,12 +1,12 @@
+#![feature(specialization)]
 use std::{error::Error, fmt::Display};
 
-use ::geo_types::{Coord, CoordNum, CoordinateType, Point};
-use geo::{CoordinatePosition, Rect};
+use ::geo_types::{Coord, CoordNum};
+use geo::Rect;
 use graph::Target;
 use num_traits::Num;
 
 pub use geozero::{FeatureProcessor, GeomProcessor, PropertyProcessor};
-use qutee::Boundary;
 
 pub mod algorithms;
 pub mod builder;
@@ -31,8 +31,8 @@ impl Error for GraphError {}
 impl Display for GraphError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NodeNotFound(node) => write!(f, "node_id: {} not found in graph", node),
-            Self::EmptyNode(node) => write!(f, "node \'{}\' has no acociated value", node),
+            Self::NodeNotFound(node) => write!(f, "node_id: {node} not found in graph"),
+            Self::EmptyNode(node) => write!(f, "node \'{node}\' has no acociated value"),
         }
     }
 }

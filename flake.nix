@@ -11,6 +11,11 @@
     #   inputs.nixpkgs.follows = "nixpkgs";
     # };
 
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     flake-utils.url = "github:numtide/flake-utils";
 
     advisory-db = {
@@ -19,16 +24,22 @@
     };
   };
 
-  outputs = { self, nixpkgs, crane, flake-utils, advisory-db, ... }:
+  outputs =
+    { self, nixpkgs, crane, rust-overlay, flake-utils, advisory-db, ... }:
     flake-utils.lib.eachDefaultSystem (localSystem:
       let
         crossSystem = "x86_64-unknown-linux-gnu";
 
-        pkgs = import nixpkgs { inherit crossSystem localSystem; };
+        pkgs = import nixpkgs {
+          inherit crossSystem localSystem;
+          overlays = [ (import rust-overlay) ];
+        };
 
         inherit (pkgs) lib;
 
-        craneLib = crane.mkLib pkgs;
+        craneLib = (crane.mkLib pkgs).overrideToolchain
+          (p: p.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml);
+
         src = craneLib.cleanCargoSource ./.;
 
         # Common arguments can be set here to avoid repeating them later

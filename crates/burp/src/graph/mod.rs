@@ -56,10 +56,7 @@ where
                 }
                 poi_nodes
             });
-        Self {
-            graph: graph,
-            poi_nodes,
-        }
+        Self { graph, poi_nodes }
     }
 
     pub fn add_node_poi(&mut self, mut node: (usize, Vec<NV>)) -> Option<&mut CoordNode<f64, NV>> {
@@ -165,15 +162,11 @@ impl<T: NodeTrait> PoiGraph<T> {
         start_node: usize,
         targets: FxHashSet<usize>,
         direction: Direction,
-    ) -> Option<DijkstraResult<f64>> {
+    ) -> DijkstraResult<f64> {
         self.graph().dijkstra(start_node, targets, direction)
     }
 
-    pub fn dijkstra_full(
-        &self,
-        start_node: usize,
-        direction: Direction,
-    ) -> Option<DijkstraResult<f64>> {
+    pub fn dijkstra_full(&self, start_node: usize, direction: Direction) -> DijkstraResult<f64> {
         self.graph().dijkstra_full(start_node, direction)
     }
 
@@ -182,6 +175,7 @@ impl<T: NodeTrait> PoiGraph<T> {
         start_node: usize,
         end_node: usize,
         pois: &FxHashSet<usize>,
+        epsilon: f64,
     ) -> Option<FxHashMap<usize, f64>> {
         info!(
             "Calculating {} beer paths between nodes {}, {}",
@@ -189,88 +183,98 @@ impl<T: NodeTrait> PoiGraph<T> {
             &start_node,
             &end_node
         );
-        let start_result = self.dijkstra(start_node, pois.clone(), Direction::Outgoing)?;
-        let end_result = self.dijkstra(end_node, pois.clone(), Direction::Incoming)?;
+        let start_result = self.dijkstra(start_node, pois.clone(), Direction::Outgoing);
+        let end_result = self.dijkstra(end_node, pois.clone(), Direction::Incoming);
 
         let mut result = FxHashMap::with_hasher(FxBuildHasher);
 
+        let bound = self
+            .dijkstra(
+                start_node,
+                FxHashSet::from_iter([end_node]),
+                Direction::Outgoing,
+            )
+            .get(end_node)?
+            .cost()
+            * (1. + epsilon);
+
         for poi in pois {
-            result.insert(
-                *poi,
-                start_result.get(*poi)?.cost() + end_result.get(*poi)?.cost(),
-            );
+            let cost = start_result.get(*poi)?.cost() + end_result.get(*poi)?.cost();
+            if cost < bound {
+                result.insert(*poi, cost);
+            }
         }
 
         Some(result)
     }
 
-    pub fn beer_path_dijkstra_fast(
-        &self,
-        start_id: usize,
-        end_id: usize,
-        pois_id: &FxHashSet<usize>,
-        epsilon: f64,
-    ) -> FxHashMap<usize, f64> {
-        info!(
-            "Calculating {} beer paths between nodes {}, {}",
-            self.poi_nodes.len(),
-            &start_id,
-            &end_id
-        );
-        let mut frontier = PriorityQueue::new();
-        let visited = Arc::new(RwLock::new(FxHashMap::default()));
-        let result = Arc::new(Mutex::new(FxHashMap::default()));
-        let bound = Arc::new(RwLock::new(f64::INFINITY));
-        let Some(_) = self.graph().node_value(start_id) else {
-            warn!("start_id {} not found in graph", start_id);
-            return Arc::into_inner(result)
-                .expect("More than one strong reference")
-                .into_inner()
-                .expect("poisioned lock");
-        };
-        let Some(_) = self.graph().node_value(end_id) else {
-            warn!("end_id {} not found in graph", end_id);
-            return Arc::into_inner(result)
-                .expect("More than one strong reference")
-                .into_inner()
-                .expect("poisioned lock");
-        };
-        frontier.push((start_id, Label::Forward), Reverse(OrderedFloat(0.0)));
-        frontier.push((end_id, Label::Backward), Reverse(OrderedFloat(0.0)));
-
-        thread::scope(|s| {
-            s.spawn(|| {
-                shared_dijkstra(
-                    self.graph(),
-                    start_id,
-                    Label::Forward,
-                    visited.clone(),
-                    pois_id,
-                    result.clone(),
-                    bound.clone(),
-                    epsilon,
-                )
-            });
-
-            s.spawn(|| {
-                shared_dijkstra(
-                    self.graph(),
-                    end_id,
-                    Label::Backward,
-                    visited.clone(),
-                    pois_id,
-                    result.clone(),
-                    bound.clone(),
-                    epsilon,
-                )
-            });
-        });
-        info!("finished beer paths");
-        Arc::into_inner(result)
-            .expect("More than one strong reference")
-            .into_inner()
-            .expect("poisioned lock")
-    }
+    // pub fn beer_path_dijkstra_fast(
+    //     &self,
+    //     start_id: usize,
+    //     end_id: usize,
+    //     pois_id: &FxHashSet<usize>,
+    //     epsilon: f64,
+    // ) -> FxHashMap<usize, f64> {
+    //     info!(
+    //         "Calculating {} beer paths between nodes {}, {}",
+    //         self.poi_nodes.len(),
+    //         &start_id,
+    //         &end_id
+    //     );
+    //     let mut frontier = PriorityQueue::new();
+    //     let visited = Arc::new(RwLock::new(FxHashMap::default()));
+    //     let result = Arc::new(Mutex::new(FxHashMap::default()));
+    //     let bound = Arc::new(RwLock::new(f64::INFINITY));
+    //     let Some(_) = self.graph().node_value(start_id) else {
+    //         warn!("start_id {} not found in graph", start_id);
+    //         return Arc::into_inner(result)
+    //             .expect("More than one strong reference")
+    //             .into_inner()
+    //             .expect("poisioned lock");
+    //     };
+    //     let Some(_) = self.graph().node_value(end_id) else {
+    //         warn!("end_id {} not found in graph", end_id);
+    //         return Arc::into_inner(result)
+    //             .expect("More than one strong reference")
+    //             .into_inner()
+    //             .expect("poisioned lock");
+    //     };
+    //     frontier.push((start_id, Label::Forward), Reverse(OrderedFloat(0.0)));
+    //     frontier.push((end_id, Label::Backward), Reverse(OrderedFloat(0.0)));
+    //
+    //     thread::scope(|s| {
+    //         s.spawn(|| {
+    //             shared_dijkstra(
+    //                 self.graph(),
+    //                 start_id,
+    //                 Label::Forward,
+    //                 visited.clone(),
+    //                 pois_id,
+    //                 result.clone(),
+    //                 bound.clone(),
+    //                 epsilon,
+    //             )
+    //         });
+    //
+    //         s.spawn(|| {
+    //             shared_dijkstra(
+    //                 self.graph(),
+    //                 end_id,
+    //                 Label::Backward,
+    //                 visited.clone(),
+    //                 pois_id,
+    //                 result.clone(),
+    //                 bound.clone(),
+    //                 epsilon,
+    //             )
+    //         });
+    //     });
+    //     info!("finished beer paths");
+    //     Arc::into_inner(result)
+    //         .expect("More than one strong reference")
+    //         .into_inner()
+    //         .expect("poisioned lock")
+    // }
 }
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
@@ -474,7 +478,7 @@ impl std::error::Error for Error {}
 #[cfg(test)]
 mod test {
     use geozero::geojson::read_geojson;
-    use graph_rs::graph::{quad_tree::QuadGraph, rstar::RTreeGraph};
+    use graph_rs::graph::rstar::RTreeGraph;
 
     use crate::{
         graph::{self, PoiGraph},

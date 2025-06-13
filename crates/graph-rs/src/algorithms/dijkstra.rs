@@ -1,26 +1,17 @@
 use std::{
     cmp::{Ordering, Reverse},
-    collections::{HashMap, HashSet},
-    error::Error,
     fmt::Debug,
     hash::Hash,
-    mem, usize,
 };
 
-use cached::proc_macro::cached;
-use log::{debug, info, trace};
+use log::{debug, trace};
 use num_traits::{Num, Zero};
 use ordered_float::{FloatCore, OrderedFloat};
 use priority_queue::PriorityQueue;
-use rayon::iter::ParallelIterator;
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    graph::{Path, Target},
-    types::Direction,
-    DirectedGraph, Graph,
-};
+use crate::{DirectedGraph, Graph, graph::Target, types::Direction};
 
 pub trait Dijkstra: Graph
 where
@@ -31,16 +22,12 @@ where
         start_node: usize,
         target_set: FxHashSet<usize>,
         direction: Direction,
-    ) -> Option<DijkstraResult<Self::EV>>;
+    ) -> DijkstraResult<Self::EV>;
 
-    fn dijkstra_full(
-        &self,
-        start_node: usize,
-        direction: Direction,
-    ) -> Option<DijkstraResult<Self::EV>>;
+    fn dijkstra_full(&self, start_node: usize, direction: Direction) -> DijkstraResult<Self::EV>;
 }
 
-impl<G> Dijkstra for G
+default impl<G> Dijkstra for G
 where
     G: DirectedGraph,
     G::EV: FloatCore,
@@ -50,7 +37,7 @@ where
         start_node: usize,
         mut target_set: FxHashSet<usize>,
         direction: Direction,
-    ) -> Option<DijkstraResult<Self::EV>> {
+    ) -> DijkstraResult<Self::EV> {
         let mut frontier = PriorityQueue::with_hasher(FxBuildHasher);
         let mut result = FxHashSet::default();
         let mut visited = FxHashSet::default();
@@ -60,7 +47,7 @@ where
         );
 
         while !target_set.is_empty() && !frontier.is_empty() {
-            let node = frontier.pop()?.0;
+            let node = frontier.pop().expect("This is a bug").0;
             if visited.contains(&node.node_id()) {
                 continue;
             }
@@ -93,9 +80,8 @@ where
 
             visited.insert(node.node_id());
 
-            target_set.take(&node.node_id()).and_then(|node| {
+            target_set.take(&node.node_id()).inspect(|node| {
                 trace!("found path to node {}", node);
-                Some(node)
             });
             result.insert(node);
         }
@@ -104,42 +90,20 @@ where
             debug!("could not find a path to these nodes: {:?}", target_set);
         }
 
-        Some(DijkstraResult::new(result))
+        DijkstraResult::new(result)
     }
 
-    fn dijkstra_full(
-        &self,
-        start_node: usize,
-        direction: Direction,
-    ) -> Option<DijkstraResult<Self::EV>> {
+    fn dijkstra_full(&self, start_node: usize, direction: Direction) -> DijkstraResult<Self::EV> {
         self.dijkstra(
             start_node,
-            HashSet::from_iter(0..self.node_count()),
+            FxHashSet::from_iter(0..self.node_count()),
             direction,
         )
     }
 }
 
-pub trait CachedDijkstra: Dijkstra
-where
-    Self::EV: Num,
-{
-    fn cached_dijkstra(
-        &mut self,
-        start_node: usize,
-        target_set: HashSet<usize>,
-        direction: Direction,
-    ) -> Option<DijkstraResult<Self::EV>>;
-
-    fn cached_dijkstra_full(
-        &mut self,
-        start_node: usize,
-        direction: Direction,
-    ) -> Option<DijkstraResult<Self::EV>>;
-}
-
-#[derive(PartialEq, Debug)]
-pub struct DijkstraResult<T: Num>(pub FxHashSet<ResultNode<T>>);
+#[derive(PartialEq, Debug, Clone)]
+pub struct DijkstraResult<T>(pub FxHashSet<ResultNode<T>>);
 
 impl<T: Num> DijkstraResult<T> {
     pub fn new(hash_set: FxHashSet<ResultNode<T>>) -> Self {
@@ -210,6 +174,16 @@ impl<T> ResultNode<T> {
     }
 }
 
+impl<T: Default> From<usize> for ResultNode<T> {
+    fn from(value: usize) -> Self {
+        Self {
+            node_id: value,
+            prev_node_id: None,
+            cost: T::default(),
+        }
+    }
+}
+
 impl<T> PartialEq for ResultNode<T> {
     fn eq(&self, other: &Self) -> bool {
         self.node_id == other.node_id
@@ -234,7 +208,6 @@ impl<T> Hash for ResultNode<T> {
 mod test {
     use std::hash::{DefaultHasher, Hash, Hasher};
 
-    use num_traits::Zero;
     use ordered_float::OrderedFloat;
 
     use crate::algorithms::dijkstra::ResultNode;

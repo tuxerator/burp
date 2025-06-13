@@ -1,4 +1,4 @@
-use log::{error, info};
+use log::info;
 
 use crate::DirectedGraph;
 
@@ -114,7 +114,7 @@ mod test {
 
         sccs_actual.iter_mut().for_each(|scc| scc.sort());
 
-        sccs_actual.sort_by(|lhs, rhs| lhs.len().cmp(&rhs.len()));
+        sccs_actual.sort_by_key(|lhs| lhs.len());
 
         assert_eq!(sccs_actual, sccs_expected);
     }

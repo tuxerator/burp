@@ -1,40 +1,21 @@
-use core::f64;
-use std::{
-    collections::HashSet,
-    fmt::{self, Debug},
-    marker::PhantomData,
-};
+use std::{collections::HashSet, fmt::Debug};
 
-use geo::{
-    point, BoundingRect, Coord, CoordFloat, CoordNum, EuclideanDistance, GeodesicDestination,
-    GeodesicDistance, HaversineDestination, HaversineDistance, MultiPoint, Point, Rect,
-    RhumbDestination, Translate, VincentyDistance,
-};
+use geo::{BoundingRect, Coord, CoordFloat, MultiPoint, Point, Rect};
 use log::info;
-use num_traits::{Float, FromPrimitive, Num, NumOps};
 use ordered_float::{FloatCore, OrderedFloat};
-use qutee::{Boundary, DynCap, QuadTree};
-use rstar::{
-    iterators::LocateInEnvelope, primitives::GeomWithData, Envelope, RTree, RTreeNum, RTreeObject,
-};
-use serde::{
-    de::{self, Visitor},
-    Deserialize, Deserializer, Serialize,
-};
+use rstar::{RTree, RTreeNum, RTreeObject, iterators::LocateInEnvelope, primitives::GeomWithData};
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    algorithms::dijkstra::{CachedDijkstra, Dijkstra},
-    types::Direction,
-    CoordGraph, Coordinate, DirectedGraph, Graph,
+    CoordGraph, Coordinate, DirectedGraph, Graph, algorithms::dijkstra::Dijkstra, types::Direction,
 };
-
-use super::csr::DirectedCsrGraph;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RTreeGraph<G, C>
 where
     G: Graph,
     G::NV: Coordinate<C>,
+    G::EV: Debug + Default,
     C: RTreeNum + CoordFloat,
 {
     graph: G,
@@ -46,6 +27,7 @@ impl<G, C> RTreeGraph<G, C>
 where
     G: Graph,
     G::NV: Coordinate<C>,
+    G::EV: Debug + Default,
     C: RTreeNum + CoordFloat,
 {
     pub fn new_from_graph(graph: G) -> Self {
@@ -63,6 +45,7 @@ where
         Self { graph, r_tree }
     }
 
+    /// Returns the underlying graph data structure.
     pub fn graph(&self) -> &G {
         &self.graph
     }
@@ -70,16 +53,16 @@ where
     pub fn query(
         &self,
         envelope: &<GeomWithData<Coord<C>, usize> as RTreeObject>::Envelope,
-    ) -> LocateInEnvelope<GeomWithData<Coord<C>, usize>> {
+    ) -> LocateInEnvelope<'_, GeomWithData<Coord<C>, usize>> {
         self.r_tree.locate_in_envelope(envelope)
     }
 }
 
 impl<G, C> RTreeGraph<G, C>
 where
-    G: DirectedGraph + CachedDijkstra,
+    G: DirectedGraph + Dijkstra,
     G::NV: Coordinate<C>,
-    G::EV: FloatCore,
+    G::EV: FloatCore + Default + Debug + Clone,
     C: RTreeNum + CoordFloat,
 {
     pub fn radius(
@@ -96,7 +79,7 @@ where
             return None;
         }
 
-        let distances = self.cached_dijkstra(node, nodes, direction).unwrap();
+        let distances = self.graph.dijkstra(node, nodes, direction);
 
         Some(
             *distances
@@ -112,6 +95,7 @@ impl<G, C> Default for RTreeGraph<G, C>
 where
     G: Graph,
     G::NV: Coordinate<C>,
+    G::EV: Debug + Default,
     C: RTreeNum + CoordFloat,
 {
     fn default() -> Self {
@@ -123,6 +107,7 @@ impl<G, C> PartialEq for RTreeGraph<G, C>
 where
     G: Graph + PartialEq,
     G::NV: Coordinate<C>,
+    G::EV: Debug + Default,
     C: RTreeNum + CoordFloat,
 {
     fn eq(&self, other: &Self) -> bool {
@@ -134,6 +119,7 @@ impl<G, C> Graph for RTreeGraph<G, C>
 where
     G: Graph,
     G::NV: Coordinate<C>,
+    G::EV: Debug + Default,
     C: RTreeNum + CoordFloat,
 {
     type EV = G::EV;
@@ -206,6 +192,7 @@ impl<G, C> DirectedGraph for RTreeGraph<G, C>
 where
     G: DirectedGraph,
     G::NV: Coordinate<C>,
+    G::EV: Debug + Default,
     C: RTreeNum + CoordFloat,
 {
     fn in_degree(&self, node: usize) -> usize {
@@ -235,6 +222,7 @@ impl<G, C> CoordGraph for RTreeGraph<G, C>
 where
     G: DirectedGraph,
     G::NV: Coordinate<C>,
+    G::EV: Debug + Default,
     C: RTreeNum + CoordFloat,
 {
     type C = C;
@@ -243,8 +231,6 @@ where
     }
     fn nearest_node_bound(&self, coord: &Coord<C>, tolerance: C) -> Option<usize> {
         info!("Searching neighbour for: {:?}", coord);
-        let point = Point::from(*coord);
-
         let mut neighbors = self.r_tree.nearest_neighbor_iter_with_distance_2(coord);
 
         let neighbor_bound = neighbors.find(|node| node.1 <= tolerance);
@@ -266,56 +252,49 @@ where
     }
 }
 
-impl<G, C> CachedDijkstra for RTreeGraph<G, C>
+impl<G, C> Dijkstra for RTreeGraph<G, C>
 where
-    G: DirectedGraph + CachedDijkstra,
-    G::EV: FloatCore,
+    G: DirectedGraph + Dijkstra,
     G::NV: Coordinate<C>,
+    G::EV: FloatCore + Debug + Default + Clone,
     C: RTreeNum + CoordFloat,
 {
-    fn cached_dijkstra(
-        &mut self,
+    fn dijkstra(
+        &self,
         start_node: usize,
-        target_set: HashSet<usize>,
+        target_set: rustc_hash::FxHashSet<usize>,
         direction: Direction,
-    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<Self::EV>> {
-        self.graph
-            .cached_dijkstra(start_node, target_set, direction)
+    ) -> crate::algorithms::dijkstra::DijkstraResult<Self::EV> {
+        self.graph.dijkstra(start_node, target_set, direction)
     }
 
-    fn cached_dijkstra_full(
-        &mut self,
+    fn dijkstra_full(
+        &self,
         start_node: usize,
         direction: Direction,
-    ) -> Option<crate::algorithms::dijkstra::DijkstraResult<Self::EV>> {
-        self.graph.cached_dijkstra_full(start_node, direction)
+    ) -> crate::algorithms::dijkstra::DijkstraResult<Self::EV> {
+        self.graph.dijkstra_full(start_node, direction)
     }
 }
 
 #[cfg(test)]
 mod test {
-    use std::{
-        collections::HashMap,
-        fs::File,
-        io::{BufReader, Read},
-    };
+    use std::{collections::HashMap, fs::File, io::BufReader};
 
     use approx::assert_relative_eq;
-    use geo::{point, GeodesicDestination, HaversineDestination, Point};
+    use geo::{HaversineDestination, Point};
     use geozero::geojson::read_geojson;
-    use serde_test::{assert_tokens, Token};
 
     use crate::{
-        graph::csr::DirectedCsrGraph,
-        input::geo_zero::{ColumnValueClonable, GraphWriter},
         CoordGraph, Coordinate, Graph,
+        input::geo_zero::{ColumnValueClonable, GraphWriter},
     };
 
     use super::RTreeGraph;
 
     #[test]
     fn nearest_neighbour_search() {
-        let mut geojson = r#" {
+        let geojson = r#" {
         "type": "FeatureCollection",
         "features": [{
             "type": "Feature",
@@ -368,7 +347,7 @@ mod test {
 
         let p_1 = Point::new(13.355102, 52.5364593).haversine_destination(30., 1000.);
 
-        read_geojson(geojson.as_bytes(), &mut graph_writer);
+        read_geojson(geojson.as_bytes(), &mut graph_writer).unwrap();
 
         let graph = graph_writer.get_graph();
 
@@ -411,7 +390,7 @@ mod test {
 
         let p_1 = Point::new(13.4865, 52.5668);
 
-        read_geojson(reader, &mut graph_writer);
+        read_geojson(reader, &mut graph_writer).unwrap();
 
         let graph = graph_writer.get_graph();
 

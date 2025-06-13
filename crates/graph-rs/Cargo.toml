@@ -1,7 +1,12 @@
 [package]
 name = "graph-rs"
-version = "0.1.0"
-edition = "2021"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+keywords.workspace = true
+license.workspace = true
+repository.workspace = true
+version.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -20,7 +25,6 @@ bytemuck = "1.16"
 num-traits = { version = "0.2", features = ["std"] }
 priority-queue = "2.0"
 rayon = "1.10"
-cached = { version = "0.53", features = ["proc_macro", "serde", "ahash"] }
 rstar = { version = "0.12", features = ["serde"] }
 rustc-hash = "2.1"
 

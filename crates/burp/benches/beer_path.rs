@@ -79,21 +79,7 @@ pub fn beer_path_small(c: &mut Criterion) {
                             let s_node = graph.graph().nearest_node(&s_t.0).unwrap();
                             let t_node = graph.graph().nearest_node(&s_t.1).unwrap();
 
-                            graph.beer_path_dijkstra_base(s_node, t_node, graph.poi_nodes());
-                        });
-                    });
-                },
-            );
-            group.bench_with_input(
-                BenchmarkId::new("dijkstra par", sample_rate),
-                &s_t_pairs.clone(),
-                |b, s_t_pairs| {
-                    b.iter(|| {
-                        s_t_pairs.iter().for_each(|s_t| {
-                            let s_node = graph.graph().nearest_node(&s_t.0).unwrap();
-                            let t_node = graph.graph().nearest_node(&s_t.1).unwrap();
-
-                            graph.beer_path_dijkstra_fast(s_node, t_node, graph.poi_nodes(), 0.2);
+                            graph.beer_path_dijkstra_base(s_node, t_node, graph.poi_nodes(), 0.25);
                         });
                     });
                 },
@@ -155,21 +141,7 @@ pub fn beer_path_big(c: &mut Criterion) {
                             let s_node = graph.graph().nearest_node(&s_t.0).unwrap();
                             let t_node = graph.graph().nearest_node(&s_t.1).unwrap();
 
-                            graph.beer_path_dijkstra_base(s_node, t_node, graph.poi_nodes());
-                        });
-                    });
-                },
-            );
-            group.bench_with_input(
-                BenchmarkId::new("dijkstra par", sample_rate),
-                &s_t_pairs.clone(),
-                |b, s_t_pairs| {
-                    b.iter(|| {
-                        s_t_pairs.iter().for_each(|s_t| {
-                            let s_node = graph.graph().nearest_node(&s_t.0).unwrap();
-                            let t_node = graph.graph().nearest_node(&s_t.1).unwrap();
-
-                            graph.beer_path_dijkstra_fast(s_node, t_node, graph.poi_nodes(), 0.2);
+                            graph.beer_path_dijkstra_base(s_node, t_node, graph.poi_nodes(), 0.25);
                         });
                     });
                 },

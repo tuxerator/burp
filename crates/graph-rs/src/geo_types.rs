@@ -1,10 +1,10 @@
-use geo::{point, Coord, CoordNum, Point};
+use geo::{Coord, CoordNum, Point};
 
 use crate::Coordinate;
 
 impl<C: CoordNum> Coordinate<C> for Point<C> {
     fn x_y(&self) -> (C, C) {
-        self.x_y()
+        self.as_coord().x_y()
     }
 
     fn as_coord(&self) -> geo_types::Coord<C> {
@@ -12,7 +12,7 @@ impl<C: CoordNum> Coordinate<C> for Point<C> {
     }
 
     fn zero() -> Self {
-        Point::zero()
+        Point::new(C::zero(), C::zero())
     }
 }
 
@@ -22,7 +22,7 @@ impl<C: CoordNum> Coordinate<C> for Coord<C> {
     }
 
     fn as_coord(&self) -> Coord<C> {
-        self.clone()
+        *self
     }
 
     fn zero() -> Self {

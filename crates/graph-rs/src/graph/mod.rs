@@ -1,16 +1,9 @@
-use std::{
-    hash::Hash,
-    sync::{Arc, RwLock},
-    usize,
-};
+use std::hash::Hash;
 
 use num_traits::Num;
 use serde::{Deserialize, Serialize};
 
-use crate::{CoordGraph, Coordinate, Graph};
-
 pub mod csr;
-pub mod quad_tree;
 pub mod rstar;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -44,9 +37,9 @@ impl<EV: Default> Path<EV> {
 
     pub fn last_node(&mut self) -> Option<usize> {
         if self.path.is_empty() {
-            return self.start.take().map_or(None, |n| Some(n.target()));
+            return self.start.take().map(|n| n.target());
         }
-        self.path.last().map_or(None, |n| Some(n.target()))
+        self.path.last().map(|n| n.target())
     }
 }
 

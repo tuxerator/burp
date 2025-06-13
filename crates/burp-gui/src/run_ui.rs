@@ -337,16 +337,17 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
         if ui.button("Load").clicked() {
             if let Some(path) = FileDialog::new().pick_file() {
                 if let Ok(in_file) = File::open(path) {
-            let in_file_mmap = unsafe { MmapOptions::new().map(&in_file).unwrap() };
+                    let in_file_mmap = unsafe { MmapOptions::new().map(&in_file).unwrap() };
 
-            let mut rmp_deserializer = Deserializer::new(in_file_mmap.as_ref());
+                    let mut rmp_deserializer = Deserializer::new(in_file_mmap.as_ref());
 
-            let graph: PoiGraph<Poi> = PoiGraph::deserialize(&mut rmp_deserializer).unwrap();
-            info!(
-                "Loaded graph: {} nodes, {} edges",
-                graph.graph().node_count(),
-                graph.graph().edge_count()
-            );
+                    let graph: PoiGraph<Poi> =
+                        PoiGraph::deserialize(&mut rmp_deserializer).unwrap();
+                    info!(
+                        "Loaded graph: {} nodes, {} edges",
+                        graph.graph().node_count(),
+                        graph.graph().edge_count()
+                    );
                     state.graph = Some(graph);
                     state.state = State::LoadedPois;
                 }
@@ -370,9 +371,7 @@ fn dijkstra(state: &mut UiState) {
         );
         let mut target = FxHashSet::default();
         target.insert(end.0);
-        let result = graph
-            .dijkstra(start.0, target, graph_rs::types::Direction::Outgoing)
-            .unwrap();
+        let result = graph.dijkstra(start.0, target, graph_rs::types::Direction::Outgoing);
 
         let mut layer = state.map.write().expect("poisoned lock");
 
@@ -426,7 +425,9 @@ fn double_dijkstra(state: &mut UiState) {
         };
         let mut target = FxHashSet::default();
         target.insert(end.0);
-        let result = oracle.beer_path_dijkstra_fast(start.0, end.0, oracle.poi_nodes(), 0.0);
+        let result = oracle
+            .beer_path_dijkstra_base(start.0, end.0, oracle.poi_nodes(), 0.0)
+            .unwrap();
 
         info!("Finished beer paths");
 

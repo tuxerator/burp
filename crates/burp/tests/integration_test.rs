@@ -34,12 +34,14 @@ fn oracle() {
     println!("Testing {} pois", graph.poi_nodes().len());
 
     for s_t_pair in s_t_pairs {
-        let dijkstra_result = graph.beer_path_dijkstra_fast(
-            graph.graph().nearest_node(&s_t_pair.0).unwrap(),
-            graph.graph().nearest_node(&s_t_pair.1).unwrap(),
-            graph.poi_nodes(),
-            0.2,
-        );
+        let dijkstra_result = graph
+            .beer_path_dijkstra_base(
+                graph.graph().nearest_node(&s_t_pair.0).unwrap(),
+                graph.graph().nearest_node(&s_t_pair.1).unwrap(),
+                graph.poi_nodes(),
+                0.25,
+            )
+            .unwrap();
 
         let oracle_result = oracle.get_pois(&s_t_pair.0, &s_t_pair.1);
 

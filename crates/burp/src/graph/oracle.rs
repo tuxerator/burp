@@ -7,19 +7,19 @@ use std::{
 
 use geo::{Coord, CoordFloat, Rect};
 use graph_rs::{
-    algorithms::dijkstra::CachedDijkstra, graph::rstar::RTreeGraph, types::Direction, CoordGraph,
-    Coordinate, DirectedGraph, Graph,
+    CoordGraph, Coordinate, DirectedGraph, Graph, algorithms::dijkstra::Dijkstra,
+    graph::rstar::RTreeGraph, types::Direction,
 };
 use indicatif::{ProgressBar, ProgressIterator};
 use log::{debug, error, info, trace};
 use num_traits::AsPrimitive;
 use ordered_float::{FloatCore, OrderedFloat};
 use rstar::{
+    AABB, Envelope, RTree, RTreeNum, RTreeObject,
     primitives::{GeomWithData, Rectangle},
-    Envelope, RTree, RTreeNum, RTreeObject, AABB,
 };
 use rustc_hash::FxHashSet;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{types::RTreeObjectArc, util::r_tree_size};
 
@@ -64,6 +64,7 @@ where
     where
         G: DirectedGraph,
         G::NV: Coordinate<C>,
+        G::EV: Default + Debug,
     {
         self.block_pairs
             .iter()
@@ -123,8 +124,7 @@ where
     ) -> Vec<Arc<BlockPair<C>>> {
         trace!(
             "Searching block pair for points\n{:#?}, {:#?}",
-            s_coord,
-            t_coord
+            s_coord, t_coord
         );
         let mut block_pairs: Vec<_> = self
             .r_tree
@@ -162,9 +162,9 @@ where
 
     pub fn build_for_node<G>(&mut self, graph: &mut RTreeGraph<G, C>, node: &usize, epsilon: G::EV)
     where
-        G::EV: FloatCore + Debug,
+        G::EV: FloatCore + Debug + Default,
         G::NV: Coordinate<C> + Debug,
-        G: DirectedGraph + CachedDijkstra,
+        G: DirectedGraph + Dijkstra,
     {
         debug!("Building oracle for node {:#?}", &node);
         let Some(root) = graph.bounding_rect() else {
@@ -293,9 +293,9 @@ where
         epsilon: G::EV,
         progress_bar: Option<ProgressBar>,
     ) where
-        G::EV: FloatCore + Debug,
+        G::EV: FloatCore + Debug + Default,
         G::NV: Coordinate<C> + Debug,
-        G: DirectedGraph + CachedDijkstra,
+        G: DirectedGraph + Dijkstra,
     {
         if let Some(pb) = progress_bar {
             pb.reset();
@@ -314,18 +314,18 @@ where
 
     pub fn invariant<G>(&self, graph: &RTreeGraph<G, C>, node: &usize) -> bool
     where
-        G::EV: FloatCore + Debug,
+        G::EV: FloatCore + Debug + Default,
         G::NV: Coordinate<C> + Debug,
-        G: DirectedGraph + CachedDijkstra,
+        G: DirectedGraph,
     {
         let mut points = graph
             .nodes_iter()
             .flat_map(|p| graph.nodes_iter().map(move |q| (p, q)))
-            .filter(|pair| pair.0 .0 != pair.1 .0);
+            .filter(|pair| pair.0.0 != pair.1.0);
 
         points.all(|point| {
             let block_pairs: Vec<_> = self
-                .get_block_pairs(&point.0 .1.as_coord(), &point.1 .1.as_coord())
+                .get_block_pairs(&point.0.1.as_coord(), &point.1.1.as_coord())
                 .into_iter()
                 .filter(|pair| pair.poi_id == *node)
                 .collect();
@@ -375,20 +375,21 @@ impl<T: FloatCore> Values<T> {
         poi: usize,
     ) -> Option<Values<G::EV>>
     where
-        G: DirectedGraph + CachedDijkstra,
+        G: DirectedGraph + Dijkstra,
         G::NV: Coordinate<C>,
-        G::EV: FloatCore,
+        G::EV: FloatCore + Debug + Default,
         C: RTreeNum + CoordFloat,
     {
-        let d_s = graph
-            .cached_dijkstra(s.data, HashSet::from([t.data, poi]), Direction::Outgoing)
-            .unwrap();
+        let d_s = graph.dijkstra(
+            s.data,
+            FxHashSet::from_iter([t.data, poi]),
+            Direction::Outgoing,
+        );
         Some(Values {
             d_st: *d_s.get(t.data)?.cost(),
             d_sp: *d_s.get(poi)?.cost(),
             d_pt: *graph
-                .cached_dijkstra(poi, HashSet::from([t.data]), Direction::Outgoing)
-                .unwrap()
+                .dijkstra(poi, FxHashSet::from_iter([t.data]), Direction::Outgoing)
                 .get(t.data)?
                 .cost(),
             r_af: graph
