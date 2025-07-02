@@ -1,6 +1,6 @@
 use std::{collections::HashSet, fs::File, iter};
 
-use burp::graph::oracle::Oracle;
+use burp::oracle::oracle::Oracle;
 use geo::Coord;
 use graph_rs::CoordGraph;
 use log::info;

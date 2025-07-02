@@ -1,4 +1,3 @@
-
 use burp::types::Poi;
 use galileo::{
     error::GalileoError,
@@ -50,3 +49,5 @@ impl Symbol<NodeMarker<Poi>> for PoiSymbol {
         }
     }
 }
+
+pub struct BlockPairSymbol;

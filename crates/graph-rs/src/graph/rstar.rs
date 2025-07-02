@@ -3,7 +3,9 @@ use std::{collections::HashSet, fmt::Debug};
 use geo::{BoundingRect, Coord, CoordFloat, MultiPoint, Point, Rect};
 use log::info;
 use ordered_float::{FloatCore, OrderedFloat};
-use rstar::{RTree, RTreeNum, RTreeObject, iterators::LocateInEnvelope, primitives::GeomWithData};
+use rstar::{
+    AABB, RTree, RTreeNum, RTreeObject, iterators::LocateInEnvelope, primitives::GeomWithData,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -68,10 +70,10 @@ where
     pub fn radius(
         &mut self,
         node: usize,
-        envelope: &<GeomWithData<Coord<C>, usize> as RTreeObject>::Envelope,
+        envelope: &Rect<C>,
         direction: Direction,
     ) -> Option<G::EV> {
-        let nodes = self.query(envelope).map(|node| node.data);
+        let nodes = self.locate_in_envelope(envelope);
         let nodes = HashSet::from_iter(nodes);
 
         if !nodes.contains(&node) {
@@ -226,6 +228,11 @@ where
     C: RTreeNum + CoordFloat,
 {
     type C = C;
+
+    fn node_coord(&self, node: usize) -> Option<Coord<C>> {
+        self.graph.node_value(node).map(|c| c.as_coord())
+    }
+
     fn nearest_node(&self, point: &Coord<C>) -> Option<usize> {
         self.r_tree.nearest_neighbor(point).map(|n| n.data)
     }
@@ -238,6 +245,11 @@ where
         info!("Found points");
 
         neighbor_bound.map(|n| n.0.data)
+    }
+
+    fn locate_in_envelope(&self, envelope: &Rect<Self::C>) -> impl Iterator<Item = usize> {
+        let envelope = AABB::from_corners(envelope.min(), envelope.max());
+        self.r_tree.locate_in_envelope(&envelope).map(|e| e.data)
     }
 
     fn bounding_rect(&self) -> Option<Rect<C>> {

@@ -9,29 +9,33 @@ use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, RwLock};
 
-use burp::graph::oracle::Oracle;
-use burp::graph::PoiGraph;
+use burp::oracle::PoiGraph;
+use burp::oracle::block_pair::BlockPair;
+use burp::oracle::oracle::{Oracle, OracleCollection};
+use burp::tree::Tree;
 use burp::types::{CoordNode, Poi};
 use egui::{Context, InnerResponse};
-use galileo::symbol::{CirclePointSymbol, SimpleContourSymbol};
 use galileo::Color;
+use galileo::symbol::{CirclePointSymbol, SimpleContourSymbol};
 use galileo_types::geo::{GeoPoint, NewGeoPoint};
 use geo::{Coord, LineString};
 use geozero::geojson::read_geojson;
+use graph_rs::Graph;
 use graph_rs::graph::csr::DirectedCsrGraph;
 use graph_rs::graph::rstar::RTreeGraph;
-use graph_rs::Graph;
 use log::{info, warn};
 use rfd::FileDialog;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::map::layers::oracle_layer::{BlocksLayer, BlocksSymbol};
+use crate::map::layers::block_pair_layer::BlockPairLayer;
+// use crate::map::layers::oracle_layer::{BlocksLayer, BlocksSymbol};
+use crate::map::Map;
 use crate::map::layers::{
     line_layer::ContourLayer,
     node_layer::{NodeLayer, NodeMarker},
 };
-use crate::map::Map;
 use crate::state::Events;
+use crate::widgets::tree_view::TreeView;
 use burp::input::geo_zero::{ColumnValueClonable, GraphWriter, PoiWriter};
 use memmap2::MmapOptions;
 use rmp_serde::{Deserializer, Serializer};
@@ -42,9 +46,12 @@ type StartEndPos<T> = (
     Option<(usize, CoordNode<f64, T>)>,
 );
 
+type OracleType<NV> = OracleCollection<RTreeGraph<DirectedCsrGraph<f64, CoordNode<f64, NV>>, f64>>;
+
 pub struct UiState {
     graph: Option<PoiGraph<Poi>>,
-    oracle: Option<Arc<Mutex<Oracle>>>,
+    oracle: Option<Arc<Mutex<OracleType<Poi>>>>,
+    debug_tree: Option<Tree<BlockPair<f64, f64>>>,
     map: Arc<RwLock<Map<String>>>,
     sender: Sender<Events>,
     state: State,
@@ -91,6 +98,7 @@ impl UiState {
         Self {
             graph: None,
             oracle: None,
+            debug_tree: None,
             map,
             sender,
             state: State::Init,
@@ -219,7 +227,8 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
         {
             let mut map = state.map.write().expect("poisoned lock");
 
-            map.toggle_layer(&String::from("graph"))
+            let _ = map
+                .toggle_layer(&String::from("graph"))
                 .or_else(|_| -> Result<(), String> {
                     let layer: &mut Arc<RwLock<ContourLayer<SimpleContourSymbol, f64>>> = map
                         .or_insert(
@@ -235,12 +244,13 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
                         .expect("poisoned lock")
                         .insert_coord_graph::<RTreeGraph<
                             DirectedCsrGraph<f64, CoordNode<f64, Poi>>, f64>,
-                        >(&*state.graph.as_ref().unwrap().graph());
+                        >(state.graph.as_ref().unwrap().graph());
 
                     Ok(())
                 });
 
-            map.toggle_layer(&String::from("nodes"))
+            let _ = map
+                .toggle_layer(&String::from("nodes"))
                 .or_else(|_| -> Result<(), String> {
                     let layer: &mut Arc<RwLock<NodeLayer<CirclePointSymbol, ()>>> = map
                         .or_insert(
@@ -322,38 +332,62 @@ pub fn run_ui(state: &mut UiState, ctx: &Context) {
 
         ui.add(egui::Slider::new(&mut state.epsilon, 0.0..=50.0));
 
-        if ui.button("Save").clicked() {
-            if let Some(path) = FileDialog::new().save_file() {
-                if let Ok(file) = File::create(path) {
-                    if let Some(ref oracle) = state.graph {
-                        let buf_writer = BufWriter::new(file);
-                        let mut rmp_serializer = Serializer::new(buf_writer);
-                        oracle.serialize(&mut rmp_serializer).unwrap();
-                    };
-                };
-            };
-        }
+        if ui.button("Save").clicked()
+            && let Some(path) = FileDialog::new().save_file()
+            && let Ok(file) = File::create(path)
+            && let Some(ref oracle) = state.graph
+        {
+            let buf_writer = BufWriter::new(file);
+            let mut rmp_serializer = Serializer::new(buf_writer);
+            oracle.serialize(&mut rmp_serializer).unwrap();
+        };
 
-        if ui.button("Load").clicked() {
-            if let Some(path) = FileDialog::new().pick_file() {
-                if let Ok(in_file) = File::open(path) {
-                    let in_file_mmap = unsafe { MmapOptions::new().map(&in_file).unwrap() };
+        if ui.button("Load").clicked()
+            && let Some(path) = FileDialog::new().pick_file()
+            && let Ok(in_file) = File::open(path)
+        {
+            let in_file_mmap = unsafe { MmapOptions::new().map(&in_file).unwrap() };
 
-                    let mut rmp_deserializer = Deserializer::new(in_file_mmap.as_ref());
+            let mut rmp_deserializer = Deserializer::new(in_file_mmap.as_ref());
 
-                    let graph: PoiGraph<Poi> =
-                        PoiGraph::deserialize(&mut rmp_deserializer).unwrap();
-                    info!(
-                        "Loaded graph: {} nodes, {} edges",
-                        graph.graph().node_count(),
-                        graph.graph().edge_count()
-                    );
-                    state.graph = Some(graph);
-                    state.state = State::LoadedPois;
-                }
-            }
+            let graph: PoiGraph<Poi> = PoiGraph::deserialize(&mut rmp_deserializer).unwrap();
+            info!(
+                "Loaded graph: {} nodes, {} edges",
+                graph.graph().node_count(),
+                graph.graph().edge_count()
+            );
+            state.graph = Some(graph);
+            state.state = State::LoadedPois;
         }
     });
+
+    if let Some(ref debug_tree) = state.debug_tree {
+        egui::Window::new("Oracle Split").show(ctx, |ui| {
+            ui.add(TreeView::new(debug_tree, |ui, node, id| {
+                if ui.button("Show on Map").clicked() {
+                    info!("Drawing block pair");
+                    let mut map = state.map.write().expect("poisoned lock");
+                    let crs = map
+                        .map_read_lock()
+                        .expect("poisoned lock")
+                        .view()
+                        .crs()
+                        .clone();
+
+                    let layer: &mut Arc<RwLock<BlockPairLayer<f64>>> = map
+                        .or_insert("block_pair".to_string(), BlockPairLayer::new(crs))
+                        .as_any_mut()
+                        .downcast_mut()
+                        .expect("Couldn't downcast layer");
+
+                    layer
+                        .write()
+                        .expect("poisoned lock")
+                        .show_block_pair(node.get_data().clone());
+                }
+            }))
+        });
+    }
 }
 
 fn dijkstra(state: &mut UiState) {
@@ -511,26 +545,33 @@ fn build_oracle(state: &mut UiState) {
         return;
     };
 
-    let mut oracle = Oracle::new();
-    oracle.build_for_nodes(&mut graph.graph, &graph.poi_nodes, state.epsilon, None);
+    let State::Oracle(Some((node, _))) = state.state else {
+        state.state = State::Oracle(get_node_click_pos(state.map.clone(), graph));
+        return;
+    };
+
+    let mut oracle = OracleCollection::default();
+    state.debug_tree = oracle
+        .build_for_node(node, state.epsilon, graph.graph())
+        .ok();
     state.oracle = Some(Arc::new(Mutex::new(oracle)));
 
-    let mut map = state.map.write().expect("poisoned lock");
-    {
-        let layer: &mut Arc<RwLock<BlocksLayer<BlocksSymbol<f64>, f64>>> = map
-            .or_insert(
-                "points".to_string(),
-                BlocksLayer::<BlocksSymbol<f64>, f64>::new(
-                    state.oracle.clone().expect("Oracle not present"),
-                    BlocksSymbol::new(),
-                ),
-            )
-            .as_any_mut()
-            .downcast_mut()
-            .unwrap();
-
-        let layer = layer.write().expect("poisoned lock");
-    }
+    // let mut map = state.map.write().expect("poisoned lock");
+    // {
+    //     let layer: &mut Arc<RwLock<BlocksLayer<BlocksSymbol<f64>, f64>>> = map
+    //         .or_insert(
+    //             "points".to_string(),
+    //             BlocksLayer::<BlocksSymbol<f64>, f64>::new(
+    //                 state.oracle.clone().expect("Oracle not present"),
+    //                 BlocksSymbol::new(),
+    //             ),
+    //         )
+    //         .as_any_mut()
+    //         .downcast_mut()
+    //         .unwrap();
+    //
+    //     let layer = layer.write().expect("poisoned lock");
+    // }
     state.state = State::LoadedPois;
 }
 

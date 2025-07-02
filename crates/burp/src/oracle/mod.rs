@@ -13,10 +13,10 @@ use std::{
 
 use geo::Coord;
 use graph_rs::{
-    algorithms::dijkstra::{Dijkstra, DijkstraResult, ResultNode},
-    graph::{csr::DirectedCsrGraph, rstar::RTreeGraph, Target},
-    types::Direction,
     CoordGraph, Coordinate, DirectedGraph, Graph,
+    algorithms::dijkstra::{Dijkstra, DijkstraResult, ResultNode},
+    graph::{Target, csr::DirectedCsrGraph, rstar::RTreeGraph},
+    types::Direction,
 };
 use log::{info, warn};
 use num_traits::{NumCast, Zero};
@@ -24,10 +24,11 @@ use ordered_float::{FloatCore, OrderedFloat};
 use priority_queue::PriorityQueue;
 use rayon::prelude::*;
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::types::CoordNode;
 
+pub mod block_pair;
 pub mod oracle;
 
 pub trait NodeTrait: Clone + Debug + Send + Sync {}
@@ -315,16 +316,16 @@ fn shared_dijkstra<G>(
     );
     let mut next_node = frontier.pop();
     while let Some(node) = next_node.take() {
-        if node.1 .0 .0 > *bound.read().expect("poisoned lock") {
+        if node.1.0.0 > *bound.read().expect("poisoned lock") {
             info!("Bound exceded. Stoping.");
             break;
         }
 
-        if matches!(node.0 .1, Label::Poi) {
+        if matches!(node.0.1, Label::Poi) {
             result
                 .lock()
                 .expect("poisoned lock")
-                .insert(node.0 .0, *node.1 .0);
+                .insert(node.0.0, *node.1.0);
             next_node = frontier.pop();
             continue;
         }
@@ -332,7 +333,7 @@ fn shared_dijkstra<G>(
         if visited
             .read()
             .expect("poisoned lock")
-            .get(&(node.0 .0, direction))
+            .get(&(node.0.0, direction))
             .is_some()
         {
             next_node = frontier.pop();
@@ -343,9 +344,9 @@ fn shared_dijkstra<G>(
         if let Some(visited_node) = visited
             .read()
             .expect("poisoned lock")
-            .get(&(node.0 .0, direction.inverse()))
+            .get(&(node.0.0, direction.inverse()))
         {
-            let distance = node.1 .0 + *visited_node;
+            let distance = node.1.0 + *visited_node;
             let mut bound = bound.write().expect("poisoned lock");
 
             *bound = *cmp::min(
@@ -353,25 +354,25 @@ fn shared_dijkstra<G>(
                 distance * OrderedFloat(<G::EV as NumCast>::from(1.0).unwrap() + epsilon),
             );
 
-            if targets.contains(&node.0 .0) {
-                frontier.push((node.0 .0, Label::Poi), Reverse(distance));
+            if targets.contains(&node.0.0) {
+                frontier.push((node.0.0, Label::Poi), Reverse(distance));
             }
         }
 
         visited
             .write()
             .expect("poisoned lock")
-            .insert((node.0 .0, direction), node.1 .0);
+            .insert((node.0.0, direction), node.1.0);
 
-        let neighbours: Box<dyn Iterator<Item = &Target<G::EV>>> = match node.0 .1 {
-            Label::Forward => Box::new(graph.neighbors(node.0 .0)),
-            Label::Backward => Box::new(graph.neighbors(node.0 .0)),
+        let neighbours: Box<dyn Iterator<Item = &Target<G::EV>>> = match node.0.1 {
+            Label::Forward => Box::new(graph.neighbors(node.0.0)),
+            Label::Backward => Box::new(graph.neighbors(node.0.0)),
             _ => continue,
         };
 
         neighbours.for_each(|n| {
-            let path_cost = OrderedFloat(*node.1 .0 + *n.value());
-            let new_node = (n.target(), node.0 .1);
+            let path_cost = OrderedFloat(*node.1.0 + *n.value());
+            let new_node = (n.target(), node.0.1);
             if frontier.change_priority_by(&new_node, |p| {
                 if p.0 > path_cost {
                     p.0 = path_cost
@@ -481,8 +482,8 @@ mod test {
     use graph_rs::graph::rstar::RTreeGraph;
 
     use crate::{
-        graph::{self, PoiGraph},
         input::geo_zero::GraphWriter,
+        oracle::{self, PoiGraph},
         types::Poi,
     };
 

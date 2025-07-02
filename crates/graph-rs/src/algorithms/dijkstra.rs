@@ -110,8 +110,14 @@ impl<T: Num> DijkstraResult<T> {
         Self(hash_set)
     }
 
-    pub fn path(&self, mut node_id: usize) -> Option<Vec<&ResultNode<T>>> {
-        let mut path = vec![];
+    pub fn path(&self, node_id: usize) -> Option<Vec<&ResultNode<T>>> {
+        let node = self.0.get(&ResultNode::new(node_id, None, T::zero()))?;
+
+        let mut path = vec![node];
+        let Some(mut node_id) = node.prev_node_id() else {
+            return Some(path);
+        };
+
         while let Some(node) = self.0.get(&ResultNode::new(node_id, None, T::zero())) {
             path.push(node);
 
@@ -131,17 +137,23 @@ impl<T: Num> DijkstraResult<T> {
         self.0.get(&ResultNode::new(node_id, None, T::zero()))
     }
 
-    pub fn convert_to_path(mut self, node_id: usize) -> Option<Vec<ResultNode<T>>> {
-        let mut node_id = Some(node_id);
+    pub fn convert_to_path(mut self, node_id: usize) -> Vec<ResultNode<T>> {
+        let mut node_id = node_id;
         let mut path = vec![];
-        while let Some(node) = self.0.take(&ResultNode::new(node_id?, None, T::zero())) {
-            node_id = node.prev_node_id();
+        while let Some(node) = self.0.take(&ResultNode::new(node_id, None, T::zero())) {
+            let prev_node_id = node.prev_node_id();
             path.push(node);
+
+            if prev_node_id.is_none() {
+                break;
+            }
+
+            node_id = prev_node_id.unwrap();
         }
 
         path.reverse();
 
-        Some(path)
+        path
     }
 }
 

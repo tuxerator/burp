@@ -7,12 +7,12 @@ use std::{
     iter::{self, successors},
 };
 
-use burp::graph::oracle::Oracle;
+use burp::oracle::oracle::Oracle;
 use criterion::measurement::{Measurement, ValueFormatter};
 use geo::{CoordFloat, CoordNum};
 use rstar::RTreeNum;
 
-use burp::{graph::PoiGraph, input::geo_zero::GraphWriter, types::Poi};
+use burp::{input::geo_zero::GraphWriter, oracle::PoiGraph, types::Poi};
 use criterion::{
     criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode, Throughput,
 };

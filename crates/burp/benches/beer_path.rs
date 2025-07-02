@@ -7,7 +7,7 @@ use std::{
 };
 
 use burp::{
-    graph::{oracle::Oracle, PoiGraph},
+    oracle::{oracle::Oracle, PoiGraph},
     types::Poi,
 };
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};

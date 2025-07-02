@@ -7,6 +7,7 @@ use std::{
     vec,
 };
 
+use geo::Coord;
 use log::{debug, info, trace};
 use ordered_float::{FloatCore, OrderedFloat};
 use priority_queue::PriorityQueue;

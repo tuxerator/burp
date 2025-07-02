@@ -5,29 +5,26 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use burp::graph::oracle::{BlockPair, Oracle};
+use burp::oracle::oracle::{BlockPair, Oracle};
 use galileo::{
-    control::{EventPropagation, UserEvent, UserEventHandler},
-    layer::{feature_layer::Feature, FeatureLayer, Layer as GalileoLayer},
-    symbol::{SimplePolygonSymbol, Symbol},
     Color, Map,
+    control::{EventPropagation, UserEvent, UserEventHandler},
+    layer::{FeatureLayer, Layer as GalileoLayer, feature_layer::Feature},
+    symbol::{SimplePolygonSymbol, Symbol},
 };
 use galileo_types::{
+    Disambig,
     cartesian::{
         CartesianPoint2d, CartesianPoint3d, NewCartesianPoint2d, NewCartesianPoint3d, Point2d,
     },
-    geo::{
-        impls::projection::{WebMercator},
-        Crs, Datum, NewGeoPoint, Projection,
-    },
+    geo::{Crs, Datum, NewGeoPoint, Projection, impls::projection::WebMercator},
     geometry::{Geom, Geometry},
     geometry_type::CartesianSpace2d,
     impls::{Contour, MultiPolygon, Polygon as GalileoPolygon},
-    Disambig,
 };
 use geo::{Centroid, CoordFloat, GeoFloat, LineString, Rect};
 use geo_types::geometry::{Coord, Polygon};
-use graph_rs::Coordinate;
+use graph_rs::{CoordGraph, Coordinate};
 use log::{info, warn};
 use maybe_sync::{MaybeSend, MaybeSync};
 use nalgebra::{Point3, Scalar};
@@ -36,10 +33,10 @@ use rstar::RTreeNum;
 
 use super::EventLayer;
 
-pub struct BlocksLayer<S, C>
+pub struct BlocksLayer<S, G>
 where
     S: Symbol<Blocks<C>>,
-    C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive,
+    G::C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive,
 {
     layer: Mutex<
         FeatureLayer<
@@ -54,13 +51,14 @@ where
     color_id: u32,
 }
 
-impl<S, C> BlocksLayer<S, C>
+impl<S, G> BlocksLayer<S, G>
 where
-    S: Symbol<Blocks<C>>,
-    C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive + GeoFloat,
-    Coord<C>: NewCartesianPoint2d + NewGeoPoint,
+    S: Symbol<Blocks<G::C>>,
+    G: CoordGraph,
+    G::C: CoordFloat + RTreeNum + Bounded + Scalar + FromPrimitive + GeoFloat,
+    Coord<G::C>: NewCartesianPoint2d + NewGeoPoint,
 {
-    pub fn new(oracle: Arc<Mutex<Oracle<C>>>, style: S) -> Self {
+    pub fn new(oracle: Arc<Mutex<Oracle<G>>>, style: S) -> Self {
         Self {
             layer: Mutex::new(FeatureLayer::with_lods(
                 vec![],

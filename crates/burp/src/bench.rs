@@ -1,7 +1,7 @@
-use std::{fs::File, path::PathBuf};
+use std::{fs::File, path::PathBuf, rc::Rc};
 
 use burp::{
-    graph::{oracle::Oracle, PoiGraph},
+    oracle::{PoiGraph, oracle::Oracle},
     types::Poi,
 };
 use graph_rs::Graph;
@@ -31,7 +31,7 @@ pub fn oracle_size(in_file: PathBuf, v_epsilon: &[f64]) -> Vec<(f64, usize)> {
             let mut oracle = Oracle::new();
             let batch = (0..10).map(|_| {
                 let poi = sample(&mut rng(), graph.graph().node_count(), 1).index(0);
-                oracle.build_for_node(&mut graph.graph, &poi, *epsilon);
+                oracle.build_for_node(poi, *epsilon, graph.graph());
 
                 oracle.size()
             });

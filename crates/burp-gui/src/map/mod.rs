@@ -5,17 +5,18 @@ use std::{
 };
 
 use ::galileo::{
+    Map as GalileoMap,
     control::{
         EventProcessor, EventPropagation, MapController, MouseButton, MouseEvent, RawUserEvent,
         UserEvent,
     },
-    Map as GalileoMap,
 };
-use galileo_types::geo::{impls::GeoPoint2d};
+use galileo_types::geo::impls::GeoPoint2d;
 use layers::EventLayer;
 
 use crate::types::MapPositions;
 
+pub mod features;
 pub mod layers;
 pub mod symbols;
 

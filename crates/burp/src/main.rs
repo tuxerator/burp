@@ -1,38 +1,29 @@
 use std::{
     fmt::Display,
     fs::{File, OpenOptions},
-    io::{BufRead, BufReader, BufWriter, Read, Write},
-    path::{Path, PathBuf},
-    sync::{Arc, RwLock},
+    io::BufWriter,
+    path::PathBuf,
 };
 
 use burp::{
-    graph::{
-        oracle::{self, Oracle},
-        PoiGraph,
-    },
     input::{
         self,
         geo_zero::{GraphWriter, PoiWriter},
     },
+    oracle::{
+        PoiGraph,
+        oracle::{self, Oracle, OracleCollection},
+    },
     types::Poi,
 };
-use clap::{Args, Command, Parser, Subcommand};
-use geo::Coord;
+use clap::{Parser, Subcommand};
 use geozero::geojson::read_geojson;
-use graph_rs::{
-    algorithms::{dijkstra::CachedDijkstra, trajan_scc::TarjanSCC},
-    graph::{csr::DirectedCsrGraph, rstar::RTreeGraph},
-    input::edgelist::EdgeList,
-    types::Direction,
-    Coordinate, Graph,
-};
+use graph_rs::{Graph, graph::rstar::RTreeGraph};
 use indicatif::ProgressBar;
 use log::{debug, info};
 use memmap2::MmapOptions;
 use rand::{prelude::*, rng, seq::index::sample};
 use rmp_serde::{Deserializer, Serializer};
-use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
 
 mod bench;
@@ -181,18 +172,19 @@ fn main() {
                 graph.graph().edge_count()
             );
 
-            let mut oracle = oracle::Oracle::new();
+            let mut oracles = Vec::new();
 
-            oracle.build_for_nodes(
-                &mut graph.graph,
-                &graph.poi_nodes,
-                epsilon,
-                Some(ProgressBar::new(0)),
-            );
+            for poi in graph.poi_nodes() {
+                let mut oracle = oracle::Oracle::new();
+                let tree = oracle.build_for_node(*poi, epsilon, graph.graph()).unwrap();
+                oracles.push(oracle);
 
-            let writer = BufWriter::new(File::create(out_file).unwrap());
-            let mut rmp_serializer = Serializer::new(writer);
-            oracle.serialize(&mut rmp_serializer).unwrap();
+                info!("tree root: {:#?}", tree.get_root());
+            }
+
+            // let writer = BufWriter::new(File::create(out_file).unwrap());
+            // let mut rmp_serializer = Serializer::new(writer);
+            // oracle.serialize(&mut rmp_serializer).unwrap();
         }
         Commands::Bench { in_file, size } => {
             if size {
@@ -209,7 +201,9 @@ fn main() {
                     "{}",
                     Measurements(bench::oracle_size(
                         in_file,
-                        &[0.05, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.75, 1., 2., 3., 4., 5.]
+                        &[
+                            0.05, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.75, 1., 2., 3., 4., 5.
+                        ]
                     ))
                 );
             }

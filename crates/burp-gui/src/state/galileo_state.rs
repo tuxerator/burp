@@ -6,10 +6,8 @@ use crate::state::WgpuFrame;
 use crate::types::MapPositions;
 use galileo::layer::vector_tile_layer::style::VectorTileStyle;
 use galileo::{
-    render::WgpuRenderer,
-    tile_scheme::TileIndex,
-    winit::WinitInputHandler,
-    Map as GalileoMap, MapBuilder, MapView, TileSchema,
+    Map as GalileoMap, MapBuilder, MapView, TileSchema, render::WgpuRenderer,
+    tile_scheme::TileIndex, winit::WinitInputHandler,
 };
 use galileo_types::cartesian::{CartesianPoint2d, NewCartesianPoint2d};
 use galileo_types::{cartesian::Size, latlon};

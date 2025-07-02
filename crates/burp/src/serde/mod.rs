@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use geo_types::{Coord, CoordNum};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};

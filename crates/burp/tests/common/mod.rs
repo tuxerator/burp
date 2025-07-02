@@ -1,7 +1,7 @@
 use std::{fs::File, io::Read, path::PathBuf, str::FromStr};
 
 use burp::{
-    graph::{oracle::Oracle, PoiGraph},
+    oracle::{oracle::Oracle, PoiGraph},
     types::{CoordNode, Poi},
 };
 use graph_rs::graph::csr::DirectedCsrGraph;

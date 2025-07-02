@@ -8,6 +8,8 @@ use num_traits::Num;
 
 pub use geozero::{FeatureProcessor, GeomProcessor, PropertyProcessor};
 
+use crate::graph::Node;
+
 pub mod algorithms;
 pub mod builder;
 pub mod geo_types;
@@ -35,6 +37,21 @@ impl Display for GraphError {
             Self::EmptyNode(node) => write!(f, "node \'{node}\' has no acociated value"),
         }
     }
+}
+
+pub trait NodeTrait<NV> {
+    fn index(&self) -> usize;
+
+    fn weight(&self) -> &NV;
+}
+
+pub trait EdgeTrait<EV, NV> {
+    type Node: NodeTrait<NV>;
+    fn start(&self) -> &Self::Node;
+
+    fn target(&self) -> &Self::Node;
+
+    fn weight(&self) -> &EV;
 }
 
 pub trait Coordinate<T: CoordNum + Num = f64> {
@@ -95,9 +112,13 @@ pub trait DirectedGraph: Graph {
 
 pub trait CoordGraph: Graph {
     type C: CoordNum;
+    fn node_coord(&self, node: usize) -> Option<Coord<Self::C>>;
+
     fn nearest_node(&self, point: &Coord<Self::C>) -> Option<usize>;
 
     fn nearest_node_bound(&self, point: &Coord<Self::C>, tolerance: Self::C) -> Option<usize>;
+
+    fn locate_in_envelope(&self, envelope: &Rect<Self::C>) -> impl Iterator<Item = usize>;
 
     fn bounding_rect(&self) -> Option<Rect<Self::C>>;
 }

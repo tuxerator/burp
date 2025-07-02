@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::graph::NodeTrait;
+use crate::oracle::NodeTrait;
 use geo::{coord, CoordNum};
 use geo_types::Coord;
 use graph_rs::Coordinate;

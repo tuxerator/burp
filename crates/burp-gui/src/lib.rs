@@ -10,6 +10,7 @@ mod map;
 mod run_ui;
 mod state;
 mod types;
+mod widgets;
 
 pub async fn run(window: Window, event_loop: EventLoop<()>) {
     let window = Arc::new(window);
