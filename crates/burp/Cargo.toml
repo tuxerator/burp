@@ -12,6 +12,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }
+serde_test = "1.0"
+serde_json = "1.0"
 geo-types = { version = "0.7.9", features = ["serde", "use-rstar_0_12"] }
 env_logger = { version = "0.11", default-features = false }
 graph-rs = { path = "../graph-rs/" }

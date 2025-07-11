@@ -1,23 +1,23 @@
 #![allow(dead_code)]
 
-use burp_gui::run;
-
 fn main() {
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .thread_stack_size(100 * 1024 * 1024)
-        .build()
-        .unwrap()
-        .block_on(async {
-            env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-                .init();
+    let subscriber = tracing_subscriber::FmtSubscriber::builder()
+        .with_max_level(tracing::Level::INFO)
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(tracing_subscriber::filter::LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
+        .finish();
 
-            let event_loop = winit::event_loop::EventLoop::new().unwrap();
-            let window = winit::window::WindowBuilder::new()
-                .with_title("egui + galileo")
-                .build(&event_loop)
-                .unwrap();
+    tracing::subscriber::set_global_default(subscriber).unwrap();
 
-            run(window, event_loop).await;
-        });
+    tracing_log::LogTracer::init().unwrap();
+    let native_options = eframe::NativeOptions::default();
+    eframe::run_native(
+        "Burp",
+        native_options,
+        Box::new(|cc| Ok(Box::new(burp_gui::BurpApp::new(cc)))),
+    )
+    .unwrap();
 }

@@ -3,20 +3,19 @@ use std::sync::Arc;
 use burp::oracle::block_pair::BlockPair;
 use galileo::{
     Color, Messenger,
-    layer::{FeatureLayer, Layer as GalileoLayer, feature_layer::Feature},
+    layer::{FeatureId, FeatureLayer, Layer as GalileoLayer, feature_layer::Feature},
     symbol::{
         ArbitraryGeometrySymbol, CirclePointSymbol, SimpleContourSymbol, SimplePolygonSymbol,
     },
 };
 use galileo_types::{
-    Disambig, Geometry, MultiPolygon as MultiPolygonTrait,
+    Disambig, Disambiguate, Geometry, MultiPolygon as MultiPolygonTrait,
     cartesian::{CartesianPoint2d, NewCartesianPoint2d},
     geo::{Crs, Datum, NewGeoPoint, impls::projection::WebMercator},
     geometry::Geom,
-    geometry_type::CartesianSpace2d,
-    impls::MultiPolygon,
+    geometry_type::{CartesianSpace2d, GeoSpace2d},
 };
-use geo::{Coord, CoordFloat, LineString, Polygon};
+use geo::{Coord, CoordFloat, LineString, MultiPolygon, Polygon};
 use log::info;
 use nalgebra::Scalar;
 use num_traits::{Bounded, FromPrimitive, float::FloatCore};
@@ -28,8 +27,12 @@ pub struct BlockPairLayer<C>
 where
     C: RTreeNum + CoordFloat + FromPrimitive + 'static,
 {
-    poly_layer:
-        FeatureLayer<Coord<C>, MultiPolygon<Coord<C>>, SimplePolygonSymbol, CartesianSpace2d>,
+    poly_layer: FeatureLayer<
+        <Disambig<MultiPolygon<C>, GeoSpace2d> as Geometry>::Point,
+        Disambig<MultiPolygon<C>, GeoSpace2d>,
+        SimplePolygonSymbol,
+        CartesianSpace2d,
+    >,
     line_layer: FeatureLayer<
         <Disambig<LineString<C>, CartesianSpace2d> as Geometry>::Point,
         Disambig<LineString<C>, CartesianSpace2d>,
@@ -46,7 +49,7 @@ where
 
 impl<C> BlockPairLayer<C>
 where
-    C: RTreeNum + CoordFloat + FromPrimitive,
+    C: RTreeNum + CoordFloat + FromPrimitive + maybe_sync::MaybeSync + maybe_sync::MaybeSend,
     Coord<C>: NewGeoPoint + NewCartesianPoint2d,
 {
     pub fn new(crs: Crs) -> Self {
@@ -73,7 +76,6 @@ where
     where
         EV: FloatCore,
     {
-        let projection: WebMercator<Coord<C>, Coord<C>> = WebMercator::new(Datum::WGS84);
         let s_poly = block_pair.s_block().to_polygon();
         let t_poly = block_pair.t_block().to_polygon();
 
@@ -81,13 +83,26 @@ where
 
         info!("inserting polygons {polys:?}");
 
-        let polys = polys.project(&projection).unwrap();
-        let Geom::MultiPolygon(polys) = polys else {
-            return;
-        };
         let features = self.poly_layer.features_mut();
-        features.remove_all();
-        features.insert(polys);
+        let ids: Vec<_> = features.iter().map(|e| e.0).collect();
+        for id in ids {
+            features.remove(id);
+        }
+        features.add(polys.to_geo2d());
+    }
+
+    pub fn insert<EV>(&mut self, block_pair: BlockPair<EV, C>) -> FeatureId
+    where
+        EV: FloatCore,
+    {
+        let s_poly = block_pair.s_block().to_polygon();
+        let t_poly = block_pair.t_block().to_polygon();
+
+        let polys = geo_types::MultiPolygon::new(vec![s_poly, t_poly]);
+
+        info!("inserting polygons {polys:?}");
+
+        self.poly_layer.features_mut().add(polys.to_geo2d())
     }
 }
 
@@ -128,6 +143,10 @@ where
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
+    }
+
+    fn attribution(&self) -> Option<galileo::layer::attribution::Attribution> {
+        None
     }
 }
 

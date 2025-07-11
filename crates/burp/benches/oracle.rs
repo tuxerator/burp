@@ -1,5 +1,5 @@
 use geozero::geojson::read_geojson;
-use graph_rs::{graph::rstar::RTreeGraph, Graph};
+use graph_rs::{Graph, graph::rstar::RTreeGraph};
 use rand::{rng, seq::index::sample};
 use rustc_hash::FxHashSet;
 use std::{
@@ -14,7 +14,7 @@ use rstar::RTreeNum;
 
 use burp::{input::geo_zero::GraphWriter, oracle::PoiGraph, types::Poi};
 use criterion::{
-    criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode, Throughput,
+    BenchmarkId, Criterion, SamplingMode, Throughput, criterion_group, criterion_main,
 };
 use memmap2::MmapOptions;
 
@@ -43,9 +43,10 @@ pub fn build_oracle_time(c: &mut Criterion) {
         group.sampling_mode(SamplingMode::Flat);
         group.throughput(Throughput::Elements(size as u64));
         group.bench_function(BenchmarkId::new("time", size), |b| {
-            let mut oracle = Oracle::new();
             b.iter(|| {
-                oracle.build_for_nodes(&mut graph.graph, &graph.poi_nodes, 0.25, None);
+                for poi in graph.poi_nodes.iter() {
+                    Oracle::new().build_for_node(*poi, 0.25, graph.graph());
+                }
             });
         });
     }

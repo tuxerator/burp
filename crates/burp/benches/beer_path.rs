@@ -7,18 +7,18 @@ use std::{
 };
 
 use burp::{
-    oracle::{oracle::Oracle, PoiGraph},
+    oracle::{PoiGraph, oracle::Oracle},
     types::Poi,
 };
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use geo::{Coord, CoordNum};
-use graph_rs::{graph::Path, CoordGraph, Graph};
+use graph_rs::{CoordGraph, Graph, graph::Path};
 use memmap2::MmapOptions;
 use rand::{
+    Rng,
     distr::uniform::{SampleUniform, UniformSampler},
     rng,
     seq::IteratorRandom,
-    Rng,
 };
 use rmp_serde::{Deserializer, Serializer};
 use rustc_hash::FxHashSet;
@@ -53,7 +53,7 @@ pub fn beer_path_small(c: &mut Criterion) {
 
         let mut oracle_deser = Deserializer::from_read_ref(&oracle_mmap);
 
-        let oracle: Oracle<f64> = Oracle::deserialize(&mut oracle_deser).unwrap();
+        let oracle: Oracle<f64, f64> = Oracle::deserialize(&mut oracle_deser).unwrap();
 
         for sample_rate in run.0 {
             let s_t_pairs: Vec<(Coord, Coord)> = s_t_iter.take(100).collect();
@@ -65,7 +65,7 @@ pub fn beer_path_small(c: &mut Criterion) {
                 |b, s_t_pairs| {
                     b.iter(|| {
                         s_t_pairs.iter().for_each(|s_t| {
-                            oracle.get_pois(&s_t.0, &s_t.1);
+                            oracle.get_beer_pois(&s_t.0, &s_t.1);
                         });
                     })
                 },
@@ -115,7 +115,7 @@ pub fn beer_path_big(c: &mut Criterion) {
 
         let mut oracle_deser = Deserializer::from_read_ref(&oracle_mmap);
 
-        let oracle: Oracle<f64> = Oracle::deserialize(&mut oracle_deser).unwrap();
+        let oracle: Oracle<f64, f64> = Oracle::deserialize(&mut oracle_deser).unwrap();
 
         for sample_rate in run.0 {
             let s_t_pairs: Vec<(Coord, Coord)> = s_t_iter.take(100).collect();
@@ -127,7 +127,7 @@ pub fn beer_path_big(c: &mut Criterion) {
                 |b, s_t_pairs| {
                     b.iter(|| {
                         s_t_pairs.iter().for_each(|s_t| {
-                            oracle.get_pois(&s_t.0, &s_t.1);
+                            oracle.get_beer_pois(&s_t.0, &s_t.1);
                         });
                     })
                 },
@@ -180,6 +180,7 @@ fn setup(graph_path: PathBuf) -> (PoiGraph<Poi>, Vec<(Vec<usize>, PathBuf)>) {
         .enumerate()
         .map(|run| {
             let mut oracle = Oracle::new();
+            // FIXME: Save oracles in vec
             oracle.build_for_nodes(
                 graph.graph_mut(),
                 &FxHashSet::from_iter(run.1.clone()),

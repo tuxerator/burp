@@ -15,7 +15,7 @@ use geo::Coord;
 use graph_rs::{
     CoordGraph, Coordinate, DirectedGraph, Graph,
     algorithms::dijkstra::{Dijkstra, DijkstraResult, ResultNode},
-    graph::{Target, csr::DirectedCsrGraph, rstar::RTreeGraph},
+    graph::{Path, Target, csr::DirectedCsrGraph, rstar::RTreeGraph},
     types::Direction,
 };
 use log::{info, warn};
@@ -430,7 +430,7 @@ impl<T: FloatCore + Debug> BeerPathResult<T> {
     pub fn len(&self) -> usize {
         self.pois.len()
     }
-    pub fn path(&self, node: usize) -> Option<Vec<&ResultNode<T>>> {
+    pub fn path(&self, node: usize) -> Option<Path<T>> {
         if !self.pois.contains(&node) {
             return None;
         }
@@ -438,20 +438,20 @@ impl<T: FloatCore + Debug> BeerPathResult<T> {
         let mut start_path = self.start_result.path(node)?;
         let mut end_path = self.end_result.path(node)?;
 
-        end_path.reverse();
-        start_path.append(&mut end_path);
+        end_path.path.reverse();
+        start_path.path.append(&mut end_path.path);
 
         Some(start_path)
     }
 
-    pub fn shortest_path(&self) -> Option<Vec<&ResultNode<T>>> {
+    pub fn shortest_path(&self) -> Option<Path<T>> {
         let shortest = self.pois.iter().fold((0, T::zero()), |shortest, poi| {
-            if let Some(start) = self.start_result.get(*poi) {
-                if let Some(end) = self.end_result.get(*poi) {
-                    let cost = *start.cost() + *end.cost();
-                    if shortest.1 > cost {
-                        return (*poi, cost);
-                    }
+            if let Some(start) = self.start_result.get(*poi)
+                && let Some(end) = self.end_result.get(*poi)
+            {
+                let cost = *start.cost() + *end.cost();
+                if shortest.1 > cost {
+                    return (*poi, cost);
                 }
             }
             shortest

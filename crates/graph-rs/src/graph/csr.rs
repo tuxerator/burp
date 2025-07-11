@@ -448,7 +448,7 @@ where
         let mut frontier = PriorityQueue::with_hasher(FxBuildHasher);
         let mut visited = FxHashSet::default();
         frontier.push(
-            ResultNode::new(start_node, None, Self::EV::zero()),
+            ResultNode::new(Target::new(start_node, Self::EV::zero()), None),
             Reverse(OrderedFloat(EV::zero())),
         );
 
@@ -468,7 +468,8 @@ where
 
             neighbours.for_each(|n| {
                 let path_cost = *node.cost() + *n.value();
-                let new_node = ResultNode::new(n.target(), Some(node.node_id()), path_cost);
+                let new_node =
+                    ResultNode::new(Target::new(n.target(), path_cost), Some(node.node_id()));
                 let path_cost = Reverse(OrderedFloat(path_cost));
                 if let Some(priority) = frontier.get_priority(&new_node) {
                     if priority < &path_cost {
@@ -489,7 +490,7 @@ where
             visited.insert(node.node_id());
 
             target_set.take(&node).inspect(|node| {
-                trace!("found path to node {}", node.node_id());
+                trace!("found path to node {:?}", node);
             });
             result.0.insert(node);
         }

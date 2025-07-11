@@ -12,7 +12,7 @@ use geo::{Contains, Coord, CoordFloat, Rect};
 use graph_rs::{
     CoordGraph, Coordinate, DirectedGraph, Graph,
     algorithms::dijkstra::{Dijkstra, ResultNode},
-    graph::{self, rstar::RTreeGraph},
+    graph::{self, Path, rstar::RTreeGraph},
     types::Direction,
 };
 use indicatif::{ProgressBar, ProgressIterator};
@@ -40,7 +40,7 @@ pub trait Radius: CoordGraph {
         node: usize,
         envelope: &Rect<Self::C>,
         direction: Direction,
-    ) -> Option<Vec<ResultNode<Self::EV>>>;
+    ) -> Option<Path<Self::EV>>;
 }
 
 impl<T> Radius for T
@@ -53,7 +53,7 @@ where
         node: usize,
         envelope: &Rect<Self::C>,
         direction: Direction,
-    ) -> Option<Vec<ResultNode<Self::EV>>> {
+    ) -> Option<Path<Self::EV>> {
         let nodes = self.locate_in_envelope(envelope);
         let nodes = HashSet::from_iter(nodes);
 
@@ -70,7 +70,7 @@ where
             .max_by(|rhs, lhs| OrderedFloat(*rhs.cost()).cmp(&OrderedFloat(*lhs.cost())))?
             .node_id();
 
-        Some(distances.convert_to_path(max))
+        distances.path(max)
     }
 }
 

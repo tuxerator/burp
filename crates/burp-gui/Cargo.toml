@@ -17,23 +17,28 @@ name = "burp-gui"
 
 
 [dependencies]
-egui = "0.28"
-egui-wgpu = "0.28"
-egui-winit = { version = "0.28", default-features = false, features = [
+egui = "0.31"
+egui-wgpu = "0.31"
+egui-winit = { version = "0.31", default-features = false, features = [
   "clipboard",
   "links",
   "wayland",
 ] }
+egui-modal = "0.6.0"
+eframe = "0.31.1"
 env_logger = { version = "0.11", default-features = false }
-galileo = { git = "https://github.com/tuxerator/galileo.git", rev = "ff2f83f49245c854f88286488a33158fcf4a61b8" }
-galileo-types = { git = "https://github.com/tuxerator/galileo.git", rev = "ff2f83f49245c854f88286488a33158fcf4a61b8" }
-wgpu = { version = "0.20", default-features = false }
-winit = { version = "0.29", default-features = false, features = [
+galileo = { version = "0.2" }
+galileo-types = { version = "0.2" }
+galileo-egui = "0.2"
+wgpu = { version = "24", default-features = false }
+winit = { version = "0.30", default-features = false, features = [
   "rwh_06",
   "wayland",
   "wayland-csd-adwaita",
   "wayland-dlopen",
 ] }
+ashpd = { version = "0.11.0", features = ["raw_handle", "wayland", "tracing"] }
+parking_lot = "0.12.4"
 graph-rs = { path = "../graph-rs/" }
 geozero = "0.13"
 geo-types = "0.7"
@@ -43,13 +48,16 @@ rfd = { version = "0.14", default-features = false, features = [
   "tokio",
 ] }
 log = "0.4.20"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tracing-log = "0.2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 burp = { path = "../burp/" }
 maybe-sync = "0.1"
 nalgebra = "0.32"
 num-traits = "0.2"
-tokio = { version = "1.0", default-features = false, features = ["full"] }
+tokio = { version = "1.46", default-features = false, features = ["full"] }
 rstar = "0.12"
 rustc-hash = "2.1"
 memmap2 = "0.9.5"

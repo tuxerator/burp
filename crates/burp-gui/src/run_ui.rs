@@ -17,6 +17,7 @@ use burp::types::{CoordNode, Poi};
 use egui::{Context, InnerResponse};
 use galileo::Color;
 use galileo::symbol::{CirclePointSymbol, SimpleContourSymbol};
+use galileo_egui::EguiMapState;
 use galileo_types::geo::{GeoPoint, NewGeoPoint};
 use geo::{Coord, LineString};
 use geozero::geojson::read_geojson;
@@ -52,7 +53,7 @@ pub struct UiState {
     graph: Option<PoiGraph<Poi>>,
     oracle: Option<Arc<Mutex<OracleType<Poi>>>>,
     debug_tree: Option<Tree<BlockPair<f64, f64>>>,
-    map: Arc<RwLock<Map<String>>>,
+    map: EguiMapState,
     sender: Sender<Events>,
     state: State,
     epsilon: f64,
@@ -412,6 +413,7 @@ fn dijkstra(state: &mut UiState) {
         let path = result.path(end.0).unwrap();
 
         let coords = path
+            .path
             .into_iter()
             .fold(vec![], |mut coords: Vec<Coord>, node| {
                 coords.push(
@@ -420,7 +422,7 @@ fn dijkstra(state: &mut UiState) {
                         .as_ref()
                         .unwrap()
                         .graph()
-                        .node_value(node.node_id())
+                        .node_value(node.target())
                         .unwrap()
                         .get_coord(),
                 );

@@ -100,46 +100,36 @@ impl<EV, NV> EdgeTrait<EV, NV> for Edge<'_, EV, NV> {
     }
 }
 
-// #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Path<'a, EV, NV> {
-    path: Vec<Edge<'a, EV, NV>>,
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+pub struct Path<EV> {
+    pub path: Vec<Target<EV>>,
 }
 
-impl<'a, EV: Default, NV> Path<'a, EV, NV>
-where
-    NV: PartialEq,
-{
-    pub fn new(path: Vec<Edge<'a, EV, NV>>) -> Self {
+impl<EV> Path<EV> {
+    pub fn new(path: Vec<Target<EV>>) -> Self {
         Self { path }
     }
 
-    pub fn push(&mut self, edge: Edge<'a, EV, NV>) -> Result<(), PathError<'a, EV, NV>> {
-        if self.last_node().unwrap_or(edge.start()) != edge.start() {
-            return Err(PathError::NoConnectionError(
-                self.last_node().expect("This is a bug!").id(),
-                edge,
-            ));
-        }
-        self.path.push(edge);
-        Ok(())
+    pub fn push(&mut self, target: Target<EV>) {
+        self.path.push(target);
     }
 
-    pub fn last(&self) -> Option<&Edge<'a, EV, NV>> {
+    pub fn last(&self) -> Option<&Target<EV>> {
         self.path.last()
     }
 
-    pub fn last_node(&mut self) -> Option<&Node<NV>> {
+    pub fn last_node(&mut self) -> Option<usize> {
         self.path.last().map(|e| e.target())
     }
 }
 
-impl<'a, EV: Num + Copy, NV> Path<'a, EV, NV> {
-    pub fn pop(&mut self) -> Option<Edge<'a, EV, NV>> {
+impl<EV: Num + Copy> Path<EV> {
+    pub fn pop(&mut self) -> Option<Target<EV>> {
         self.path.pop()
     }
 
-    pub fn cost(&self) -> EV {
-        self.path.iter().fold(EV::zero(), |c, n| c + n.weight)
+    pub fn cost(&self) -> Option<EV> {
+        self.path.last().map(|e| *e.value())
     }
 }
 

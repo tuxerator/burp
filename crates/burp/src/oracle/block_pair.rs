@@ -10,6 +10,7 @@ use geo::{Coord, CoordFloat, Rect};
 use graph_rs::{
     CoordGraph, Graph,
     algorithms::dijkstra::{Dijkstra, ResultNode},
+    graph::Path,
     types::Direction,
 };
 use log::trace;
@@ -99,14 +100,14 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "s_block: {:#?}
-            t_block: {:#?}
-            poi_id: {}
+            "s_block: {:#?}\n\
+            t_block: {:#?}\n\
+            poi_id: {}\n\
             Values: \n{:>4}",
             self.s_block,
             self.t_block,
             self.poi_id,
-            format!("{:?}", self.values),
+            format!("{}", self.values),
         )
     }
 }
@@ -116,10 +117,10 @@ pub struct Values<T: FloatCore> {
     pub d_st: T,
     pub d_sp: T,
     pub d_pt: T,
-    pub r_af: Vec<ResultNode<T>>,
-    pub r_ab: Vec<ResultNode<T>>,
-    pub r_bf: Vec<ResultNode<T>>,
-    pub r_bb: Vec<ResultNode<T>>,
+    pub r_af: Path<T>,
+    pub r_ab: Path<T>,
+    pub r_bf: Path<T>,
+    pub r_bb: Path<T>,
 }
 
 impl<T: FloatCore> Values<T> {
@@ -153,12 +154,13 @@ impl<T: FloatCore> Values<T> {
         }
         let d_s = graph.dijkstra(s, FxHashSet::from_iter([t, poi_id]), Direction::Outgoing);
         Some(Values {
-            d_st: *d_s.get(t)?.cost(),
-            d_sp: *d_s.get(poi_id)?.cost(),
-            d_pt: *graph
+            d_st: d_s.path(t)?.cost().unwrap(),
+            d_sp: d_s.path(poi_id)?.cost().unwrap(),
+            d_pt: graph
                 .dijkstra(poi_id, FxHashSet::from_iter([t]), Direction::Outgoing)
-                .get(t)?
-                .cost(),
+                .path(t)?
+                .cost()
+                .unwrap(),
             r_af: graph.radius(s, s_block, Direction::Outgoing).unwrap(),
             r_ab: graph.radius(s, s_block, Direction::Incoming).unwrap(),
             r_bf: graph.radius(t, t_block, Direction::Outgoing).unwrap(),
@@ -167,23 +169,14 @@ impl<T: FloatCore> Values<T> {
     }
 
     pub fn in_path(&self, epsilon: T) -> bool {
-        (self.r_ab.last().map_or(T::zero(), |e| *e.cost())
-            + self.d_sp
-            + self.d_pt
-            + self.r_bf.last().map_or(T::zero(), |e| *e.cost()))
-            <= (self.d_st
-                - (self.r_af.last().map_or(T::zero(), |e| *e.cost())
-                    + self.r_bb.last().map_or(T::zero(), |e| *e.cost())))
+        (self.r_ab.cost().unwrap() + self.d_sp + self.d_pt + self.r_bf.cost().unwrap())
+            <= (self.d_st - (self.r_af.cost().unwrap() + self.r_bb.cost().unwrap()))
                 * (T::from(1).unwrap() + epsilon)
     }
 
     pub fn not_in_path(&self, epsilon: T) -> bool {
-        (self.d_sp + self.d_pt
-            - (self.r_af.last().map_or(T::zero(), |e| *e.cost())
-                + self.r_bb.last().map_or(T::zero(), |e| *e.cost())))
-            >= (self.d_st
-                + (self.r_ab.last().map_or(T::zero(), |e| *e.cost())
-                    + self.r_bf.last().map_or(T::zero(), |e| *e.cost())))
+        (self.d_sp + self.d_pt - (self.r_af.cost().unwrap() + self.r_bb.cost().unwrap()))
+            >= (self.d_st + (self.r_ab.cost().unwrap() + self.r_bf.cost().unwrap()))
                 * (T::from(1).unwrap() + epsilon)
     }
 }
@@ -192,14 +185,20 @@ impl<T: FloatCore + Debug> Display for Values<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "d_st: {:?}\n
-            d_sp: {:?}\n
-            d_pt: {:?}\n
-            r_af: {:?}\n
-            r_ab: {:?}\n
-            r_bf: {:?}\n
-            r_bb: {:?}\n",
-            self.d_st, self.d_sp, self.d_pt, self.r_af, self.r_ab, self.r_bf, self.r_bb
+            "d_st: {:?}\n\
+            d_sp: {:?}\n\
+            d_pt: {:?}\n\
+            r_af: {:?}\n\
+            r_ab: {:?}\n\
+            r_bf: {:?}\n\
+            r_bb: {:?}",
+            self.d_st,
+            self.d_sp,
+            self.d_pt,
+            self.r_af.cost().unwrap(),
+            self.r_ab.cost().unwrap(),
+            self.r_bf.cost().unwrap(),
+            self.r_bb.cost().unwrap()
         )
     }
 }

@@ -4,7 +4,6 @@ use galileo::{
     symbol::{ImagePointSymbol, Symbol},
 };
 use galileo_types::geometry::Geom;
-use nalgebra::Vector2;
 use num_traits::AsPrimitive;
 
 use crate::map::layers::node_layer::NodeMarker;
@@ -14,39 +13,30 @@ pub struct PoiSymbol {
 }
 
 impl PoiSymbol {
-    pub fn from_path(path: &str, offset: Vector2<f32>, scale: f32) -> Result<Self, GalileoError> {
+    pub fn from_path(
+        path: &str,
+        offset: galileo_types::cartesian::Vector2<f32>,
+        scale: f32,
+    ) -> Result<Self, GalileoError> {
         let image_symbol = ImagePointSymbol::from_path(path, offset, scale)?;
         Ok(Self { image_symbol })
     }
 }
 
 impl Symbol<NodeMarker<Poi>> for PoiSymbol {
-    fn render<'a, N, P>(
+    fn render(
         &self,
         feature: &NodeMarker<Poi>,
-        geometry: &'a galileo_types::geometry::Geom<P>,
+        geometry: &Geom<galileo_types::cartesian::Point3>,
         min_resolution: f64,
-    ) -> Vec<
-        galileo::render::render_bundle::RenderPrimitive<
-            'a,
-            N,
-            P,
-            galileo_types::impls::Contour<P>,
-            galileo_types::impls::Polygon<P>,
-        >,
-    >
-    where
-        N: AsPrimitive<f32>,
-        P: galileo_types::cartesian::CartesianPoint3d<Num = N> + Clone,
-    {
-        if feature.data().is_none() {
-            return vec![];
-        }
-        match geometry {
-            Geom::Point(point) => self.image_symbol.render(feature, geometry, min_resolution),
-            Geom::MultiPoint(points) => self.image_symbol.render(feature, geometry, min_resolution),
-            _ => vec![],
-        }
+        bundle: &mut galileo::render::render_bundle::RenderBundle,
+    ) {
+        let Some(data) = feature.data() else {
+            return;
+        };
+
+        self.image_symbol
+            .render(feature, geometry, min_resolution, bundle);
     }
 }
 

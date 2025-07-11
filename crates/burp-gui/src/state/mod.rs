@@ -2,8 +2,8 @@ use std::{
     iter,
     path::PathBuf,
     sync::{
-        mpsc::{self, Receiver},
         Arc,
+        mpsc::{self, Receiver},
     },
 };
 
@@ -12,9 +12,9 @@ use std::{
 use wgpu::TextureView;
 use winit::{event::*, window::Window};
 
-use crate::run_ui::{run_ui, UiState};
+use crate::run_ui::{UiState, run_ui};
 
-use self::{egui_state::EguiState, galileo_state::GalileoState};
+use self::{egui_state::EguiState, galileo_state::EguiMapState};
 
 mod egui_state;
 mod galileo_state;
@@ -41,7 +41,7 @@ pub struct State {
     pub size: winit::dpi::PhysicalSize<u32>,
     pub window: Arc<Window>,
     pub egui_state: EguiState,
-    pub galileo_state: GalileoState,
+    pub galileo_state: EguiMapState,
     pub ui_state: UiState,
     pub reciever: Receiver<Events>,
 }
@@ -114,7 +114,7 @@ impl State {
 
         let (sender, reciever) = mpsc::channel();
 
-        let galileo_state = GalileoState::new(
+        let galileo_state = EguiMapState::new(
             Arc::clone(&window),
             Arc::clone(&device),
             Arc::clone(&surface),

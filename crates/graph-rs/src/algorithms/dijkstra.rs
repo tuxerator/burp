@@ -11,7 +11,11 @@ use priority_queue::PriorityQueue;
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use serde::{Deserialize, Serialize};
 
-use crate::{DirectedGraph, Graph, graph::Target, types::Direction};
+use crate::{
+    DirectedGraph, Graph,
+    graph::{Path, Target},
+    types::Direction,
+};
 
 pub trait Dijkstra: Graph
 where
@@ -42,7 +46,7 @@ where
         let mut result = FxHashSet::default();
         let mut visited = FxHashSet::default();
         frontier.push(
-            ResultNode::new(start_node, None, Self::EV::zero()),
+            ResultNode::new(Target::new(start_node, Self::EV::zero()), None),
             Reverse(OrderedFloat(Self::EV::zero())),
         );
 
@@ -60,7 +64,8 @@ where
 
             neighbours.for_each(|n| {
                 let path_cost = *node.cost() + *n.value();
-                let new_node = ResultNode::new(n.target(), Some(node.node_id()), path_cost);
+                let new_node =
+                    ResultNode::new(Target::new(n.target(), path_cost), Some(node.node_id()));
                 let path_cost = Reverse(OrderedFloat(path_cost));
                 if let Some(priority) = frontier.get_priority(&new_node) {
                     if priority < &path_cost {
@@ -105,21 +110,23 @@ where
 #[derive(PartialEq, Debug, Clone)]
 pub struct DijkstraResult<T>(pub FxHashSet<ResultNode<T>>);
 
-impl<T: Num> DijkstraResult<T> {
+impl<T: Num + Clone> DijkstraResult<T> {
     pub fn new(hash_set: FxHashSet<ResultNode<T>>) -> Self {
         Self(hash_set)
     }
 
-    pub fn path(&self, node_id: usize) -> Option<Vec<&ResultNode<T>>> {
-        let node = self.0.get(&ResultNode::new(node_id, None, T::zero()))?;
+    pub fn path(&self, node_id: usize) -> Option<Path<T>> {
+        let node = self
+            .0
+            .get(&ResultNode::new(Target::new(node_id, T::zero()), None))?;
 
-        let mut path = vec![node];
+        let mut path = Path::new(vec![node.target.clone()]);
         let Some(mut node_id) = node.prev_node_id() else {
             return Some(path);
         };
 
-        while let Some(node) = self.0.get(&ResultNode::new(node_id, None, T::zero())) {
-            path.push(node);
+        while let Some(node) = self.get(node_id) {
+            path.push(node.target.clone());
 
             if let Some(prev_node_id) = node.prev_node_id() {
                 node_id = prev_node_id;
@@ -128,19 +135,23 @@ impl<T: Num> DijkstraResult<T> {
             }
         }
 
-        path.reverse();
+        path.path.reverse();
 
         Some(path)
     }
 
     pub fn get(&self, node_id: usize) -> Option<&ResultNode<T>> {
-        self.0.get(&ResultNode::new(node_id, None, T::zero()))
+        self.0
+            .get(&ResultNode::new(Target::new(node_id, T::zero()), None))
     }
 
     pub fn convert_to_path(mut self, node_id: usize) -> Vec<ResultNode<T>> {
         let mut node_id = node_id;
         let mut path = vec![];
-        while let Some(node) = self.0.take(&ResultNode::new(node_id, None, T::zero())) {
+        while let Some(node) = self
+            .0
+            .take(&ResultNode::new(Target::new(node_id, T::zero()), None))
+        {
             let prev_node_id = node.prev_node_id();
             path.push(node);
 
@@ -159,22 +170,20 @@ impl<T: Num> DijkstraResult<T> {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ResultNode<T> {
-    node_id: usize,
+    target: Target<T>,
     prev_node_id: Option<usize>,
-    cost: T,
 }
 
 impl<T> ResultNode<T> {
-    pub fn new(node_id: usize, prev_node_id: Option<usize>, cost: T) -> Self {
+    pub fn new(target: Target<T>, prev_node_id: Option<usize>) -> Self {
         Self {
-            node_id,
+            target,
             prev_node_id,
-            cost,
         }
     }
 
     pub fn node_id(&self) -> usize {
-        self.node_id
+        self.target.target()
     }
 
     pub fn prev_node_id(&self) -> Option<usize> {
@@ -182,23 +191,22 @@ impl<T> ResultNode<T> {
     }
 
     pub fn cost(&self) -> &T {
-        &self.cost
+        &self.target.value()
     }
 }
 
 impl<T: Default> From<usize> for ResultNode<T> {
     fn from(value: usize) -> Self {
         Self {
-            node_id: value,
+            target: Target::new(value, T::default()),
             prev_node_id: None,
-            cost: T::default(),
         }
     }
 }
 
 impl<T> PartialEq for ResultNode<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.node_id == other.node_id
+        self.target.target() == other.target.target()
     }
 }
 
@@ -206,13 +214,13 @@ impl<T> Eq for ResultNode<T> {}
 
 impl<T: PartialOrd> PartialOrd for ResultNode<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.cost.partial_cmp(&other.cost)
+        self.target.value().partial_cmp(&other.target.value())
     }
 }
 
 impl<T> Hash for ResultNode<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.node_id.hash(state);
+        self.target.target().hash(state);
     }
 }
 
@@ -222,15 +230,15 @@ mod test {
 
     use ordered_float::OrderedFloat;
 
-    use crate::algorithms::dijkstra::ResultNode;
+    use crate::{algorithms::dijkstra::ResultNode, graph::Target};
 
     #[test]
     fn result_node_hash() {
         let mut h_1 = DefaultHasher::new();
         let mut h_2 = DefaultHasher::new();
 
-        ResultNode::new(34, None, OrderedFloat(0.0)).hash(&mut h_1);
-        ResultNode::new(34, Some(45), OrderedFloat(4.9)).hash(&mut h_2);
+        ResultNode::new(Target::new(34, OrderedFloat(0.0)), None).hash(&mut h_1);
+        ResultNode::new(Target::new(34, OrderedFloat(4.9)), Some(45)).hash(&mut h_2);
         assert_eq!(h_1.finish(), h_2.finish());
     }
 }

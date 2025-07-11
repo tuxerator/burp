@@ -1,8 +1,8 @@
 use std::fs::File;
 
-use burp::{graph::PoiGraph, types::Poi};
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use graph_rs::{types::Direction, Graph};
+use burp::{oracle::PoiGraph, types::Poi};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use graph_rs::{Graph, types::Direction};
 use memmap2::MmapOptions;
 use rand::{rng, seq::index::sample};
 
