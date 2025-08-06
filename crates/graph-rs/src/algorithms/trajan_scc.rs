@@ -1,4 +1,5 @@
 use log::info;
+use tracing::instrument;
 
 use crate::DirectedGraph;
 
@@ -38,6 +39,7 @@ impl TarjanSCCData {
         }
     }
 
+    #[instrument(skip(self, g))]
     fn visit<G: DirectedGraph>(&mut self, g: &G, v: usize) {
         let node_v = &mut self.nodes[v];
         let mut v_is_local_root = true;
@@ -78,6 +80,7 @@ impl<G> TarjanSCC for G
 where
     G: DirectedGraph,
 {
+    #[instrument(skip_all)]
     fn tarjan_scc(&self) -> Vec<Vec<usize>> {
         let mut tarjan_scc = TarjanSCCData::new();
 
@@ -106,7 +109,7 @@ mod test {
             (4, 1, 0),
         ]);
 
-        let csr = DirectedCsrGraph::from(edges);
+        let csr: DirectedCsrGraph<_, ()> = DirectedCsrGraph::from(edges);
 
         let sccs_expected = vec![vec![5], vec![0, 1, 2, 3, 4]];
 

@@ -1,63 +1,61 @@
-use std::sync::{Arc, RwLock};
+use std::ops::{Deref, DerefMut};
 
-use galileo::Map;
-use galileo_types::{
-    cartesian::Point2d,
-    geo::impls::GeoPoint2d,
-};
+use serde::{Deserialize, Serialize};
 
-pub struct MapPositions {
-    pointer_pos: Point2d,
-    click_pos: Option<Point2d>,
-    map: Arc<RwLock<Map>>,
+pub(crate) struct Dirty<T> {
+    inner: T,
+    dirty: bool,
 }
 
-impl MapPositions {
-    pub fn new(map: Arc<RwLock<Map>>) -> Self {
-        MapPositions {
-            pointer_pos: Point2d::default(),
-            click_pos: None,
-            map,
+impl<T> Dirty<T> {
+    pub(crate) fn new(inner: T) -> Self {
+        Self {
+            inner,
+            dirty: false,
         }
     }
 
-    pub fn pointer_pos(&self) -> Option<GeoPoint2d> {
-        self.map
-            .try_read()
-            .ok()
-            .and_then(|map| map.view().screen_to_map_geo(self.pointer_pos))
+    pub(crate) fn is_dirty(&self) -> bool {
+        self.dirty
     }
 
-    pub fn click_pos(&self) -> Option<GeoPoint2d> {
-        self.click_pos.and_then(|click_pos| {
-            self.map
-                .try_read()
-                .ok()
-                .and_then(|map| map.view().screen_to_map_geo(click_pos))
-        })
+    pub(crate) fn set_clean(&mut self) {
+        self.dirty = false;
     }
 
-    pub fn take_click_pos(&mut self) -> Option<GeoPoint2d> {
-        self.click_pos.take().and_then(|click_pos| {
-            self.map
-                .try_read()
-                .ok()
-                .and_then(|map| map.view().screen_to_map_geo(click_pos))
-        })
+    pub(crate) fn into_inner(self) -> T {
+        self.inner
     }
+}
 
-    pub fn map_center_pos(&self) -> Option<GeoPoint2d> {
-        self.map
-            .try_read()
-            .ok()
-            .and_then(|map| map.view().position())
+impl<T> Deref for Dirty<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
     }
+}
 
-    pub fn set_pointer_pos(&mut self, pointer_pos: Point2d) {
-        self.pointer_pos = pointer_pos;
+impl<T> DerefMut for Dirty<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.dirty = true;
+        &mut self.inner
     }
+}
 
-    pub fn set_click_pos(&mut self, click_pos: Point2d) {
-        self.click_pos = Some(click_pos);
+impl<T: Serialize> Serialize for Dirty<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.inner.serialize(serializer)
+    }
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for Dirty<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(Self::new(T::deserialize(deserializer)?))
     }
 }

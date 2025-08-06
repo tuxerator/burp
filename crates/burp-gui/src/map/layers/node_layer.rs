@@ -1,14 +1,15 @@
 use std::fmt::Debug;
 
 use galileo::{
-    Map,
+    Color, Map,
     control::{MouseButton, UserEvent},
     layer::{FeatureLayer, Layer as GalileoLayer, feature_layer::Feature},
+    render::text::{FontStyle, FontWeight, TextStyle},
     symbol::{CirclePointSymbol, Symbol},
 };
 use galileo_types::{
     Disambig, Geometry,
-    cartesian::Point2,
+    cartesian::{Point2, Vector2},
     geo::{Crs, impls::GeoPoint2d},
     geometry::Geom,
     geometry_type::{CartesianSpace2d, GeoSpace2d},
@@ -50,8 +51,14 @@ impl<T> Feature for NodeMarker<T> {
     }
 }
 
-struct NodeSymbol {
+pub struct NodeSymbol {
     point_symbol: CirclePointSymbol,
+}
+
+impl NodeSymbol {
+    pub fn new(point_symbol: CirclePointSymbol) -> Self {
+        Self { point_symbol }
+    }
 }
 
 impl<T> Symbol<NodeMarker<T>> for NodeSymbol {
@@ -64,6 +71,27 @@ impl<T> Symbol<NodeMarker<T>> for NodeSymbol {
     ) {
         self.point_symbol
             .render(feature, geometry, min_resolution, bundle);
+        if let Geom::Point(point) = geometry {
+            let text_style = TextStyle {
+                font_family: vec!["DejaVu Sans".to_string()],
+                font_size: 20.,
+                font_color: Color::BLACK,
+                horizontal_alignment: galileo::render::text::HorizontalAlignment::Center,
+                vertical_alignment: galileo::render::text::VerticalAlignment::Middle,
+                weight: FontWeight::NORMAL,
+                style: FontStyle::Normal,
+                outline_width: 0.,
+                outline_color: Color::BLACK,
+            };
+
+            bundle.add_label(
+                point,
+                feature.node.to_string().as_str(),
+                &text_style,
+                Vector2::new(0., 0.),
+                false,
+            );
+        };
     }
 }
 

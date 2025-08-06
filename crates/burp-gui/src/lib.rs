@@ -9,7 +9,9 @@ use winit::{
 pub use crate::app::BurpApp;
 
 mod app;
+mod event_handler;
 mod map;
+mod types;
 mod widgets;
 
 // pub async fn run(window: Window, event_loop: EventLoop<()>) {

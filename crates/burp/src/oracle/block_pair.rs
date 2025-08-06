@@ -1,5 +1,4 @@
 use std::{
-    cell::RefCell,
     cmp::max,
     fmt::{Debug, Display},
     marker::PhantomData,
@@ -15,6 +14,7 @@ use graph_rs::{
 };
 use log::trace;
 use ordered_float::{FloatCore, OrderedFloat};
+use rand::seq::IteratorRandom;
 use rstar::{RTreeNum, primitives::Rectangle};
 use rustc_hash::FxHashSet;
 use serde::{
@@ -22,6 +22,7 @@ use serde::{
     de::{self, DeserializeOwned, Visitor},
     ser::SerializeStruct,
 };
+use tracing::instrument;
 
 use crate::oracle::oracle::Radius;
 
@@ -42,6 +43,7 @@ where
     EV: FloatCore,
     C: RTreeNum + CoordFloat,
 {
+    #[instrument(skip(s_block, t_block, graph))]
     pub fn new<G>(s_block: Rect<C>, t_block: Rect<C>, poi_id: usize, graph: &G) -> Self
     where
         G: CoordGraph<C = C, EV = EV> + Dijkstra + Radius,
@@ -114,6 +116,8 @@ where
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct Values<T: FloatCore> {
+    pub s: usize,
+    pub t: usize,
     pub d_st: T,
     pub d_sp: T,
     pub d_pt: T,
@@ -124,6 +128,7 @@ pub struct Values<T: FloatCore> {
 }
 
 impl<T: FloatCore> Values<T> {
+    #[instrument(skip(s_block, t_block, graph))]
     fn new<G>(
         poi_id: usize,
         s_block: &Rect<G::C>,
@@ -142,18 +147,21 @@ impl<T: FloatCore> Values<T> {
                 graph.locate_in_envelope(t_block),
             );
 
-            let (Some(p_0), Some(p_1)) = (points.0.next(), points.1.next()) else {
+            let mut rng = rand::rng();
+            let (Some(p_0), Some(p_1)) = (
+                points.0.choose_stable(&mut rng),
+                points.1.choose_stable(&mut rng),
+            ) else {
                 panic!("Found empty block! This is a bug in the splitting operation");
             };
-
-            trace!("A-Points: {:?}", points.0.count() + 1);
-            trace!("B-Points: {:?}", points.1.count() + 1);
 
             s = p_0;
             t = p_1;
         }
         let d_s = graph.dijkstra(s, FxHashSet::from_iter([t, poi_id]), Direction::Outgoing);
         Some(Values {
+            s,
+            t,
             d_st: d_s.path(t)?.cost().unwrap(),
             d_sp: d_s.path(poi_id)?.cost().unwrap(),
             d_pt: graph
@@ -191,14 +199,26 @@ impl<T: FloatCore + Debug> Display for Values<T> {
             r_af: {:?}\n\
             r_ab: {:?}\n\
             r_bf: {:?}\n\
-            r_bb: {:?}",
+            r_bb: {:?}\n\
+            in-path relation: {:?}\n\
+            not-in-path relation: {:?}\n\
+            in-path: {:?}\n\
+            not-in-path: {:?}",
             self.d_st,
             self.d_sp,
             self.d_pt,
             self.r_af.cost().unwrap(),
             self.r_ab.cost().unwrap(),
             self.r_bf.cost().unwrap(),
-            self.r_bb.cost().unwrap()
+            self.r_bb.cost().unwrap(),
+            (self.d_sp + self.d_pt + self.r_ab.cost().unwrap() + self.r_bf.cost().unwrap())
+                / (self.d_st - (self.r_af.cost().unwrap() + self.r_bb.cost().unwrap()))
+                - T::from(1).unwrap(),
+            (self.d_sp + self.d_pt - self.r_ab.cost().unwrap() - self.r_bf.cost().unwrap())
+                / (self.d_st + (self.r_ab.cost().unwrap() + self.r_bf.cost().unwrap()))
+                - T::from(1).unwrap(),
+            self.in_path(T::from(0.25).unwrap()),
+            self.not_in_path(T::from(0.25).unwrap()),
         )
     }
 }

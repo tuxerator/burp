@@ -10,12 +10,14 @@ use std::{
 use geo::Coord;
 use log::{debug, info, trace};
 use ordered_float::{FloatCore, OrderedFloat};
+use parking_lot::Mutex;
 use priority_queue::PriorityQueue;
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 use crate::{DirectedGraph, Graph, GraphError, graph::Target, input::edgelist::EdgeList};
 use crate::{
@@ -63,13 +65,13 @@ impl<EV> Csr<EV> {
     }
 
     pub fn add_node(&mut self) -> usize {
-        if self.offsets.is_empty() {
-            self.offsets.push(0);
-        }
         self.offsets.push(*self.offsets.last().unwrap_or(&0));
         self.offsets.len() - 2
     }
 
+    /// Insert a edge into the graph.
+    ///
+    /// This is an expensive operation.
     pub fn add_edge(&mut self, a: usize, b: usize, weight: EV) -> bool {
         let mut neighbors = self.targets(a).iter();
         if neighbors.any(|n| n.target() == b) {
@@ -175,7 +177,7 @@ pub struct DirectedCsrGraph<EV, NV> {
     pub csr_out: Csr<EV>,
     pub csr_inc: Csr<EV>,
     #[serde(skip)]
-    dijkstra_cache: RefCell<FxHashMap<usize, DijkstraResult<EV>>>,
+    dijkstra_cache: Mutex<FxHashMap<usize, DijkstraResult<EV>>>,
 }
 
 impl<EV, NV> DirectedCsrGraph<EV, NV>
@@ -197,8 +199,8 @@ where
             node_values,
             csr_out,
             csr_inc,
-            dijkstra_cache: RefCell::new(FxHashMap::with_capacity_and_hasher(
-                node_count.pow(2),
+            dijkstra_cache: Mutex::new(FxHashMap::with_capacity_and_hasher(
+                node_count,
                 FxBuildHasher,
             )),
         };
@@ -428,13 +430,14 @@ impl<EV, NV> Dijkstra for DirectedCsrGraph<EV, NV>
 where
     EV: FloatCore + Default + Debug + Clone,
 {
+    #[instrument(skip(self))]
     fn dijkstra(
         &self,
         start_node: usize,
         target_set: FxHashSet<usize>,
         direction: Direction,
     ) -> DijkstraResult<EV> {
-        let mut cache = self.dijkstra_cache.borrow_mut();
+        let mut cache = self.dijkstra_cache.lock();
 
         let entry = cache.entry(start_node);
 
@@ -503,9 +506,10 @@ where
     }
 }
 
-impl<EV> From<EdgeList<EV>> for DirectedCsrGraph<EV, ()>
+impl<EV, NV> From<EdgeList<EV>> for DirectedCsrGraph<EV, NV>
 where
     EV: Copy + Default + Send + Sync,
+    NV: Default + Clone,
 {
     fn from(edge_list: EdgeList<EV>) -> Self {
         let degrees_out = edge_list.degrees(Direction::Outgoing);
@@ -550,7 +554,7 @@ where
         let csr_out = Csr::new(offsets_out, targets_out);
         let csr_inc = Csr::new(offsets_in, targets_in);
         let mut node_values = Vec::new();
-        node_values.resize(csr_out.node_count(), ());
+        node_values.resize(csr_out.node_count(), NV::default());
 
         DirectedCsrGraph::new(node_values, csr_out, csr_inc)
     }
@@ -691,7 +695,7 @@ mod tests {
             (30, 20, 0),
         ]);
 
-        let csr = DirectedCsrGraph::from(edges);
+        let csr: DirectedCsrGraph<_, ()> = DirectedCsrGraph::from(edges);
 
         assert_eq!(csr.node_count(), 31);
         assert_eq!(csr.degree(0), 4, "Total degree of node 0.");

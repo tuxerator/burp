@@ -15,13 +15,13 @@ use std::{
     ops::Deref,
 };
 
-use geo::{point, EuclideanDistance, GeodesicDistance, HaversineDistance};
+use geo::{EuclideanDistance, GeodesicDistance, HaversineDistance, point};
 use geozero::{
-    error::GeozeroError, geojson::GeoJson, ColumnValue, FeatureProcessor, GeomProcessor,
-    PropertyProcessor,
+    ColumnValue, FeatureProcessor, GeomProcessor, PropertyProcessor, error::GeozeroError,
+    geojson::GeoJson,
 };
 
-use crate::{coord, graph::csr::DirectedCsrGraph, Coordinate, DirectedGraph, Graph};
+use crate::{Coordinate, DirectedGraph, Graph, coord, graph::csr::DirectedCsrGraph};
 
 use super::edgelist::EdgeList;
 
@@ -121,7 +121,7 @@ where
     pub fn get_graph(&mut self) -> DirectedCsrGraph<f64, Coord> {
         let edge_list = EdgeList::new(mem::take(&mut self.edges));
 
-        let graph = DirectedCsrGraph::from(edge_list);
+        let graph: DirectedCsrGraph<_, ()> = DirectedCsrGraph::from(edge_list);
 
         DirectedCsrGraph::new(mem::take(&mut self.nodes), graph.csr_out, graph.csr_inc)
     }
@@ -327,8 +327,8 @@ mod test {
     use ordered_float::OrderedFloat;
 
     use crate::{
-        input::geo_zero::{ColumnValueClonable, GraphWriter},
         Coordinate, DirectedGraph, Graph,
+        input::geo_zero::{ColumnValueClonable, GraphWriter},
     };
 
     #[test]

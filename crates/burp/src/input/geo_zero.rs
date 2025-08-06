@@ -3,35 +3,25 @@ use log::{debug, info};
 use ordered_float::OrderedFloat;
 use rayon::iter::ParallelIterator;
 
-use std::{
-    cmp::Ordering,
-    collections::{HashMap},
-    io::Read,
-    mem,
-};
+use std::{cmp::Ordering, collections::HashMap, io::Read, mem};
 
-use geo::{
-    coord, Centroid, EuclideanDistance, HaversineDistance,
-};
+use geo::{Centroid, EuclideanDistance, HaversineDistance, coord};
 use geo_types::{
     Coord, Geometry, GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon,
     Point, Polygon,
 };
 use geozero::{
-    error::GeozeroError, ColumnValue, FeatureProcessor, GeomProcessor,
-    PropertyProcessor,
+    ColumnValue, FeatureProcessor, GeomProcessor, PropertyProcessor, error::GeozeroError,
 };
 
 use graph_rs::{
-    algorithms::trajan_scc::TarjanSCC, graph::csr::DirectedCsrGraph, Graph,
+    Graph, algorithms::trajan_scc::TarjanSCC, graph::csr::DirectedCsrGraph, input::edgelist,
 };
-
 
 use crate::types::{Amenity, CoordNode, Poi};
 
-
 pub struct GraphWriter {
-    node_map: HashMap<Coord<OrderedFloat<f64>>, usize>,
+    node_map: HashMap<Coord<OrderedFloat<f64>>, (usize, CoordNode<f64, Poi>)>,
     nodes: Vec<CoordNode<f64, Poi>>,
     graph: DirectedCsrGraph<f64, CoordNode<f64, Poi>>,
     edges: Vec<(usize, usize, f64)>,
@@ -127,7 +117,9 @@ impl GeomProcessor for GraphWriter {
         coords.push(coord);
 
         if let std::collections::hash_map::Entry::Vacant(e) = self.node_map.entry(ord_coord) {
-            e.insert(self.graph.add_node(CoordNode::new(coord, vec![])));
+            let node = CoordNode::new(coord, vec![]);
+            e.insert((self.index, node));
+            self.index += 1;
         }
         Ok(())
     }
@@ -195,10 +187,10 @@ impl GeomProcessor for GraphWriter {
 
             let d = p_a.haversine_distance(&p_b);
 
-            self.graph.add_edge(*node_a, *node_b, d);
+            self.edges.push((node_a.0, node_b.0, d));
 
             if !oneway {
-                self.graph.add_edge(*node_b, *node_a, d);
+                self.edges.push((node_b.0, node_a.0, d));
             }
             coord_a = coord_b;
         }
@@ -226,6 +218,12 @@ impl FeatureProcessor for GraphWriter {
 
     fn dataset_end(&mut self) -> geozero::error::Result<()> {
         info!("Parsed geojson");
+        let edgelist = edgelist::EdgeList::new(mem::take(&mut self.edges));
+        info!("Created edgelist");
+        self.graph = DirectedCsrGraph::from(edgelist);
+        for node in self.node_map.values_mut() {
+            self.graph.set_node_value(node.0, mem::take(&mut node.1));
+        }
         Ok(())
     }
 
@@ -644,8 +642,8 @@ mod test {
     use ordered_float::OrderedFloat;
 
     use crate::input::{
-        geo_zero::{ColumnValueClonable, GraphWriter},
         NodeValue,
+        geo_zero::{ColumnValueClonable, GraphWriter},
     };
 
     #[test]

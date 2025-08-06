@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::map::Map;
+use crate::map::egui::state::MapState;
 use galileo::Messenger;
 use galileo::control::{MouseButton, RawUserEvent};
 use galileo::layer::raster_tile_layer::RasterTileLayerBuilder;
@@ -11,24 +12,34 @@ use galileo::render::WgpuRenderer;
 use galileo_types::cartesian::Point2;
 use galileo_types::cartesian::Size;
 use galileo_types::geo::Crs;
+use galileo_types::geo::impls::GeoPoint2d;
+
+mod state;
 
 pub struct EguiMapState<K>
 where
     K: Hash + Eq,
 {
-    map: Map<K>,
+    pub map: Map<K>,
+    ctx: egui::Context,
     renderer: WgpuRenderer,
     egui_render_state: egui_wgpu::RenderState,
     texture_id: egui::TextureId,
     texture_view: wgpu::TextureView,
     requires_redraw: Arc<AtomicBool>,
+    id: egui::Id,
 }
 
 impl<K> EguiMapState<K>
 where
     K: Hash + Eq,
 {
-    pub fn new(ctx: egui::Context, render_state: egui_wgpu::RenderState, mut map: Map<K>) -> Self {
+    pub fn new(
+        ctx: egui::Context,
+        id: egui::Id,
+        render_state: egui_wgpu::RenderState,
+        mut map: Map<K>,
+    ) -> Self {
         let requires_redraw = Arc::new(AtomicBool::new(true));
         let messenger = MapStateMessenger {
             context: ctx.clone(),
@@ -66,16 +77,18 @@ where
 
         EguiMapState {
             map,
+            ctx,
             renderer,
             egui_render_state: render_state,
             texture_id,
             texture_view: texture,
             requires_redraw,
+            id,
         }
     }
 
     pub fn render(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        log::trace!("[map] Rendering map");
+        log::trace!("Rendering map");
         let available_size = ui.max_rect().size();
         let map_size = self.renderer.size().cast::<f32>();
 
@@ -103,7 +116,38 @@ where
         )))
         .paint_at(ui, rect);
 
+        let mut map_state = MapState::load(&self.ctx, self.id);
+        map_state.clicked = response.clicked();
+        map_state.map_center_pos = self.map.map.view().position();
+        map_state.map_interact_pos = if let Some(screen_pos) = response.hover_pos() {
+            self.map
+                .map
+                .view()
+                .screen_to_map_geo(Point2::new(screen_pos.x.into(), screen_pos.y.into()))
+        } else {
+            None
+        };
+        map_state.save(&self.ctx, self.id);
+
         response
+    }
+
+    #[inline]
+    pub fn clicked(&self) -> bool {
+        let map_state = MapState::load(&self.ctx, self.id);
+        map_state.clicked
+    }
+
+    #[inline]
+    pub fn map_center_pos(&self) -> Option<GeoPoint2d> {
+        let map_state = MapState::load(&self.ctx, self.id);
+        map_state.map_center_pos
+    }
+
+    #[inline]
+    pub fn map_interact_pos(&self) -> Option<GeoPoint2d> {
+        let map_state = MapState::load(&self.ctx, self.id);
+        map_state.map_interact_pos
     }
 
     fn resize_map(&mut self, size: egui::Vec2) {
@@ -134,12 +178,12 @@ where
         self.texture_id = texture_id;
         self.texture_view = texture;
 
-        self.map.map().redraw();
+        self.map.map.redraw();
     }
 
     fn draw(&mut self) {
         log::trace!("[map] Redrawing the map");
-        self.map.map().load_layers();
+        self.map.map.load_layers();
         self.renderer
             .render_to_texture_view(self.map.map(), &self.texture_view);
     }
@@ -223,6 +267,21 @@ impl Messenger for MapStateMessenger {
         log::trace!("Redraw requested");
         if !self.requires_redraw.swap(true, Ordering::Relaxed) {
             self.context.request_repaint();
+        }
+    }
+}
+
+pub struct MapResponse {
+    pub response: egui::Response,
+    pub map_pointer_pos: Option<GeoPoint2d>,
+}
+
+impl MapResponse {
+    pub fn interact_map_pos(&self) -> Option<&GeoPoint2d> {
+        if self.response.clicked() {
+            self.map_pointer_pos.as_ref()
+        } else {
+            None
         }
     }
 }

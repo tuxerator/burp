@@ -3,10 +3,11 @@ use std::{
     hash::Hash,
 };
 
+use geo::LineString;
 use num_traits::Num;
 use serde::{Deserialize, Serialize};
 
-use crate::{EdgeTrait, NodeTrait};
+use crate::{CoordGraph, EdgeTrait, NodeTrait};
 
 pub mod csr;
 pub mod node;
@@ -120,6 +121,20 @@ impl<EV> Path<EV> {
 
     pub fn last_node(&mut self) -> Option<usize> {
         self.path.last().map(|e| e.target())
+    }
+
+    /// Creates a `geo::LineString` from `Path<EV>` using the given `CoordGraph`.
+    ///
+    /// Retruns `None` when in case no coordinate could be retrived for one or more nodes.
+    pub fn line_string<G: CoordGraph>(&self, graph: &G) -> Option<LineString<G::C>> {
+        let mut coords = Vec::new();
+
+        for node in self.path.iter() {
+            let coord = graph.node_coord(node.target())?;
+            coords.push(coord);
+        }
+
+        Some(LineString::new(coords))
     }
 }
 

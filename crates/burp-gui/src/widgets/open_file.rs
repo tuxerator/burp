@@ -1,33 +1,42 @@
 use std::sync::Arc;
 
-use ashpd::WindowIdentifier;
+use ashpd::{WindowIdentifier, desktop::file_chooser::FileFilter};
 use egui::Widget;
 use parking_lot::{Mutex, RawMutex};
 use tokio::{
     runtime::Runtime,
+    sync::mpsc::Sender,
     task::{JoinHandle, LocalSet},
 };
 use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
 
+use crate::event_handler::Event;
+
 pub struct OpenFile<'a, 'b> {
     label: String,
+    file_filter: Vec<FileFilter>,
     frame: &'a eframe::Frame,
     runtime: &'b Runtime,
-    callback: Box<dyn Fn(&std::path::Path) + Send>,
+    callback: Box<dyn Fn(&std::path::Path) -> Option<Event> + Send>,
+    sender: Sender<Event>,
 }
 
 impl<'a, 'b> OpenFile<'a, 'b> {
     pub fn new(
         label: impl Into<String>,
+        file_filter: Vec<FileFilter>,
         frame: &'a eframe::Frame,
         runtime: &'b Runtime,
-        callback: impl Fn(&std::path::Path) + Send + 'static,
+        sender: Sender<Event>,
+        callback: impl Fn(&std::path::Path) -> Option<Event> + Send + 'static,
     ) -> Self {
         Self {
             label: label.into(),
+            file_filter,
             frame,
             runtime,
             callback: Box::new(callback),
+            sender,
         }
     }
 }
@@ -58,19 +67,33 @@ impl Widget for OpenFile<'_, '_> {
                         .await
                     });
                     Arc::new(Mutex::new(self.runtime.spawn(async move {
+                        use ashpd::desktop::file_chooser::FileFilter;
+
                         log::debug!("[xdg-desktop-portal] WindowIdentifier {:?}", identifier);
                         let files = ashpd::desktop::file_chooser::OpenFileRequest::default()
                             .identifier(identifier)
                             .multiple(false)
+                            .filters(self.file_filter)
                             .send()
                             .await
                             .unwrap()
                             .response()
                             .unwrap();
 
-                        let urls = files.uris();
-                        let url = urls.first().unwrap();
-                        (self.callback)(std::path::Path::new(url.path()));
+                        if let Some(event) = tokio::task::spawn_blocking(move || {
+                            let urls = files.uris();
+                            let url = urls.first().unwrap();
+                            (self.callback)(std::path::Path::new(url.path()))
+                        })
+                        .await
+                        .expect("[OpenFile] Callback panic")
+                        {
+                            self.sender
+                                .send(event)
+                                .await
+                                .expect("[OpenFile] Failed to send event");
+                            tracing::debug!("Event \x1b[1mGraphLoaded\x1b[0m send")
+                        }
                     })))
                 });
             });

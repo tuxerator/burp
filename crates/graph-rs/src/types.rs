@@ -3,7 +3,7 @@ use num_traits::{Num, NumOps};
 
 use crate::{CoordGraph, graph::Target};
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum Direction {
     Outgoing,
     Incoming,

@@ -59,6 +59,7 @@
               vulkan-headers
               libGL
               fontconfig
+              tracy
             ] ++ lib.optionals stdenv.isDarwin [
               # Additional darwin specific inputs can be set here
               libiconv

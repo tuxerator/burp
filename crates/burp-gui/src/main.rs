@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use tracing_subscriber::layer::SubscriberExt;
+
 fn main() {
     let subscriber = tracing_subscriber::FmtSubscriber::builder()
         .with_max_level(tracing::Level::INFO)
@@ -8,7 +10,8 @@ fn main() {
                 .with_default_directive(tracing_subscriber::filter::LevelFilter::INFO.into())
                 .from_env_lossy(),
         )
-        .finish();
+        .finish()
+        .with(tracing_tracy::TracyLayer::default());
 
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
@@ -17,7 +20,7 @@ fn main() {
     eframe::run_native(
         "Burp",
         native_options,
-        Box::new(|cc| Ok(Box::new(burp_gui::BurpApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(burp_gui::BurpApp::new("Burp", cc)))),
     )
     .unwrap();
 }

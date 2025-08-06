@@ -1,6 +1,8 @@
 use std::fmt::{self, Formatter};
 
-#[derive(Debug)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Node<T> {
     children: Option<Vec<Node<T>>>,
     data: T,

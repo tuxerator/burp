@@ -11,5 +11,18 @@ keywords = ["gis", "map"]
 license = "GPL-3"
 repository = "https://gitlab.inf.uni-konstanz.de/jakob.sanowski/bachelor-projekt"
 version = "0.1.0"
+
 [workspace.metadata]
 crane.name = "burp"
+
+[workspace.dependencies]
+parking_lot = { version = "0.12.4", features = ["arc_lock"] }
+tracing = "0.1.41"
+tracing-log = "0.2.0"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tracing-tracy = "0.11.4"
+tracy-client = "=0.18.0"
+tracing-timing = "0.7.0"
+
+[patch.crates-io]
+egui-modal = { git = "https://github.com/zeozeozeo/egui-modal.git", branch = "egui-0.31" }

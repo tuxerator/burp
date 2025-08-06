@@ -18,7 +18,7 @@ use layers::EventLayer;
 use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
 
-pub mod egui_state;
+pub mod egui;
 pub mod features;
 pub mod layers;
 pub mod symbols;
@@ -88,6 +88,7 @@ impl<K: Hash + Eq> Map<K> {
                         layer_ref.handle_event(event, map);
                         EventPropagation::Propagate
                     });
+                log::debug!("Inserted layer. Total layers: {}", layer_col.len());
                 (Box::new(layer), layer_col.len() - 1)
             })
             .0
@@ -177,6 +178,10 @@ impl<K: Hash + Eq> Map<K> {
 
     pub fn map_mut(&mut self) -> &mut GalileoMap {
         &mut self.map
+    }
+
+    pub fn redraw(&self) {
+        self.map.redraw()
     }
 }
 

@@ -5,7 +5,7 @@ use std::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
     pin::Pin,
-    rc::{Rc, Weak},
+    sync::{Arc, Weak},
 };
 
 use geo::{Contains, Coord, CoordFloat, Rect};
@@ -25,6 +25,7 @@ use rstar::{
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::SerializeStruct};
+use tracing::instrument;
 
 use crate::{
     tree::{Tree, node::Node},
@@ -48,6 +49,7 @@ where
     T: CoordGraph + Dijkstra,
     T::EV: FloatCore + Debug,
 {
+    #[instrument(skip(self))]
     fn radius(
         &self,
         node: usize,
@@ -82,7 +84,7 @@ where
 {
     r_tree: RTree<GeomWithData<Rectangle<Coord<C>>, Weak<BlockPair<EV, C>>>>,
 
-    block_pairs: Vec<Rc<BlockPair<EV, C>>>,
+    block_pairs: Vec<Arc<BlockPair<EV, C>>>,
 }
 
 impl<EV, C> Oracle<EV, C>
@@ -120,16 +122,17 @@ where
             .1
     }
 
-    fn add_block_pair(&mut self, block_pair: BlockPair<EV, C>) -> Rc<BlockPair<EV, C>> {
-        let block_pair = Rc::new(block_pair);
+    #[instrument(skip(self))]
+    fn add_block_pair(&mut self, block_pair: BlockPair<EV, C>) -> Arc<BlockPair<EV, C>> {
+        let block_pair = Arc::new(block_pair);
 
         let s_rect = GeomWithData::new(
             block_pair.s_block_as_rectangle(),
-            Rc::downgrade(&block_pair),
+            Arc::downgrade(&block_pair),
         );
         let t_rect = GeomWithData::new(
             block_pair.t_block_as_rectangle(),
-            Rc::downgrade(&block_pair),
+            Arc::downgrade(&block_pair),
         );
 
         assert_eq!(
@@ -154,7 +157,7 @@ where
         &self,
         s_coord: &Coord<C>,
         t_coord: &Coord<C>,
-    ) -> Vec<Rc<BlockPair<EV, C>>> {
+    ) -> Vec<Arc<BlockPair<EV, C>>> {
         trace!(
             "Searching block pair for points\n{:#?}, {:#?}",
             s_coord, t_coord
@@ -176,7 +179,7 @@ where
             })
             .collect();
 
-        block_pairs.dedup_by(|a, b| Rc::ptr_eq(a, b));
+        block_pairs.dedup_by(|a, b| Arc::ptr_eq(a, b));
         block_pairs
     }
 
@@ -186,13 +189,14 @@ where
         block_pairs.into_iter().map(|b| b.poi_id()).collect()
     }
 
-    pub fn get_blocks_at(&self, coord: &Coord<C>) -> Vec<Rc<BlockPair<EV, C>>> {
+    pub fn get_blocks_at(&self, coord: &Coord<C>) -> Vec<Arc<BlockPair<EV, C>>> {
         self.r_tree
             .locate_all_at_point(coord)
             .filter_map(|geom| geom.data.upgrade())
             .collect()
     }
 
+    #[instrument(skip(self, graph))]
     pub fn build_for_node<G>(
         &mut self,
         node: usize,

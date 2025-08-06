@@ -1,11 +1,12 @@
 use std::pin::Pin;
 
 use node::Node;
+use serde::{Deserialize, Serialize};
 
 mod iter;
 pub mod node;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Tree<T> {
     root: Node<T>,
 }
