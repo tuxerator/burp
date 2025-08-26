@@ -26,8 +26,10 @@ use rstar::{
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::SerializeStruct};
 use tracing::instrument;
+use tracing_subscriber::filter::combinator::Or;
 
 use crate::{
+    oracle::{OracleParams, SplitStrategy, block_pair, split_strategy::SimpleSplitStrategy},
     tree::{Tree, node::Node},
     types::RTreeObjectArc,
     util::r_tree_size,
@@ -49,7 +51,7 @@ where
     T: CoordGraph + Dijkstra,
     T::EV: FloatCore + Debug,
 {
-    #[instrument(skip(self))]
+    #[instrument(level = "trace", skip(self))]
     fn radius(
         &self,
         node: usize,
@@ -82,6 +84,8 @@ where
     EV: FloatCore,
     C: RTreeNum + CoordFloat,
 {
+    poi: usize,
+
     r_tree: RTree<GeomWithData<Rectangle<Coord<C>>, Weak<BlockPair<EV, C>>>>,
 
     block_pairs: Vec<Arc<BlockPair<EV, C>>>,
@@ -92,8 +96,9 @@ where
     EV: FloatCore + Debug,
     C: RTreeNum + CoordFloat,
 {
-    pub fn new() -> Self {
+    pub fn new(poi: usize) -> Self {
         Oracle {
+            poi,
             r_tree: RTree::new(),
             block_pairs: vec![],
         }
@@ -122,7 +127,7 @@ where
             .1
     }
 
-    #[instrument(skip(self))]
+    #[instrument(level = "trace", skip(self))]
     fn add_block_pair(&mut self, block_pair: BlockPair<EV, C>) -> Arc<BlockPair<EV, C>> {
         let block_pair = Arc::new(block_pair);
 
@@ -196,127 +201,127 @@ where
             .collect()
     }
 
-    #[instrument(skip(self, graph))]
-    pub fn build_for_node<G>(
-        &mut self,
+    #[instrument(skip(graph))]
+    pub fn build_for_node<G, P>(
         node: usize,
         epsilon: G::EV,
         graph: &G,
-    ) -> Result<Tree<BlockPair<G::EV, G::C>>, String>
+        params: P,
+    ) -> Result<(Self, id_tree::Tree<(BlockPair<G::EV, G::C>, bool)>), String>
     where
         G: CoordGraph<C = C, EV = EV> + Dijkstra + Radius,
+        P: OracleParams,
     {
+        let mut oracle = Oracle::new(node);
         debug!("Building oracle for node {:#?}", &node);
         let Some(root) = graph.bounding_rect() else {
             return Err("Could not get bounding rect of graph".to_string());
         };
 
-        let mut queue = VecDeque::new();
+        let root = BlockPair::new(root, root, node, epsilon, graph);
 
-        let root = BlockPair::new(root, root, node, graph);
+        let mut tree = id_tree::TreeBuilder::new()
+            .with_node_capacity(100000)
+            .build();
 
-        let mut tree = Tree::new(Node::new(root.clone(), None));
+        let root = tree
+            .insert(
+                id_tree::Node::new((root, false)),
+                id_tree::InsertBehavior::AsRoot,
+            )
+            .unwrap();
 
-        let node_ptr = &raw mut *tree.get_root_mut();
+        oracle.process_block_pair(&root, &mut tree, graph, params);
 
-        queue.push_back((root, node_ptr));
+        Ok((oracle, tree))
+    }
 
-        while let Some((block_pair, node_ptr)) = queue.pop_front() {
-            // let Some(values) = Values::<G::EV>::new(graph, s, t, block_pair, *node) else {
-            //     continue;
-            // };
+    /// Process the block pair in 'node'.
+    ///
+    /// Returns 1 if it is in-path, -1 if not-in-path and 0 if neither.
+    fn process_block_pair<G, P>(
+        &mut self,
+        node: &id_tree::NodeId,
+        tree: &mut id_tree::Tree<(BlockPair<EV, C>, bool)>,
+        graph: &G,
+        _params: P,
+    ) -> i32
+    where
+        G: CoordGraph<C = C, EV = EV> + Dijkstra + Radius,
+        P: OracleParams,
+    {
+        let block_pair = &tree.get(node).unwrap().data().0;
 
-            trace!("Epsilon: {:?}", &epsilon);
-            trace!("Values:\n{:#?}", block_pair.values());
+        tracing::trace!(tree_capacity = ?tree.capacity());
 
-            if block_pair.values().in_path(epsilon) {
-                trace!("Found in-path block pair:\n{:#?}", &block_pair,);
+        if block_pair.values().in_path() {
+            log::trace!("Found in-path block pair:\n{:#?}", block_pair,);
 
-                self.add_block_pair(block_pair.clone());
+            tree.get_mut(node).unwrap().data_mut().1 = true;
 
-                continue;
-            } else if block_pair.values().not_in_path(epsilon) {
-                trace!("Found not in-path block pair:\n{:#?}", &block_pair,);
-
-                continue;
-            }
-
-            let children = (
-                block_pair
-                    .s_block()
-                    .split_y()
-                    .into_iter()
-                    .flat_map(|split| split.split_x()),
-                block_pair
-                    .t_block()
-                    .split_y()
-                    .into_iter()
-                    .flat_map(|split| split.split_x()),
-            );
-
-            let children = (
-                children
-                    .0
-                    .filter(|block| graph.locate_in_envelope(block).peekable().peek().is_some())
-                    .collect::<Vec<_>>(),
-                children
-                    .1
-                    .filter(|block| graph.locate_in_envelope(block).peekable().peek().is_some())
-                    .collect::<Vec<_>>(),
-            );
-            let child_block_pairs: Vec<_> = children
-                .0
-                .into_iter()
-                .flat_map(|s_block| {
-                    children.1.iter().map(move |t_block| {
-                        let block_pair = BlockPair::new(s_block, *t_block, node, graph);
-                        let child_ptr;
-
-                        debug!("node_ptr: {:#?}", node_ptr);
-
-                        // SAFETY: Tree lives in this function scope and the children vector has
-                        // capacity 16.
-                        unsafe {
-                            let node = &mut *node_ptr;
-
-                            child_ptr = &raw mut *node.insert_child(block_pair.clone());
-                        }
-
-                        debug!("child_ptr: {child_ptr:?}");
-
-                        (block_pair, child_ptr)
-                    })
-                })
-                // .filter(|block_pair| {
-                //     let points = (
-                //         graph
-                //             .query(&AABB::from_corners(block_pair.0.min(), block_pair.0.max()))
-                //             .collect::<Vec<_>>(),
-                //         graph
-                //             .query(&AABB::from_corners(block_pair.1.min(), block_pair.1.max()))
-                //             .collect::<Vec<_>>(),
-                //     );
-                //
-                //     // If both blocks only contain the same node they can be discarded
-                //     if points.0.len() == 1 && points.0 == points.1 {
-                //         return false;
-                //     }
-                //     true
-                // })
-                .collect();
-
-            queue.append(&mut child_block_pairs.into());
-
-            // debug!("tree: {tree:#?}");
+            return 1;
         }
 
-        info!(
-            "created oracle: {} block pairs, {} avg block ocupancy",
-            self.size(),
-            self.avg_block_ocupancy(graph)
-        );
+        if block_pair.values().not_in_path() {
+            log::trace!("Found not in-path block pair:\n{:#?}", block_pair,);
 
-        Ok(tree)
+            let _ = tree
+                .remove_node(node.clone(), id_tree::RemoveBehavior::DropChildren)
+                .inspect_err(|e| tracing::error!("Coud not remove node. Reason: {e}"));
+
+            return -1;
+        }
+
+        let children = P::SplitStrategy::split(block_pair, graph);
+
+        let children_ids: Vec<_> = children
+            .into_iter()
+            .map(|child| {
+                tree.insert(
+                    id_tree::Node::new((child, false)),
+                    id_tree::InsertBehavior::UnderNode(node),
+                )
+                .unwrap()
+            })
+            .collect();
+
+        let children_in_path: Vec<_> = children_ids
+            .iter()
+            .map(|child| self.process_block_pair(child, tree, graph, _params))
+            .collect();
+
+        if children_in_path.iter().all(|in_path| *in_path == 1) && P::MERGE_BLOCKS {
+            log::trace!("All children are in-path");
+            tree.get_mut(node).unwrap().data_mut().1 = true;
+
+            for child in children_ids {
+                let _ = tree
+                    .remove_node(child, id_tree::RemoveBehavior::DropChildren)
+                    .inspect_err(|e| tracing::error!("Could not remove node. Reason: {e}"));
+            }
+
+            return 1;
+        }
+
+        if children_in_path.iter().all(|in_path| *in_path == -1) && P::MERGE_BLOCKS {
+            log::trace!("All children are not-in-path");
+
+            let _ = tree
+                .remove_node(node.clone(), id_tree::RemoveBehavior::DropChildren)
+                .inspect_err(|e| tracing::error!("Could not remove node. Reason: {e}"));
+
+            return -1;
+        }
+
+        if let Ok(children) = tree.children(node) {
+            for child in children {
+                if child.data().1 {
+                    self.add_block_pair(child.data().0.clone());
+                }
+            }
+        }
+
+        0
     }
 
     pub fn invariant<G>(&self, node: usize, graph: &G) -> bool
@@ -338,6 +343,10 @@ where
 
             !block_pairs.len() > 1
         })
+    }
+
+    pub fn poi(&self) -> usize {
+        self.poi
     }
 }
 
@@ -361,13 +370,13 @@ where
 //     }
 // }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct OracleCollection<G>
 where
     G: CoordGraph,
     G::NV: Coordinate<G::C>,
-    G::EV: FloatCore,
-    G::C: RTreeNum + CoordFloat,
+    G::EV: FloatCore + Serialize + DeserializeOwned,
+    G::C: RTreeNum + CoordFloat + Serialize + DeserializeOwned,
 {
     oracle: FxHashMap<usize, Oracle<G::EV, G::C>>,
     phantom: PhantomData<G>,
@@ -377,35 +386,52 @@ impl<G> OracleCollection<G>
 where
     G: CoordGraph + Dijkstra + Radius,
     G::NV: Coordinate<G::C>,
-    G::EV: FloatCore + Debug,
-    G::C: RTreeNum + CoordFloat,
+    G::EV: FloatCore + Debug + Serialize + DeserializeOwned,
+    G::C: RTreeNum + CoordFloat + Serialize + DeserializeOwned,
 {
-    pub fn build_for_node(
+    pub fn build_for_node<P: OracleParams>(
         &mut self,
         node: usize,
         epsilon: G::EV,
         graph: &G,
-    ) -> Result<Tree<BlockPair<G::EV, G::C>>, String> {
-        let mut oracle = Oracle::new();
+        params: P,
+    ) -> Result<(usize, id_tree::Tree<(BlockPair<G::EV, G::C>, bool)>), String> {
+        let oracle = Oracle::build_for_node(node, epsilon, graph, params)?;
 
-        let debug_tree = oracle.build_for_node(node, epsilon, graph)?;
-
-        self.oracle.insert(node, oracle);
-        Ok(debug_tree)
+        self.oracle.insert(node, oracle.0);
+        Ok((node, oracle.1))
     }
 
-    pub fn build_for_nodes(
+    pub fn build_for_nodes<P: OracleParams>(
         &mut self,
-        nodes: &Vec<usize>,
+        nodes: &FxHashSet<usize>,
         epsilon: G::EV,
         graph: &G,
-    ) -> Result<Vec<Tree<BlockPair<G::EV, G::C>>>, String> {
-        let mut debug_trees = Vec::new();
+        params: P,
+    ) -> Result<FxHashMap<usize, id_tree::Tree<(BlockPair<G::EV, G::C>, bool)>>, String> {
+        let mut split_trees = FxHashMap::default();
         for node in nodes {
-            debug_trees.push(self.build_for_node(*node, epsilon, graph)?);
+            let split_tree = self.build_for_node(*node, epsilon, graph, params)?;
+            split_trees.insert(split_tree.0, split_tree.1);
         }
 
-        Ok(debug_trees)
+        Ok(split_trees)
+    }
+
+    pub fn insert(&mut self, oracle: Oracle<G::EV, G::C>) -> Option<Oracle<G::EV, G::C>> {
+        self.oracle.insert(oracle.poi(), oracle)
+    }
+
+    pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&Oracle<G::EV, G::C>>
+    where
+        usize: std::borrow::Borrow<Q>,
+        Q: std::hash::Hash + Eq,
+    {
+        self.oracle.get(k)
+    }
+
+    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, usize, Oracle<G::EV, G::C>> {
+        self.oracle.iter()
     }
 }
 
@@ -418,7 +444,6 @@ mod test {
         DirectedGraph, Graph,
         graph::{csr::DirectedCsrGraph, rstar::RTreeGraph},
     };
-    use qutee::{Area, Boundary, Point};
     use rand::random;
     use serde::{Deserialize, Serialize};
 
@@ -430,12 +455,13 @@ mod test {
     fn add_block_pair_test() {
         let graph: RTreeGraph<DirectedCsrGraph<f64, Coord<f64>>, f64> =
             RTreeGraph::new_from_graph(DirectedCsrGraph::default());
-        let mut oracle = Oracle::new();
+        let mut oracle = Oracle::new(0);
 
         let block_pair = BlockPair::new(
             Rect::new((0.5, 0.5), (1.0, 1.0)),
             Rect::new((10., 9.), (11., 12.)),
             0,
+            0.2,
             &graph,
         );
 
@@ -446,12 +472,13 @@ mod test {
     fn get_block_pairs_test() {
         let graph: RTreeGraph<DirectedCsrGraph<f64, Coord<f64>>, f64> =
             RTreeGraph::new_from_graph(DirectedCsrGraph::default());
-        let mut oracle = Oracle::new();
+        let mut oracle = Oracle::new(0);
 
         let block_pair = BlockPair::new(
             Rect::new((0.5, 0.5), (1.0, 1.0)),
             Rect::new((10., 9.), (11., 12.)),
             0,
+            0.2,
             &graph,
         );
 
@@ -466,12 +493,13 @@ mod test {
     fn ser_de() {
         let graph: RTreeGraph<DirectedCsrGraph<f64, Coord<f64>>, f64> =
             RTreeGraph::new_from_graph(DirectedCsrGraph::default());
-        let mut oracle = Oracle::new();
+        let mut oracle = Oracle::new(0);
 
         let block_pair = BlockPair::new(
             Rect::new((0.5, 0.5), (1.0, 1.0)),
             Rect::new((10., 9.), (11., 12.)),
             0,
+            0.2,
             &graph,
         );
 

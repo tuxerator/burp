@@ -40,15 +40,15 @@ where
 
 impl<EV, C> BlockPair<EV, C>
 where
-    EV: FloatCore,
+    EV: FloatCore + Debug,
     C: RTreeNum + CoordFloat,
 {
-    #[instrument(skip(s_block, t_block, graph))]
-    pub fn new<G>(s_block: Rect<C>, t_block: Rect<C>, poi_id: usize, graph: &G) -> Self
+    #[instrument(level = "trace", skip(s_block, t_block, graph))]
+    pub fn new<G>(s_block: Rect<C>, t_block: Rect<C>, poi_id: usize, epsilon: EV, graph: &G) -> Self
     where
         G: CoordGraph<C = C, EV = EV> + Dijkstra + Radius,
     {
-        let values = Values::new(poi_id, &s_block, &t_block, graph).unwrap();
+        let values = Values::new(poi_id, &s_block, &t_block, epsilon, graph);
         BlockPair {
             s_block,
             t_block,
@@ -118,6 +118,7 @@ where
 pub struct Values<T: FloatCore> {
     pub s: usize,
     pub t: usize,
+    pub epsilon: T,
     pub d_st: T,
     pub d_sp: T,
     pub d_pt: T,
@@ -128,16 +129,18 @@ pub struct Values<T: FloatCore> {
 }
 
 impl<T: FloatCore> Values<T> {
-    #[instrument(skip(s_block, t_block, graph))]
+    #[instrument(level = "trace", skip(s_block, t_block, graph))]
     fn new<G>(
         poi_id: usize,
         s_block: &Rect<G::C>,
         t_block: &Rect<G::C>,
+        epsilon: T,
         graph: &G,
-    ) -> Option<Values<G::EV>>
+    ) -> Values<G::EV>
     where
         G: CoordGraph<EV = T> + Dijkstra + Radius,
         G::C: RTreeNum + CoordFloat,
+        T: Debug,
     {
         let s: usize;
         let t: usize;
@@ -159,33 +162,34 @@ impl<T: FloatCore> Values<T> {
             t = p_1;
         }
         let d_s = graph.dijkstra(s, FxHashSet::from_iter([t, poi_id]), Direction::Outgoing);
-        Some(Values {
+        Values {
             s,
             t,
-            d_st: d_s.path(t)?.cost().unwrap(),
-            d_sp: d_s.path(poi_id)?.cost().unwrap(),
+            epsilon,
+            d_st: d_s.path(t).unwrap().cost(),
+            d_sp: d_s.path(poi_id).unwrap().cost(),
             d_pt: graph
                 .dijkstra(poi_id, FxHashSet::from_iter([t]), Direction::Outgoing)
-                .path(t)?
-                .cost()
-                .unwrap(),
+                .path(t)
+                .unwrap()
+                .cost(),
             r_af: graph.radius(s, s_block, Direction::Outgoing).unwrap(),
             r_ab: graph.radius(s, s_block, Direction::Incoming).unwrap(),
             r_bf: graph.radius(t, t_block, Direction::Outgoing).unwrap(),
             r_bb: graph.radius(t, t_block, Direction::Incoming).unwrap(),
-        })
+        }
     }
 
-    pub fn in_path(&self, epsilon: T) -> bool {
-        (self.r_ab.cost().unwrap() + self.d_sp + self.d_pt + self.r_bf.cost().unwrap())
-            <= (self.d_st - (self.r_af.cost().unwrap() + self.r_bb.cost().unwrap()))
-                * (T::from(1).unwrap() + epsilon)
+    pub fn in_path(&self) -> bool {
+        (self.r_ab.cost() + self.d_sp + self.d_pt + self.r_bf.cost())
+            <= (self.d_st - (self.r_af.cost() + self.r_bb.cost()))
+                * (T::from(1).unwrap() + self.epsilon)
     }
 
-    pub fn not_in_path(&self, epsilon: T) -> bool {
-        (self.d_sp + self.d_pt - (self.r_af.cost().unwrap() + self.r_bb.cost().unwrap()))
-            >= (self.d_st + (self.r_ab.cost().unwrap() + self.r_bf.cost().unwrap()))
-                * (T::from(1).unwrap() + epsilon)
+    pub fn not_in_path(&self) -> bool {
+        (self.d_sp + self.d_pt - (self.r_af.cost() + self.r_bb.cost()))
+            >= (self.d_st + (self.r_ab.cost() + self.r_bf.cost()))
+                * (T::from(1).unwrap() + self.epsilon)
     }
 }
 
@@ -207,18 +211,18 @@ impl<T: FloatCore + Debug> Display for Values<T> {
             self.d_st,
             self.d_sp,
             self.d_pt,
-            self.r_af.cost().unwrap(),
-            self.r_ab.cost().unwrap(),
-            self.r_bf.cost().unwrap(),
-            self.r_bb.cost().unwrap(),
-            (self.d_sp + self.d_pt + self.r_ab.cost().unwrap() + self.r_bf.cost().unwrap())
-                / (self.d_st - (self.r_af.cost().unwrap() + self.r_bb.cost().unwrap()))
+            self.r_af.cost(),
+            self.r_ab.cost(),
+            self.r_bf.cost(),
+            self.r_bb.cost(),
+            (self.d_sp + self.d_pt + self.r_ab.cost() + self.r_bf.cost())
+                / (self.d_st - (self.r_af.cost() + self.r_bb.cost()))
                 - T::from(1).unwrap(),
-            (self.d_sp + self.d_pt - self.r_ab.cost().unwrap() - self.r_bf.cost().unwrap())
-                / (self.d_st + (self.r_ab.cost().unwrap() + self.r_bf.cost().unwrap()))
+            (self.d_sp + self.d_pt - self.r_ab.cost() - self.r_bf.cost())
+                / (self.d_st + (self.r_ab.cost() + self.r_bf.cost()))
                 - T::from(1).unwrap(),
-            self.in_path(T::from(0.25).unwrap()),
-            self.not_in_path(T::from(0.25).unwrap()),
+            self.in_path(),
+            self.not_in_path(),
         )
     }
 }
@@ -244,6 +248,7 @@ mod test {
             Rect::new((0.5, 0.5), (1.0, 1.0)),
             Rect::new((10., 9.), (11., 12.)),
             0,
+            0.2,
             &graph,
         );
 

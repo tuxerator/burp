@@ -16,21 +16,44 @@ use crate::{BurpApp, app::AppData, types::Dirty};
 
 pub enum Event {
     GraphLoaded(PoiGraph<Poi>),
-    OracleBuild(Oracle<f64, f64>, Tree<BlockPair<f64, f64>>),
+    OracleLoaded(Oracle<f64, f64>),
+    SplitTreeLoaded((usize, id_tree::Tree<(BlockPair<f64, f64>, bool)>)),
+    OracleBuild(Oracle<f64, f64>, id_tree::Tree<(BlockPair<f64, f64>, bool)>),
 }
 
 impl Event {
     #[instrument(skip(app_data))]
     pub fn handle(self, app_data: &mut AppData) {
+        tracing::info!("Handling event");
         match self {
             Self::GraphLoaded(graph) => {
                 app_data.graph = Some(Arc::new(RwLock::new(Dirty::new(graph))));
-                log::debug!("Processed event GraphLoaded");
+            }
+            Self::OracleLoaded(oracle) => {
+                app_data
+                    .oracle
+                    .get_or_insert_default()
+                    .lock()
+                    .insert(oracle);
+            }
+            Self::SplitTreeLoaded(split_tree) => {
+                app_data
+                    .split_tree
+                    .get_or_insert_default()
+                    .write()
+                    .insert(split_tree.0, split_tree.1);
             }
             Self::OracleBuild(oracle, split_tree) => {
-                app_data.oracle = Some(Arc::new(Mutex::new(Dirty::new(oracle))));
-                app_data.split_tree = Some(Arc::new(RwLock::new(Dirty::new(split_tree))));
-                log::info!("Processed event OracleBuild");
+                app_data
+                    .split_tree
+                    .get_or_insert_default()
+                    .write()
+                    .insert(oracle.poi(), split_tree);
+                app_data
+                    .oracle
+                    .get_or_insert_default()
+                    .lock()
+                    .insert(oracle);
             }
         }
     }
@@ -43,6 +66,8 @@ impl Display for Event {
             "{}",
             match self {
                 Self::GraphLoaded(_) => "GraphLoaded",
+                Self::OracleLoaded(_) => "OracleLoaded",
+                Self::SplitTreeLoaded(_) => "SplitTreeLoaded",
                 Self::OracleBuild(_, _) => "OracleBuild",
             }
         )
@@ -56,6 +81,8 @@ impl Debug for Event {
             "{}",
             match self {
                 Self::GraphLoaded(_) => "Event::GraphLoaded",
+                Self::OracleLoaded(_) => "Event::OracleLoaded",
+                Self::SplitTreeLoaded(_) => "Event::SplitTreeLoaded",
                 Self::OracleBuild(_, _) => "Event::OracleBuild",
             }
         )
@@ -86,7 +113,7 @@ impl EventHandler {
             });
         }
 
-        log::trace!("[event] Recieved {} events", events.len());
+        log::trace!("Recieved {} events", events.len());
 
         for event in events {
             event.handle(app_data);

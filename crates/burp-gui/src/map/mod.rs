@@ -12,7 +12,10 @@ use ::galileo::{
         UserEvent,
     },
 };
-use galileo::{Messenger, layer::raster_tile_layer::RasterTileLayerBuilder};
+use galileo::{
+    Messenger, TileSchema, control::MapControllerConfiguration,
+    layer::raster_tile_layer::RasterTileLayerBuilder,
+};
 use galileo_types::geo::impls::GeoPoint2d;
 use layers::EventLayer;
 use parking_lot::RwLock;
@@ -57,7 +60,11 @@ impl<K: Hash + Eq> Map<K> {
             EventPropagation::Propagate
         });
 
-        event_processor.add_handler(MapController::default());
+        let map_controller_config = MapControllerConfiguration::default()
+            .with_max_resolution(15000.)
+            .with_min_resolution(0.1);
+
+        event_processor.add_handler(MapController::new(map_controller_config));
         Self {
             map,
             layers,
@@ -161,7 +168,9 @@ impl<K: Hash + Eq> Map<K> {
         K: std::borrow::Borrow<Q>,
         Q: Hash + Eq,
     {
-        self.layers.remove(k)
+        self.layers.remove(k).inspect(|v| {
+            self.map.layers_mut().remove(v.1);
+        })
     }
 
     pub fn remove_entry<Q: ?Sized>(&mut self, k: &Q) -> Option<(K, (Box<dyn EventLayer>, usize))>
@@ -169,7 +178,9 @@ impl<K: Hash + Eq> Map<K> {
         K: std::borrow::Borrow<Q>,
         Q: Hash + Eq,
     {
-        self.layers.remove_entry(k)
+        self.layers.remove_entry(k).inspect(|e| {
+            self.map.layers_mut().remove(e.1.1);
+        })
     }
 
     pub fn map(&self) -> &GalileoMap {
@@ -192,10 +203,14 @@ where
     fn default() -> Self {
         let tile_layer = RasterTileLayerBuilder::new_rest(|index| {
             format!(
-                "https://api.maptiler.com/maps/openstreetmap/256/{}/{}/{}.jpg?key=8vBMrBmo8MIbxzh6yNkC",
+                "https://api.maptiler.com/maps/streets-v2/256/{}/{}/{}.png?key=8vBMrBmo8MIbxzh6yNkC",
                 index.z, index.x, index.y
             )
-        }).with_file_cache("./.tile_cache").build().unwrap();
+        })
+        .with_file_cache("./.tile_cache")
+        .with_tile_schema(TileSchema::web(20))
+        .build()
+        .unwrap();
         let map = galileo::MapBuilder::default()
             .with_latlon(52.5, 13.3)
             .with_layer(tile_layer)

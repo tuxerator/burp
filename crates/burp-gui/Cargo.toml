@@ -17,53 +17,41 @@ name = "burp-gui"
 
 
 [dependencies]
-egui = "0.31"
-egui-wgpu = "0.31"
-egui-winit = { version = "0.31", default-features = false, features = [
-  "clipboard",
-  "links",
-  "wayland",
-] }
-egui-modal = "0.6.0"
-eframe = "0.31.1"
-env_logger = { version = "0.11", default-features = false }
-galileo = { version = "0.2" }
-galileo-types = { version = "0.2" }
-galileo-egui = "0.2"
-wgpu = { version = "24.0.5", default-features = false }
-winit = { version = "0.30", default-features = false, features = [
-  "rwh_06",
-  "wayland",
-  "wayland-csd-adwaita",
-  "wayland-dlopen",
-] }
-ashpd = { version = "0.11.0", features = ["raw_handle", "wayland", "tracing"] }
+egui.workspace = true
+egui-wgpu.workspace = true
+egui-winit.workspace = true
+egui-modal.workspace = true
+eframe.workspace = true
+env_logger.workspace = true
+galileo = { workspace = true }
+galileo-types = { workspace = true }
+galileo-egui = { workspace = true }
+wgpu = { workspace = true }
+winit.workspace = true
+ashpd.workspace = true
 parking_lot.workspace = true
-graph-rs = { path = "../graph-rs/" }
-geozero = "0.13"
-geo-types = "0.7"
-geo = "0.28"
-rfd = { version = "0.14", default-features = false, features = [
-  "xdg-portal",
-  "tokio",
-] }
-log = "0.4.20"
+graph-rs.workspace = true
+geozero.workspace = true
+geo-types.workspace = true
+geo.workspace = true
+log.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-log.workspace = true
 tracing-tracy.workspace = true
 tracy-client.workspace = true
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-burp = { path = "../burp/" }
-maybe-sync = "0.1"
-nalgebra = "0.32"
-num-traits = "0.2"
-tokio = { version = "1.46", default-features = false, features = ["full"] }
-rstar = "0.12"
-rustc-hash = "2.1"
-memmap2 = "0.9.5"
-rmp-serde = "1.3.0"
+serde.workspace = true
+serde_json.workspace = true
+burp.workspace = true
+maybe-sync.workspace = true
+nalgebra.workspace = true
+num-traits.workspace = true
+tokio.workspace = true
+rstar.workspace = true
+rustc-hash.workspace = true
+memmap2.workspace = true
+rmp-serde.workspace = true
+id_tree.workspace = true
 
 
 [features]

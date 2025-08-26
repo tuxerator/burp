@@ -13,6 +13,13 @@ impl<T> Node<T> {
         Self { children, data }
     }
 
+    pub fn with_capacity(data: T, capacity: usize) -> Self {
+        Self {
+            children: Some(Vec::with_capacity(capacity)),
+            data,
+        }
+    }
+
     pub fn get_children(&self) -> &Option<Vec<Node<T>>> {
         &self.children
     }
@@ -29,10 +36,9 @@ impl<T> Node<T> {
         &mut self.data
     }
 
-    pub fn insert_child(&mut self, data: T) -> &mut Self {
-        // Needs to have capacity 16 in order to avoid reallocation when inserting.
-        let children = self.children.get_or_insert(Vec::with_capacity(16));
-        children.push(Node::new(data, None));
+    pub fn insert_child(&mut self, node: Self) -> &mut Self {
+        let children = self.children.get_or_insert(Vec::new());
+        children.push(node);
 
         children.last_mut().expect("This should not happen")
     }
@@ -40,6 +46,8 @@ impl<T> Node<T> {
     pub fn set_children(&mut self, children: Option<Vec<Node<T>>>) {
         self.children = children;
     }
+
+    pub fn for_each_child(&self) {}
 
     pub fn print_mem_addr(&self) {
         println!("Node: {self:p}");

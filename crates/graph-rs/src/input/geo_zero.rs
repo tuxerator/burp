@@ -41,7 +41,7 @@ impl<T: CoordNum> Eq for Coord<T> {}
 
 impl<T: CoordNum + Serialize> Hash for Coord<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let coord_bytes = bincode::serialize(self).unwrap();
+        let coord_bytes = bincode::serde::encode_to_vec(self, bincode::config::standard()).unwrap();
         state.write(coord_bytes.as_slice());
         state.finish();
     }

@@ -177,7 +177,7 @@ pub struct DirectedCsrGraph<EV, NV> {
     pub csr_out: Csr<EV>,
     pub csr_inc: Csr<EV>,
     #[serde(skip)]
-    dijkstra_cache: Mutex<FxHashMap<usize, DijkstraResult<EV>>>,
+    dijkstra_cache: Mutex<FxHashMap<(usize, Direction), DijkstraResult<EV>>>,
 }
 
 impl<EV, NV> DirectedCsrGraph<EV, NV>
@@ -430,7 +430,7 @@ impl<EV, NV> Dijkstra for DirectedCsrGraph<EV, NV>
 where
     EV: FloatCore + Default + Debug + Clone,
 {
-    #[instrument(skip(self))]
+    #[instrument(level = "trace", skip(self))]
     fn dijkstra(
         &self,
         start_node: usize,
@@ -439,7 +439,7 @@ where
     ) -> DijkstraResult<EV> {
         let mut cache = self.dijkstra_cache.lock();
 
-        let entry = cache.entry(start_node);
+        let entry = cache.entry((start_node, direction));
 
         let result = entry.or_insert(DijkstraResult(FxHashSet::default()));
 
@@ -454,8 +454,6 @@ where
             ResultNode::new(Target::new(start_node, Self::EV::zero()), None),
             Reverse(OrderedFloat(EV::zero())),
         );
-
-        debug!("Computing Dijkstra for {} nodes", target_set.len());
 
         while !target_set.is_empty() && !frontier.is_empty() {
             let node = frontier.pop().expect("This is a bug").0;

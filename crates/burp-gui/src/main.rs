@@ -16,7 +16,8 @@ fn main() {
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
     tracing_log::LogTracer::init().unwrap();
-    let native_options = eframe::NativeOptions::default();
+    let mut native_options = eframe::NativeOptions::default();
+    native_options.multisampling = 4;
     eframe::run_native(
         "Burp",
         native_options,

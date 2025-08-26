@@ -8,7 +8,10 @@ use std::{
 use ashpd::{WindowIdentifier, desktop::file_chooser::FileFilter};
 use burp::{
     input::geo_zero::{ColumnValueClonable, GraphWriter},
-    oracle::{PoiGraph, block_pair::BlockPair, oracle::Oracle},
+    oracle::{
+        DefaultOracleParams, MinSplitParams, MinimalSplitStrategy, PoiGraph, SimpleSplitStrategy,
+        block_pair::BlockPair, oracle::Oracle,
+    },
     tree::Tree,
     types::{CoordNode, Poi},
 };
@@ -54,6 +57,25 @@ mod app_data;
 
 pub use app_data::AppData;
 
+#[derive(PartialEq, Clone, Copy)]
+enum SplitStrategy {
+    SimpleSplitStrategy,
+    MinimalSplitStrategy,
+}
+
+impl Display for SplitStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::SimpleSplitStrategy => "Simple Split Stragety",
+                Self::MinimalSplitStrategy => "Minimal Split Stragety",
+            }
+        )
+    }
+}
+
 pub struct BurpApp {
     app_id: String,
     pub map: EguiMapState<String>,
@@ -62,6 +84,7 @@ pub struct BurpApp {
     event_handler: EventHandler,
     sender: tokio::sync::mpsc::Sender<Event>,
     build_oracle: bool,
+    split_strategy: SplitStrategy,
 }
 
 impl BurpApp {
@@ -96,6 +119,7 @@ impl BurpApp {
             event_handler,
             sender,
             build_oracle: false,
+            split_strategy: SplitStrategy::SimpleSplitStrategy,
         }
     }
 
@@ -111,78 +135,78 @@ impl eframe::App for BurpApp {
 
         let data = self.data.clone();
 
-        if let Some(graph) = data.graph {
-            if graph.read().is_dirty() {
-                self.runtime.spawn_blocking({
-                    let storage_dir = storage_dir.clone();
-                    move || {
-                        tracing::info_span!("graph").in_scope(|| {
-                            let mut file_path = storage_dir.expect("Not supportet on Android/iOS");
-                            file_path.push("graph.mp");
+        if let Some(graph) = data.graph
+            && graph.read().is_dirty()
+        {
+            self.runtime.spawn_blocking({
+                let storage_dir = storage_dir.clone();
+                move || {
+                    tracing::info_span!("graph").in_scope(|| {
+                        let mut file_path = storage_dir.expect("Not supportet on Android/iOS");
+                        file_path.push("graph.gmp");
 
-                            let mut file =
-                                std::io::BufWriter::new(std::fs::File::create(file_path).unwrap());
+                        let mut file =
+                            std::io::BufWriter::new(std::fs::File::create(file_path).unwrap());
 
-                            match rmp_serde::encode::write(&mut file, graph.read().deref()) {
-                                Ok(_) => tracing::info!("Saved graph"),
-                                Err(err) => tracing::error!("Failed to save graph: {err}"),
-                            }
+                        match rmp_serde::encode::write(&mut file, graph.read().deref()) {
+                            Ok(_) => tracing::info!("Saved graph"),
+                            Err(err) => tracing::error!("Failed to save graph: {err}"),
+                        }
 
-                            graph.write().set_clean();
-                        })
-                    }
-                });
-            }
+                        graph.write().set_clean();
+                    })
+                }
+            });
         }
 
-        if let Some(oracle) = data.oracle {
-            if oracle.lock().is_dirty() {
-                self.runtime.spawn_blocking({
-                    let storage_dir = storage_dir.clone();
-                    move || {
-                        tracing::info_span!("oracle").in_scope(|| {
-                            let mut file_path = storage_dir.expect("Not supportet on Android/iOS");
-                            file_path.push("oracle.mp");
+        if let Some(oracle) = data.oracle
+            && oracle.lock().is_dirty()
+        {
+            self.runtime.spawn_blocking({
+                let storage_dir = storage_dir.clone();
+                move || {
+                    tracing::info_span!("oracle").in_scope(|| {
+                        let mut file_path = storage_dir.expect("Not supportet on Android/iOS");
+                        file_path.push("oracle.ocmp");
 
-                            let mut file =
-                                std::io::BufWriter::new(std::fs::File::create(file_path).unwrap());
+                        let mut file =
+                            std::io::BufWriter::new(std::fs::File::create(file_path).unwrap());
 
-                            let mut oracle = oracle.lock();
+                        let mut oracle = oracle.lock();
 
-                            match rmp_serde::encode::write(&mut file, oracle.deref()) {
-                                Ok(_) => tracing::info!("Saved oracle"),
-                                Err(err) => tracing::error!("Failed to save oracle: {err}"),
-                            }
+                        match rmp_serde::encode::write(&mut file, oracle.deref()) {
+                            Ok(_) => tracing::info!("Saved oracle"),
+                            Err(err) => tracing::error!("Failed to save oracle: {err}"),
+                        }
 
-                            oracle.set_clean();
-                        })
-                    }
-                });
-            }
+                        oracle.set_clean();
+                    })
+                }
+            });
         }
 
-        if let Some(split_tree) = data.split_tree {
-            if split_tree.read().is_dirty() {
-                self.runtime.spawn_blocking({
-                    let storage_dir = storage_dir.clone();
-                    move || {
-                        tracing::info_span!("split_tree").in_scope(|| {
-                            let mut file_path = storage_dir.expect("Not supportet on Android/iOS");
-                            file_path.push("split_tree.mp");
+        if let Some(split_tree) = data.split_tree
+            && split_tree.read().is_dirty()
+        {
+            self.runtime.spawn_blocking({
+                let storage_dir = storage_dir.clone();
+                move || {
+                    tracing::info_span!("split_tree").in_scope(|| {
+                        let mut file_path = storage_dir.expect("Not supportet on Android/iOS");
+                        file_path.push("split_tree.scmp");
 
-                            let mut file =
-                                std::io::BufWriter::new(std::fs::File::create(file_path).unwrap());
+                        let mut file =
+                            std::io::BufWriter::new(std::fs::File::create(file_path).unwrap());
 
-                            match rmp_serde::encode::write(&mut file, split_tree.read().deref()) {
-                                Ok(_) => tracing::info!("Saved split_tree"),
-                                Err(err) => tracing::error!("Failed to save split_tree: {err}"),
-                            }
+                        match rmp_serde::encode::write(&mut file, split_tree.read().deref()) {
+                            Ok(_) => tracing::info!("Saved split_tree"),
+                            Err(err) => tracing::error!("Failed to save split_tree: {err}"),
+                        }
 
-                            split_tree.write().set_clean();
-                        })
-                    }
-                });
-            }
+                        split_tree.write().set_clean();
+                    })
+                }
+            });
         }
     }
 
@@ -209,13 +233,15 @@ impl eframe::App for BurpApp {
         self.event_handler.handle_events(&mut self.data);
 
         egui::TopBottomPanel::top("Menu").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     ui.add(widgets::OpenFile::new(
                         "Open",
                         vec![
                             FileFilter::new("geojson").glob("*.geojson"),
                             FileFilter::new("gmp").glob("*.gmp"),
+                            FileFilter::new("omp").glob("*.omp"),
+                            FileFilter::new("smp").glob("*.smp"),
                         ],
                         frame,
                         &self.runtime,
@@ -282,6 +308,23 @@ impl eframe::App for BurpApp {
 
                                     Some(Event::GraphLoaded(PoiGraph::new(graph)))
                                 }
+                                "gmp" => {
+                                    let graph: PoiGraph<Poi> =
+                                        rmp_serde::from_read(buf_reader).unwrap();
+
+                                    Some(Event::GraphLoaded(graph))
+                                }
+                                "omp" => {
+                                    let oracle: Oracle<f64, f64> =
+                                        rmp_serde::from_read(buf_reader).unwrap();
+
+                                    Some(Event::OracleLoaded(oracle))
+                                }
+                                "smp" => {
+                                    let split_tree = rmp_serde::from_read(buf_reader).unwrap();
+
+                                    Some(Event::SplitTreeLoaded(split_tree))
+                                }
                                 _ => None,
                             }
                         },
@@ -294,6 +337,11 @@ impl eframe::App for BurpApp {
                 .add_enabled(self.data.graph.is_some(), egui::Button::new("Show Graph"))
                 .clicked()
             {
+                if self.data.graph.as_ref().unwrap().read().is_dirty() {
+                    self.map.map.remove("graph");
+                    self.map.map.remove("nodes");
+                }
+
                 let _ = self.map.map.toggle_layer(&String::from("graph")).or_else(
                     |_| -> Result<(), String> {
                         let layer: &mut Arc<RwLock<ContourLayer<SimpleContourSymbol, f64>>> = self
@@ -364,6 +412,21 @@ impl eframe::App for BurpApp {
                 self.build_oracle = true;
             }
 
+            egui::ComboBox::from_label("Split stragety")
+                .selected_text(format!("{}", self.split_strategy))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.split_strategy,
+                        SplitStrategy::SimpleSplitStrategy,
+                        "Simple Split Stragety",
+                    );
+                    ui.selectable_value(
+                        &mut self.split_strategy,
+                        SplitStrategy::MinimalSplitStrategy,
+                        "Minimal Split Stragety",
+                    );
+                });
+
             if self.build_oracle
                 && self.map.clicked()
                 && let Some(map_interact_pos) = self.map.map_interact_pos()
@@ -373,7 +436,7 @@ impl eframe::App for BurpApp {
                     self.data
                         .graph
                         .as_ref()
-                        .ok_or(ErrorMsg("No graph loaded".to_string()))?
+                        .ok_or(ErrorMsg("No graph loaded"))?
                         .read()
                         .graph()
                         .nearest_node_bound(
@@ -381,7 +444,7 @@ impl eframe::App for BurpApp {
                             20.,
                         )
                         .ok_or(Box::new(ErrorMsg(
-                            "Could not find a node within the tolerance.".to_string(),
+                            "Could not find a node within the tolerance.",
                         )))
                 });
 
@@ -391,14 +454,28 @@ impl eframe::App for BurpApp {
                     log::info!("Building oracle...");
                     tokio::task::spawn_blocking({
                         let sender = self.sender.clone();
+                        let split_strategy = self.split_strategy;
                         move || {
                             let graph = graph.read();
-                            let mut oracle = Oracle::new();
-                            let split_tree =
-                                oracle.build_for_node(node, 0.25, graph.graph()).unwrap();
+                            let oracle = match split_strategy {
+                                SplitStrategy::SimpleSplitStrategy => Oracle::build_for_node(
+                                    node,
+                                    0.25,
+                                    graph.graph(),
+                                    DefaultOracleParams,
+                                )
+                                .unwrap(),
+                                SplitStrategy::MinimalSplitStrategy => Oracle::build_for_node(
+                                    node,
+                                    0.25,
+                                    graph.graph(),
+                                    MinSplitParams,
+                                )
+                                .unwrap(),
+                            };
 
                             sender
-                                .try_send(Event::OracleBuild(oracle, split_tree))
+                                .try_send(Event::OracleBuild(oracle.0, oracle.1))
                                 .unwrap();
                         }
                     });
@@ -439,64 +516,79 @@ impl eframe::App for BurpApp {
                         });
                 }
 
-                if let Some(split_tree) = self.data.split_tree.as_ref() {
-                    egui::Window::new("Split Tree").show(ctx, |ui| {
-                        ui.collapsing("Split Tree", |ui| {
-                            ui.add(widgets::TreeView::new(
-                                split_tree.read().deref(),
-                                |ui, node, id| {
-                                    if node.get_data().values().in_path(0.25) {
-                                        ui.visuals_mut().widgets.noninteractive.fg_stroke =
-                                            egui::Stroke::new(1., egui::Color32::GREEN);
-                                    }
-                                    if node.get_data().values().not_in_path(0.25) {
-                                        ui.visuals_mut().widgets.noninteractive.fg_stroke =
-                                            egui::Stroke::new(1., egui::Color32::RED);
-                                    }
+                if self.data.split_tree.is_some() || self.data.oracle.is_some() {
+                    egui::Window::new("Oracle").show(ctx, |ui| {
+                        if let Some(oracles) = self.data.oracle.as_ref() {
+                            for oracle in oracles.lock().iter() {
+                                ui.label(format!("Poi: {}", oracle.0));
+                                ui.label(format!("Size: {}", oracle.1.size()));
+                                if let Some(graph) = self.data.graph.as_ref() {
+                                    ui.label(format!(
+                                        "Average block ocupancy: {:.4}",
+                                        oracle.1.avg_block_ocupancy(graph.read().deref().graph())
+                                    ));
+                                }
+                                ui.separator();
+                            }
+                        }
 
-                                    ui.label("BlockPair");
+                        if let Some(split_trees) = self.data.split_tree.as_ref() {
+                            ui.heading("Split Trees");
+                            for split_tree in split_trees.read().iter() {
+                                ui.collapsing(split_tree.0.to_string(), |ui| {
+                                    ui.add(widgets::TreeView::new(split_tree.1, |ui, node, id| {
+                                        if node.data().1 {
+                                            ui.visuals_mut().widgets.noninteractive.fg_stroke =
+                                                egui::Stroke::new(1., egui::Color32::GREEN);
+                                        }
+                                        if node.data().0.values().not_in_path() {
+                                            ui.visuals_mut().widgets.noninteractive.fg_stroke =
+                                                egui::Stroke::new(1., egui::Color32::RED);
+                                        }
 
-                                    ui.reset_style();
+                                        ui.label("BlockPair");
 
-                                    if ui.button("Show on Map").clicked() {
-                                        info!("Drawing block pair");
-                                        error_modal.handle_error(ui, |ui| {
-                                            let layer: &mut Arc<RwLock<BlockPairLayer<f64>>> = self
-                                                .map
-                                                .map
-                                                .or_insert(
-                                                    "block_pair".to_string(),
-                                                    BlockPairLayer::new(Crs::WGS84),
-                                                )
-                                                .as_any_mut()
-                                                .downcast_mut()
-                                                .ok_or(ErrorMsg(
-                                                    "Couldn't downcast layer".to_string(),
-                                                ))?;
+                                        ui.reset_style();
 
-                                            if let Some(ref graph) = self.data.graph {
-                                                let graph_lock = graph.read();
+                                        if ui.button("Show on Map").clicked() {
+                                            info!("Drawing block pair");
+                                            error_modal.handle_error(ui, |ui| {
+                                                let layer: &mut Arc<RwLock<BlockPairLayer<f64>>> =
+                                                    self.map
+                                                        .map
+                                                        .or_insert(
+                                                            "block_pair".to_string(),
+                                                            BlockPairLayer::new(Crs::WGS84),
+                                                        )
+                                                        .as_any_mut()
+                                                        .downcast_mut()
+                                                        .ok_or(ErrorMsg(
+                                                            "Couldn't downcast layer",
+                                                        ))?;
 
-                                                layer.write().show_block_pair(
-                                                    node.get_data().clone(),
-                                                    graph_lock.graph(),
-                                                );
-                                                Ok(())
-                                            } else {
-                                                Err(Box::new(ErrorMsg(
-                                                    "No graph loaded".to_string(),
-                                                )))
-                                            }
-                                        });
-                                        self.map.map.redraw();
-                                    }
+                                                if let Some(ref graph) = self.data.graph {
+                                                    let graph_lock = graph.read();
 
-                                    let values =
-                                        egui::CollapsingHeader::new("Values").id_salt((id, 0));
-                                    values.show(ui, |ui| ui.label(format!("{}", node.get_data())));
-                                },
-                            ));
-                        });
+                                                    layer.write().show_block_pair(
+                                                        node.data().0.clone(),
+                                                        graph_lock.graph(),
+                                                    );
+                                                    Ok(())
+                                                } else {
+                                                    Err(Box::new(ErrorMsg("No graph loaded")))
+                                                }
+                                            });
+                                            self.map.map.redraw();
+                                        }
+
+                                        let values =
+                                            egui::CollapsingHeader::new("Values").id_salt((id, 0));
+                                        values
+                                            .show(ui, |ui| ui.label(format!("{}", node.data().0)));
+                                    }));
+                                });
+                            }
+                        }
                     });
                 }
             });
@@ -507,12 +599,12 @@ impl eframe::App for BurpApp {
 }
 
 #[derive(Debug)]
-pub struct ErrorMsg(String);
+pub struct ErrorMsg<'a>(&'a str);
 
-impl std::error::Error for ErrorMsg {}
+impl std::error::Error for ErrorMsg<'_> {}
 
-impl std::fmt::Display for ErrorMsg {
+impl std::fmt::Display for ErrorMsg<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.as_str())
+        write!(f, "{}", self.0)
     }
 }

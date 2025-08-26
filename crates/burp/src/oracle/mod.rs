@@ -26,14 +26,22 @@ use rayon::prelude::*;
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::types::CoordNode;
+use crate::{
+    oracle::{block_pair::BlockPair, oracle::Radius},
+    types::CoordNode,
+};
+
+pub use params::*;
+pub use split_strategy::*;
 
 pub mod block_pair;
 pub mod oracle;
+pub mod params;
+pub mod split_strategy;
 
 pub trait NodeTrait: Clone + Debug + Send + Sync {}
 
-type RTreeGraphType<T> = RTreeGraph<DirectedCsrGraph<f64, CoordNode<f64, T>>, f64>;
+pub type RTreeGraphType<T> = RTreeGraph<DirectedCsrGraph<f64, CoordNode<f64, T>>, f64>;
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct PoiGraph<NV>
@@ -129,19 +137,6 @@ where
         });
 
         Ok(())
-    }
-
-    pub fn to_flexbuffer(&self) -> Vec<u8> {
-        let mut ser = flexbuffers::FlexbufferSerializer::new();
-        self.serialize(&mut ser).unwrap();
-
-        ser.view().to_vec()
-    }
-
-    pub fn read_flexbuffer(f_buf: &[u8]) -> Self {
-        let reader = flexbuffers::Reader::get_root(f_buf).unwrap();
-
-        Self::deserialize(reader).unwrap()
     }
 
     pub fn poi_nodes(&self) -> &FxHashSet<usize> {
@@ -486,67 +481,4 @@ mod test {
         oracle::{self, PoiGraph},
         types::Poi,
     };
-
-    #[test]
-    fn flexbuffer() {
-        let geojson = r#" {
-        "type": "FeatureCollection",
-        "features": [{
-            "type": "Feature",
-            "geometry": {
-                "type": "LineString",
-                "coordinates": [
-                [
-                    13.3530166,
-                    52.5365623
-                ],
-                [
-                    13.3531553,
-                    52.5364245
-                ],
-                [
-                    13.3538338,
-                    52.5364855
-                ],
-                [
-                    13.3542415,
-                    52.536498
-                ],
-                [
-                    13.3546724,
-                    52.5364904
-                ],
-                [
-                    13.355102,
-                    52.5364593
-                ]
-                ]
-            },
-            "properties": {
-                "osm_id": 54111470,
-                "osm_type": "ways_line",
-                "tunnel": null,
-                "surface": "paving_stones",
-                "name": null,
-                "width": null,
-                "highway": "service",
-                "oneway": null,
-                "layer": null,
-                "bridge": null,
-                "smoothness": null
-            }
-        }]
-        }"#;
-
-        let mut graph_writer = GraphWriter::new(|_| true);
-        assert!(read_geojson(geojson.as_bytes(), &mut graph_writer).is_ok());
-        let graph = graph_writer.get_graph();
-        let oracle = PoiGraph::from(RTreeGraph::new_from_graph(graph));
-
-        let flexbuff = oracle.to_flexbuffer();
-
-        let oracle2: PoiGraph<Poi> = PoiGraph::read_flexbuffer(flexbuff.as_slice());
-
-        assert_eq!(oracle, oracle2);
-    }
 }

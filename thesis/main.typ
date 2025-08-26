@@ -1,6 +1,6 @@
 #import "@local/unikn-thesis:1.0.0": *
 #import "@preview/lovelace:0.3.0": *
-#import "@preview/algorithmic:1.0.0": *
+#import "@preview/algorithmic:1.0.3": *
 #import "@preview/cetz:0.3.4" as cetz
 #import "@preview/algo:0.3.6": algo, i, d, comment, code
 #import "@local/cetz-plot:0.1.1"
@@ -62,7 +62,13 @@ Furthermore, we compare our beer-path oracle with a double dijkstra approach, un
 
 The findings of this report contribute to the ongoing research in graph algorithms and data structures, offering insights into the development of efficient pathfinding techniques under constrained conditions.
 
-// = Related Work
+= Related Work
+
+- Smallest detour queries
+
+== Path and Distance Oracles
+
+== Node-Importance based Approaches
 
 = Preliminaries
 
@@ -75,7 +81,7 @@ Most of the definitions are taken from #cite(<Ghosh2023>, form: "prose").
   $d_N (s, t)$ is obtained by summing over the edge weights along the shortest path between $s$ and $t$.]
 
 #definition("Detour")[Given source $s$ and destination $t$ nodes, let $pi(s, t)$ denote a simple path that is not necessarily the shortest.
-  The detour of such a path is the difference in the network distance along $pi(s, t)$ compared to $d_N (s,t)$.
+  The detour $d_D$ of such a path is the difference in the network distance along $pi(s, t)$ compared to $d_N (s,t)$.
   Furthermore, it is fairly trivial to see that the detour of any path is greater or equal to zero.]
 
 #definition("Detour Bound")[The detours are bounded by a fraction $epsilon$ such that their total distance does not exceed $epsilon * d_N (s,t)$.
@@ -91,18 +97,18 @@ under the conditions specified.
 
 // NOTE: Limitations probably should be under 'Algorithms & Implementation'
 
-= Algorithms & Implementation
+= Algorithms & Implementation <algos>
 
 In this section we will look at the algorithms we want to compare in this report.
-The first algorithm is a double dijkstra exploring from the start and target towards the POIs.
-The second algorihm is a parallel version of the dual Dijkstra @Ghosh2023.
-The last algorithm uses a in-path oracle @Ghosh2023 for faster query times.
+The first algorithm is a double Dijkstra exploring from the start and target towards the POIs.
+The second algorithm is a parallel version of the dual Dijkstra @Ghosh2023.
+The last algorithm uses an in-path oracle @Ghosh2023 for faster query times.
 
 == Double Dijkstra
 
 // #TODO: Description is enough
 The double Dijkstra is a Dijkstra variant for finding detours passing through one $p in P$.
-We use two seperate instances of Dijkstra starting from the start $s$ and end $t$ node respectively.
+We use two separate instances of Dijkstra starting from the start $s$ and end $t$ node respectively.
 The input for both instances are all POIs from $P$ and $t$ for the instance starting from $s$.
 We combine the result of both instances by adding the costs from both instances for every $p in P$ together.
 It is important to note for the instance starting from $t$ we traverse the edges backwards.
@@ -110,10 +116,10 @@ It is important to note for the instance starting from $t$ we traverse the edges
 == Parallel Dual Dijkstra
 
 #cite(<Ghosh2023>, form: "prose") proposed the dual Dijkstra algorithm for finding POIs within a specified detour tolerance limit $epsilon$ which we developed a parallel version of.
-In order to parallelise the algorithm we run two Dijkstra at the same time starting from the source $s$ and destination $t$ similar to the double Dijkstra.
+In order to parallelize the algorithm we run two Dijkstra at the same time starting from the source $s$ and destination $t$ similar to the double Dijkstra.
 
 @par-dual-dijkstra describes the algorithm of both instances.
-Each instance uses its own a priority queue $Q$ over the distance to it's respective start node.
+Each instance uses its own a priority queue $Q$ over the distance to its respective start node.
 Every node $n$ additionally holds the distance to the start and a label which can be accessed with the functions $d(n)$ and $l(n)$.
 
 At the core of this algorithm is the shared data structure #smallcaps[Visited].
@@ -154,15 +160,15 @@ If this node $n in P$ we mark it as $bb("POI")$ so it gets added to the result.
   ]
 ] <par-dual-dijkstra>
 
-== Beer-Path Oracle
+== Beer-Path Oracle <beer-path-oracle>
 
 The beer-path oracle proposed by #cite(<Ghosh2023>, form: "prose") aims to reduce query times using precomputed results.
 It uses the _spatial coherence_ @Sankaranarayanan2005 property in road networks which observes similar characteristics for nodes spatially adjacent to each other.
-Or more percisely the coherence between shortest paths and distances between nodes and their spatial locations @Sankaranarayanan2005 @Sankaranarayanan2009.
+Or more precisely the coherence between the shortest paths and distances between nodes and their spatial locations @Sankaranarayanan2005 @Sankaranarayanan2009.
 We know for a set of source nodes $A$ and destination nodes $B$ they might share the same shortest paths if $A$ and $B$ are sufficiently far apart and the nodes contained in $A$ and $B$ are close together.
 This enables determining if a POI is in-path with respect to this group of nodes opposed to single pairs of nodes.
 
-The focus here is maximising the throughput where one can answer millions of in-path queries a second using a single machine.
+The focus here is maximizing the throughput where one can answer millions of in-path queries a second using a single machine.
 
 This approach though is not able to find multiple POIs one might want to visit without exceeding the detour bound.
 It is expected that the user only wants to visit one of the presented POIs.
@@ -174,7 +180,7 @@ vaccination clinics, etc.
 
 #cetz-figures.fig_in-path <figure-in-path>
 
-In order to define the _in-path_ property for a set of source nodes $A$ and a set of destination nodes $B$ these sets are restricted to be inside of a bounding box containing all nodes.
+In order to define the _in-path_ property for a set of source nodes $A$ and a set of destination nodes $B$ these sets are restricted to be inside a bounding box containing all nodes.
 Let $a_r$ be a randomly chosen representative source node in $A$ and $b_r$ a representative destination node in $B$.
 Let $p$ be the POI we want to determine as in-path with respect to the block-pair $(A, B)$ if all shortest-paths from all sources in $A$ to all destinations in $B$ are in-path to $p$.
 
@@ -226,13 +232,22 @@ Even $d_N (a_r, b_r) > 0$ would not be enough because $d_N (a_r, b_r) > (r_a^F +
 ]
 
 #proof[
-  For any given node $s$, $t$ in $A, B$, respectively, $d_N (s,t)$ is at most $d_N (a_r, b_r) + (r_a^B + r_b^F)$ (see @lemma-Longest-Shortest-Path).
+  For any given nodes $s$, $t$ in $A, B$, respectively, $d_N (s,t)$ is at most $d_N (a_r, b_r) + (r_a^B + r_b^F)$ (see @lemma-Longest-Shortest-Path).
   Considering the path $s -> a_r -> p -> b_r -> t$ it has a length of at least $d_N (a_r, p) + d_N (p, b_r) - (r_a^B + r_b^F)$.
   We get the following inequality in order for all possible paths in $A,B$ to not be _in-path_ to $p$:
   $
     d_N (a_r, p) + d_N (p, b_r) - (r_a^B + r_b^F) >= (d_N (a_r, b_r) + (r_a^B + r_b^F)) dot (1 + epsilon) \
     (d_N (a_r, p) + d_N (p, b_r) - (r_a^B + r_b^F)) / (d_N (a_r, b_r) + (r_a^B + r_b^F)) - 1 >= epsilon
   $
+]
+
+#lemma("In-Path Parent")[
+  A block pair $(A, B)$ is _in-path_ if all its children are _in-path_
+]
+
+#proof[
+  For any given nodes $s, t$ in $A, B$ respectively we find a child block pair $(A', B')$ with $s in A'$ and $t in B'$.
+  Because all child block pairs of $(A, B)$ are _in-path_, $s, t$ are _in-path_ and thus $(A, B)$ has to be _in-path_.
 ]
 
 #show: style-algorithm
@@ -268,6 +283,7 @@ Even $d_N (a_r, b_r) > 0$ would not be enough because $d_N (a_r, b_r) > (r_a^F +
   },
 ) <algo-in-path-oracle>
 
+
 // #lemma("In-Path Oracle Size")[
 //   The size of the in-path oracle for a single $p$ is $O(1 / epsilon^2 n)$ since it is a Well-Seperated Pair Decomposition (WSPD) of the road network.
 // ]
@@ -301,6 +317,178 @@ For this reason the _R\*-Tree_ performs reinsertion of entries to "find" a bette
 In the case of a node overflowing a portion of its entries are removed and reinserted into tree.
 To avoid infinite reinsertion, this may only be performed once per level of the tree.
 
+= Main development
+
+== Baseline Analysis
+
+The approach presented in @beer-path-oracle has some shortcomings especially in its space consumption. In this section we will look at some possible reasons for these shortcomings.
+
+The biggest shortcoming of the _in-path_ oracle is the space consumption.
+We found the oracle to be very large even on relatively small instances.
+Furthermore it was not possible to test instances of similar size to the instances used by @Ghosh2023.
+This bakes the question for the cause of the large size of the oracle.
+
+=== Theoretical
+
+#definition("Radius")[
+  Let $r$ be the average of $r_a^F, r_a^B, r_b^F, r_b^B$ such that $4r = r_a^F+ r_a^B+ r_b^F+ r_b^B$.
+]
+
+We can use $r$ to get an upper bound for the average over all the specific radii which should give us an idea how large the block pairs can be in relation to their distance.
+
+#lemma("In-Path Radius Upper Bound")[
+  With $d_D$ denoting the detour through $p$ for any block pair $(A, B)$ to be _in-path_ the average radius is bound by:
+  $
+    r <= (d_N (s,t) epsilon - d_D) / (4 + 2 epsilon)
+  $
+]
+
+#proof[
+  Using @lemma-In-Path-Property gives us:
+  $
+    (d_N (s,t) + d_D + 2r) / (d_N (s,t) - 2r) & <= 1 + epsilon \
+    d_N (s,t) + d_D + 2r & <= (1 + epsilon) (d_N (s,t) - 2r) \
+    4r & <= d_N (s,t) epsilon - 2r epsilon - d_D \
+    4r + 2r epsilon & <= d_N (s,t) epsilon - d_D \
+    r(4 + 2 epsilon) & <= d_N (s,t) epsilon - d_D \
+    r & <= (d_N (s,t) epsilon - d_D) / (4 + 2 epsilon)
+  $
+]
+
+We can see $r$ can be at most $1 / 4$ of $d_N (s,t) epsilon - d_D$ for a block pair to be _in-path_.
+This is especially bad for small $epsilon$ because then $d_N (s,t) epsilon$ is small which in turn causes $r$ to be a small fraction of $d_N (s,t)$.
+Moreover, $d_D$ is subtracted from $d_N (s,t) epsilon$ causing $r$ to have to be even smaller or even zero.
+
+#lemma("Not In-Path Radius Upper Bound")[
+  With $d_D$ denoting the detour through $p$ for any block pair $(A, B)$ to be not _in-path_ the average radius is bound by:
+  $
+    r <= (d_D - d_N (s,t) epsilon) / (4 + 2 epsilon)
+  $
+]
+
+#proof[
+  Using @lemma-Not-In-Path-Property gives us:
+  $
+    (d_N (s,t) + d_D - 2r) / (d_N (s,t) + 2r) & >= 1 + epsilon \
+    d_N (s,t) + d_D - 2r & >= (1 + epsilon) (d_N (s,t) + 2r) \
+    4r + 2r epsilon & <= d_D - d_N (s,t) epsilon \
+    r & <= (d_D - d_N (s,t) epsilon) / (4 + 2 epsilon)
+  $
+]
+
+For a block pair to be not _in-path_ $r$ is primarily bound by $d_D$ which makes sense because a large detour increases the difference to the detour limit and thus increases the size a block can have without containing a node which can have a detour within the limit.
+
+=== Practical Worst Cases
+
+In order to get a better understanding of the performance of @algo-in-path-oracle we build a tool to visualize the results produced by the algorithm.
+It enables us to look at the concrete values for any block pair as well as the paths leading to these values (see @figure-tool-showcase).
+The tool also allows us to have a look at intermediate results occurring during the execution of the algorithm.
+We could identify multiple cases proofing to be unfavorably for the algorithm.
+
+#figure(
+  caption: [A block pair is visualized in pink. The green dots show the representant of the block. The red dot shows the POI associated with the block pair. The shortest path is green. The detour is the red path. The blue paths are the radii of the blocks.],
+)[
+  #image("assets/tool-showcase.png")
+] <figure-tool-showcase>
+
+====
+
+Road networks often contain nodes which are very close in euclidean space but have a relatively high road network distance. (see )
+This case is very common on the border between different suburbs because they are often self contained networks with only one or two access roads with no roads connecting the suburbs.
+Another reason can be some kind of obstacle having to go arround.
+
+#figure(
+  caption: [In order to reach the point on the other side of the train station, a relatively large detour compared to the euclidean distance.],
+)[
+  #image("assets/large-radius.png", height: 300pt)
+]
+
+==== One-Way Streets
+
+One-Way streets tend cause larger radii and thus the blocks to be smaller.
+As we can see in @figure-one-way-radii to reach some nodes inside the block we have to take a significantly longer route due to one-way street.
+This has the effect of the radii being very long in relation to the size of the block.
+Furthermore it can require blocks to be split until only one node is contained in a block because we always have to take the long route to reach other nodes on the one-way street.
+
+#figure(caption: [One-Way streets increase the radii (blue) because having to go around])[
+  #image("assets/one-way-street-radii.png", height: 300pt)
+] <figure-one-way-radii>
+
+#cetz-figures.fig_one-way_street <figure-one-way-street>
+
+@figure-one-way-street illustrates this problem.
+When $p_2$ is the represent for this block we have to take a really long route to reach $p_1$.
+This is one reason why it is very difficult to find a concrete bound for $r$.
+
+== Improvements
+
+=== Merge
+
+=== Ceter Representant
+
+In this section I will outline the main development of this work.
+
+- Merge Algorithm
+
+#algorithm-figure(
+  "Merged In-Path Oracle for a given POI",
+  {
+    let process_block = Fn.with("process_block")
+    Assign[$R$][root block of the road network]
+    Assign[$#math.italic([result])$][$emptyset$]
+
+
+    Line(process_block[$(R, R)$])
+
+    Function(
+      "process_block",
+      ($(A, B)$),
+      {
+        Assign[$s,t$][random node from $A, B$, respectively]
+        Assign[$#math.italic("values")$][Compute $d_n (s,t), d_N (s,p), d_N (p,t), r_a^F, r_a^B, r_b^F, r_b^B$]
+
+        If(
+          $#math.italic("values.in-path()")$,
+          {
+            Return[true]
+          },
+        )
+        If(
+          $#math.italic("values.not-in-path()")$,
+          {
+            [continue]
+          },
+        )
+
+        Assign[_children_][Subdivide $A$ and $B$ into 4 children blocks. Discard empty children blocks.]
+
+        For(
+          [_child_ in _children_],
+          {
+            process_block[_child_]
+          },
+        )
+
+        If(
+          [all children in-path],
+          {
+            [Set this block as in-path]
+          },
+        )
+
+
+        For(
+          [_child_ in _children_],
+          {
+            [_result.add((A, B))_]
+          },
+        )
+
+        Return[false]
+      },
+    )
+  },
+)
 
 = Experimental Evaluation
 
@@ -308,9 +496,9 @@ The experiments were performed on an AMD Ryzen 5 5600X with 6 cores and 12 threa
 
 == Dataset
 
-The road networks used for evaluation were obtained from OpenStreetMap and sanetized of foot-paths to only include one edge per street. We used two datasets in our evaluation, Konstanz with 2282 nodes and 4377 edges and San Francisco with 95092 nodes and 172256 edges. The weight of each directed edge denotes the travel distance between two nodes. Note that _chains_ (or _ways_) are not simplified.
+The road networks used for evaluation were obtained from OpenStreetMap and sanitized of foot-paths to only include one edge per street. We used two datasets in our evaluation, Konstanz with 2282 nodes and 4377 edges and San Francisco with 95092 nodes and 172256 edges. The weight of each directed edge denotes the travel distance between two nodes. Note that _chains_ (or _ways_) are not simplified.
 
-=== Comparitive Experiments
+=== Comparative Experiments
 
 We used the dual Dijkstra as a baseline for comparison similar to #cite(<Ghosh2023>, form: "prose").
 We also compared against a simple parallel version of the dual Dijkstra.
@@ -336,9 +524,9 @@ To measure the impact of the detour limit on the oracle size we varied the detou
 The test were performed on the Konstanz data set consisting of 2282 nodes and 4377 edges.
 As we can see in @fig-oracle-size the oracle size is roughly shaped like a bell which makes sense when looking at @lemma-In-Path-Property and @lemma-Not-In-Path-Property.
 When $epsilon$ is very small @lemma-Not-In-Path-Property is more easily satisfied.
-Similarly when $epsilon$ is very big @lemma-In-Path-Property is satisfied for bigger blocks.
+Similarly, when $epsilon$ is very big @lemma-In-Path-Property is satisfied for bigger blocks.
 It is important to note #cite(<Ghosh2023>, form: "prose") report much smaller sizes for a graph of this size.
-For a graph with 5000 nodes they report a oracle size of a little bit more than 100,000 compared to the 3,010,095 (see @fig-oracle-size) we found for a graph with 2248 nodes.
+For a graph with 5000 nodes they report an oracle size of a bit more than 100,000 compared to the 3,010,095 (see @fig-oracle-size) we found for a graph with 2248 nodes.
 
 
 #figure(
@@ -491,7 +679,7 @@ We will ignore the results of the parallel dual Dijkstra moving forward because 
 
 
 
-We observe a constant throughput of about 28,000 _in-path_ queries/second for the dual Dijkstra on most POI sampling rates running on only one single thread. This is due to the search space being dependent on $epsilon$ an thus not changing for different sampling rates.
+We observe a constant throughput of about 28,000 _in-path_ queries/second for the dual Dijkstra on most POI sampling rates running on only one single thread. This is due to the search space being dependent on $epsilon$ and thus not changing for different sampling rates.
 As expected the _in-path_ oracle has a much higher throughput than the dual Dijkstra.
 @fig-throughput clearly shows we get more than 100,000 _in-path_ queries per second for all sampling rates.
 This confirms the findings of #cite(<Ghosh2023>, form: "prose").
@@ -500,13 +688,13 @@ This confirms the findings of #cite(<Ghosh2023>, form: "prose").
 
 We looked at the solution to the _beer-path_ problem proposed by #cite(<Ghosh2023>, form: "prose") and implemented it in Rust.
 We could somewhat verify the results with regard to the throughput on small instances.
-On bigger instances the time to compute the oracle is to long to be practically feasible which stays in contrast to the 30 minuets claimed by #cite(<Ghosh2023>, form: "prose").
+On bigger instances the time to compute the oracle is to long to be practically feasible which stays in contrast to the 30 minutes claimed by #cite(<Ghosh2023>, form: "prose").
 The oracle size though we find to be bigger by a factor of more than 10 and also exceeds the upper bound they presented which could be why the compute time is so high.
 This obviously has an impact on the throughput because of the massive increase in search space (see @fig-throughput).
 Because the size of the oracle exceeded the bound presented by #cite(<Ghosh2023>, form: "prose") further work should be conducted to provide a concrete proof.
-Furthermore we find @lemma-In-Path-Property to be insufficient.
+Furthermore, we find @lemma-In-Path-Property to be insufficient.
 Precisely the term $d_N (a_r, b_r) - (r_a^F + r_b^B)$ can be less than 0 because $d_N (a_r, b_r) > (r_a^F + r_b^B)$ is not guaranteed which is why the isolation of $epsilon$ is not possible.
 It remains to be seen what the impact of this insufficiency is.
 
 Looking at the findings of this work we can see the potential of the _in-path oracle_ @Ghosh2023 though it lacks details to be easily reproducible.
-Especially with regards to the scalability we could not confirm the claims they made nor find their proofs sufficient.
+Especially with regard to the scalability we could not confirm the claims they made nor find their proofs sufficient.

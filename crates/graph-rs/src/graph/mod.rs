@@ -143,8 +143,10 @@ impl<EV: Num + Copy> Path<EV> {
         self.path.pop()
     }
 
-    pub fn cost(&self) -> Option<EV> {
-        self.path.last().map(|e| *e.value())
+    /// Retruns the cost of the [Path] asuming the values of each [Target]
+    /// are the cost from the first node in the path.
+    pub fn cost(&self) -> EV {
+        self.path.last().map(|e| *e.value()).unwrap_or(EV::zero())
     }
 }
 

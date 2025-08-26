@@ -70,3 +70,36 @@
     }
   })
 ]
+
+#let fig_one-way_street = figure(caption: [To get from $p_2$ to $p_1$ one has to take the long way around])[
+  #cetz.canvas({
+    import kn_color: *
+    import cetz.draw: *
+    import cetz-elements: *
+    set-style(
+      circle: (radius: 0.08, fill: black, stroke: none),
+      content: (padding: .1),
+      mark: (scale: .6),
+    )
+    scope({
+      rect((0, 0), (rel: (2, 2)), name: "block")
+      circle((-1.3, 1.3), name: "p0")
+      circle((.3, 1.2), name: "p1")
+      content("p1", anchor: "north")[$p_1$]
+      circle((1.6, 1.5), name: "p2")
+      content("p2", anchor: "north")[$p_2$]
+      circle((2.6, 2.5), name: "p3")
+      circle((2.6, 5.5), name: "p4")
+      circle((0.6, 5.5), name: "p5")
+      circle((-0.6, 3.5), name: "p6")
+
+      arrow("p0", "p1", shift: 0, stroke: kn_seeblau)
+      arrow("p1", "p2", shift: 0)
+      arrow("p2", "p3", shift: -.1, stroke: kn_seeblau)
+      arrow("p3", "p4", shift: -.1, stroke: kn_seeblau)
+      arrow("p4", "p5", shift: -.1, stroke: kn_seeblau)
+      arrow("p5", "p6", shift: -.1, stroke: kn_seeblau)
+      arrow("p6", "p0", shift: -.1, stroke: kn_seeblau)
+    })
+  })
+]

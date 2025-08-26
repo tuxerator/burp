@@ -11,7 +11,7 @@ use burp::{
         geo_zero::{GraphWriter, PoiWriter},
     },
     oracle::{
-        PoiGraph,
+        DefaultOracleParams, PoiGraph, SimpleSplitStrategy,
         oracle::{self, Oracle, OracleCollection},
     },
     types::Poi,
@@ -23,6 +23,7 @@ use indicatif::ProgressBar;
 use log::{debug, info};
 use memmap2::MmapOptions;
 use rand::{prelude::*, rng, seq::index::sample};
+use rayon::iter::IntoParallelRefIterator;
 use rmp_serde::{Deserializer, Serializer};
 use serde::{Deserialize, Serialize};
 
@@ -40,7 +41,7 @@ enum Commands {
     Graph {
         in_file: PathBuf,
 
-        /// Set output file to <FILE>. Defaults to '<in_file>.gmp'.
+        /// Set output file to <FILE>. Defaults to '<IN_FILE>.gmp'.
         #[arg(short = 'o', long)]
         out_file: Option<PathBuf>,
 
@@ -57,14 +58,18 @@ enum Commands {
         sample: Option<usize>,
     },
     Build {
-        /// Input graph in '.gfb' format
+        /// Input graph in '.gmp' format
         in_file: PathBuf,
 
         /// set epsilon
         #[arg(short, long, value_name = "FLOAT")]
         epsilon: f64,
 
-        /// Set output file to <FILE>. Defaults to '<IN_FILE>.ocl'.
+        /// Save split-tree to '<OUT_FILE>.smp'
+        #[arg(short, long)]
+        split_tree: bool,
+
+        /// Set output file to <FILE>. Defaults to '<IN_FILE>.omp'.
         #[arg(short = 'o', long)]
         out_file: Option<PathBuf>,
     },
@@ -74,12 +79,18 @@ enum Commands {
         /// Measure oracle size
         #[arg(short, long)]
         size: bool,
+
+        #[arg(short, long)]
+        batch_size: u64,
     },
 }
 
 fn main() {
     let cli = Cli::parse();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    let working_dir = std::env::current_dir().unwrap();
+    log::info!("Current working dir '{}'", working_dir.display());
 
     match cli.command {
         Commands::Graph {
@@ -153,8 +164,9 @@ fn main() {
             in_file,
             out_file,
             epsilon,
+            split_tree,
         } => {
-            let out_file = out_file.unwrap_or_else(|| {
+            let oracle_file = out_file.unwrap_or_else(|| {
                 let mut out_file = in_file.clone();
                 out_file.set_extension("omp");
                 out_file
@@ -172,23 +184,55 @@ fn main() {
                 graph.graph().edge_count()
             );
 
-            let mut oracles = Vec::new();
+            let mut oracles = OracleCollection::default();
 
-            for poi in graph.poi_nodes() {
-                let mut oracle = oracle::Oracle::new();
-                let tree = oracle.build_for_node(*poi, epsilon, graph.graph()).unwrap();
-                oracles.push(oracle);
+            let split_trees = oracles
+                .build_for_nodes(
+                    graph.poi_nodes(),
+                    epsilon,
+                    graph.graph(),
+                    DefaultOracleParams,
+                )
+                .unwrap();
 
-                info!("tree root: {:#?}", tree.get_root());
+            if split_tree {
+                for split_tree in split_trees.iter() {
+                    let mut file_name = oracle_file.file_stem().unwrap().to_os_string();
+                    file_name.push(format!("_{}", split_tree.0));
+
+                    let mut split_tree_file = oracle_file.parent().unwrap().to_path_buf();
+                    split_tree_file.push("split_trees");
+                    split_tree_file.push(file_name.as_os_str());
+                    split_tree_file.set_extension("smp");
+
+                    std::fs::create_dir_all(split_tree_file.parent().unwrap());
+
+                    let writer = BufWriter::new(File::create(split_tree_file).unwrap());
+                    let mut rmp_serializer = Serializer::new(writer);
+                    split_tree.serialize(&mut rmp_serializer).unwrap();
+                }
             }
 
-            // let writer = BufWriter::new(File::create(out_file).unwrap());
-            // let mut rmp_serializer = Serializer::new(writer);
-            // oracle.serialize(&mut rmp_serializer).unwrap();
+            for oracle in oracles.iter() {
+                let mut file_name = oracle_file.file_stem().unwrap().to_os_string();
+                file_name.push(format!("_{}", oracle.0));
+
+                let mut oracle_file = oracle_file.clone();
+                oracle_file.set_file_name(file_name.as_os_str());
+                oracle_file.set_extension("omp");
+
+                let writer = BufWriter::new(File::create(oracle_file).unwrap());
+                let mut rmp_serializer = Serializer::new(writer);
+                oracle.1.serialize(&mut rmp_serializer).unwrap();
+            }
         }
-        Commands::Bench { in_file, size } => {
+        Commands::Bench {
+            in_file,
+            size,
+            batch_size,
+        } => {
             if size {
-                struct Measurements(Vec<(f64, usize)>);
+                struct Measurements(Vec<(f64, f64)>);
                 impl Display for Measurements {
                     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                         self.0.iter().for_each(|e| {
@@ -198,12 +242,24 @@ fn main() {
                     }
                 }
                 println!(
-                    "{}",
-                    Measurements(bench::oracle_size(
-                        in_file,
+                    "Merged: {}",
+                    Measurements(bench::oracle_size_merge(
+                        &in_file,
                         &[
                             0.05, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.75, 1., 2., 3., 4., 5.
-                        ]
+                        ],
+                        batch_size
+                    ))
+                );
+
+                println!(
+                    "Unmerged: {}",
+                    Measurements(bench::oracle_size_no_merge(
+                        &in_file,
+                        &[
+                            0.05, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.75, 1., 2., 3., 4., 5.
+                        ],
+                        batch_size
                     ))
                 );
             }

@@ -9,6 +9,10 @@ pub(crate) struct Dirty<T> {
 
 impl<T> Dirty<T> {
     pub(crate) fn new(inner: T) -> Self {
+        Self { inner, dirty: true }
+    }
+
+    pub(crate) fn new_clean(inner: T) -> Self {
         Self {
             inner,
             dirty: false,
@@ -25,6 +29,15 @@ impl<T> Dirty<T> {
 
     pub(crate) fn into_inner(self) -> T {
         self.inner
+    }
+}
+
+impl<T: Default> Default for Dirty<T> {
+    fn default() -> Self {
+        Self {
+            inner: T::default(),
+            dirty: true,
+        }
     }
 }
 
@@ -56,6 +69,6 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Dirty<T> {
     where
         D: serde::Deserializer<'de>,
     {
-        Ok(Self::new(T::deserialize(deserializer)?))
+        Ok(Self::new_clean(T::deserialize(deserializer)?))
     }
 }

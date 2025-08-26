@@ -16,11 +16,12 @@ use galileo_types::{
     geometry_type::{CartesianSpace2d, GeoSpace2d},
 };
 use geo::{Coord, CoordFloat, LineString, MultiPoint, MultiPolygon, Point, Polygon};
-use graph_rs::CoordGraph;
+use graph_rs::{CoordGraph, algorithms::dijkstra::Dijkstra};
 use log::info;
 use nalgebra::Scalar;
-use num_traits::{Bounded, FromPrimitive, float::FloatCore};
+use num_traits::{Bounded, FromPrimitive, Num, float::FloatCore};
 use rstar::RTreeNum;
+use rustc_hash::FxHashSet;
 
 use crate::map::layers::EventLayer;
 
@@ -34,7 +35,19 @@ where
         SimplePolygonSymbol,
         GeoSpace2d,
     >,
-    line_layer: FeatureLayer<
+    radius_layer: FeatureLayer<
+        <Disambig<LineString<C>, GeoSpace2d> as Geometry>::Point,
+        Disambig<LineString<C>, GeoSpace2d>,
+        SimpleContourSymbol,
+        GeoSpace2d,
+    >,
+    shortest_path_layer: FeatureLayer<
+        <Disambig<LineString<C>, GeoSpace2d> as Geometry>::Point,
+        Disambig<LineString<C>, GeoSpace2d>,
+        SimpleContourSymbol,
+        GeoSpace2d,
+    >,
+    detour_layer: FeatureLayer<
         <Disambig<LineString<C>, GeoSpace2d> as Geometry>::Point,
         Disambig<LineString<C>, GeoSpace2d>,
         SimpleContourSymbol,
@@ -43,6 +56,12 @@ where
     point_layer: FeatureLayer<
         <Disambig<MultiPoint<C>, GeoSpace2d> as Geometry>::Point,
         Disambig<MultiPoint<C>, GeoSpace2d>,
+        CirclePointSymbol,
+        GeoSpace2d,
+    >,
+    poi_layer: FeatureLayer<
+        <Disambig<Point<C>, GeoSpace2d> as Geometry>::Point,
+        Disambig<Point<C>, GeoSpace2d>,
         CirclePointSymbol,
         GeoSpace2d,
     >,
@@ -65,19 +84,37 @@ where
                 },
                 crs.clone(),
             ),
-            line_layer: FeatureLayer::new(
+            radius_layer: FeatureLayer::new(
                 vec![],
                 SimpleContourSymbol::new(Color::BLUE, 2.),
                 crs.clone(),
             ),
-            point_layer: FeatureLayer::new(vec![], CirclePointSymbol::new(Color::RED, 4.), crs),
+            shortest_path_layer: FeatureLayer::new(
+                vec![],
+                SimpleContourSymbol::new(Color::GREEN, 2.),
+                crs.clone(),
+            ),
+            detour_layer: FeatureLayer::new(
+                vec![],
+                SimpleContourSymbol::new(Color::RED, 2.),
+                crs.clone(),
+            ),
+            point_layer: FeatureLayer::new(
+                vec![],
+                CirclePointSymbol::new(Color::GREEN, 6.),
+                crs.clone(),
+            ),
+
+            poi_layer: FeatureLayer::new(
+                vec![],
+                CirclePointSymbol::new(Color::from_hex("#F7F304"), 6.),
+                crs,
+            ),
         }
     }
-    pub fn show_block_pair<EV>(
-        &mut self,
-        block_pair: BlockPair<EV, C>,
-        graph: &impl CoordGraph<C = C>,
-    ) where
+    pub fn show_block_pair<G, EV>(&mut self, block_pair: BlockPair<EV, C>, graph: &G)
+    where
+        G: CoordGraph<C = C, EV = EV> + Dijkstra,
         EV: FloatCore + Debug,
     {
         if let Some(s_repr) = graph.node_coord(block_pair.values().s)
@@ -98,6 +135,71 @@ where
             self.point_layer.update_all_features();
         }
 
+        if let Some(poi) = graph.node_coord(block_pair.poi_id()) {
+            let poi = geo::Point::from(poi);
+            let poi_feats = self.poi_layer.features_mut();
+            let f_ids: Vec<_> = poi_feats.iter_mut().map(|f| f.0).collect();
+
+            for f_id in f_ids {
+                poi_feats.remove(f_id);
+            }
+
+            poi_feats.add(poi.to_geo2d());
+            self.poi_layer.update_all_features();
+        }
+
+        let s_paths = graph.dijkstra(
+            block_pair.values().s,
+            FxHashSet::from_iter([block_pair.poi_id(), block_pair.values().t]),
+            graph_rs::types::Direction::Outgoing,
+        );
+        let p_paths = graph.dijkstra(
+            block_pair.poi_id(),
+            FxHashSet::from_iter([block_pair.values().t]),
+            graph_rs::types::Direction::Outgoing,
+        );
+
+        let paths = [
+            s_paths.path(block_pair.poi_id()).unwrap(),
+            p_paths.path(block_pair.values().t).unwrap(),
+        ];
+
+        let shortest_path = s_paths
+            .path(block_pair.values().t)
+            .unwrap()
+            .line_string(graph);
+        {
+            let shortest_path_feats = self.shortest_path_layer.features_mut();
+            let f_ids: Vec<_> = shortest_path_feats.iter().map(|f| f.0).collect();
+
+            for f_id in f_ids {
+                shortest_path_feats.remove(f_id);
+            }
+
+            if let Some(path) = shortest_path {
+                shortest_path_feats.add(path.to_geo2d());
+            }
+
+            self.shortest_path_layer.update_all_features();
+        }
+
+        let paths = paths.iter().map(|path| path.line_string(graph));
+
+        {
+            let detour_feats = self.detour_layer.features_mut();
+            let f_ids: Vec<_> = detour_feats.iter().map(|f| f.0).collect();
+
+            for f_id in f_ids {
+                detour_feats.remove(f_id);
+            }
+
+            for path in paths.flatten() {
+                detour_feats.add(path.to_geo2d());
+            }
+
+            self.detour_layer.update_all_features();
+        }
+
         let lines = [
             &block_pair.values().r_af,
             &block_pair.values().r_ab,
@@ -109,7 +211,7 @@ where
         info!("inserting lines {lines:?}");
 
         {
-            let line_feats = self.line_layer.features_mut();
+            let line_feats = self.radius_layer.features_mut();
             let f_ids: Vec<_> = line_feats.iter_mut().map(|f| f.0).collect();
 
             for f_id in f_ids {
@@ -120,7 +222,7 @@ where
                 line_feats.add(line.to_geo2d());
             }
 
-            self.line_layer.update_all_features();
+            self.radius_layer.update_all_features();
         };
 
         let s_poly = block_pair.s_block().to_polygon();
@@ -147,7 +249,7 @@ where
 
     pub fn insert<EV>(&mut self, block_pair: BlockPair<EV, C>) -> FeatureId
     where
-        EV: FloatCore,
+        EV: FloatCore + Debug,
     {
         let s_poly = block_pair.s_block().to_polygon();
         let t_poly = block_pair.t_block().to_polygon();
@@ -175,21 +277,31 @@ where
 {
     fn render(&self, view: &galileo::MapView, canvas: &mut dyn galileo::render::Canvas) {
         self.poly_layer.render(view, canvas);
-        self.line_layer.render(view, canvas);
+        self.radius_layer.render(view, canvas);
+        self.shortest_path_layer.render(view, canvas);
+        self.detour_layer.render(view, canvas);
         self.point_layer.render(view, canvas);
+        self.poi_layer.render(view, canvas);
     }
 
     fn prepare(&self, view: &galileo::MapView) {
         self.poly_layer.prepare(view);
-        self.line_layer.prepare(view);
+        self.radius_layer.prepare(view);
+        self.shortest_path_layer.prepare(view);
+        self.detour_layer.prepare(view);
         self.point_layer.prepare(view);
+        self.poi_layer.prepare(view);
     }
 
     fn set_messenger(&mut self, messenger: Box<dyn galileo::Messenger>) {
         let messenger = ArcMessenger(Arc::new(messenger));
         self.poly_layer.set_messenger(Box::new(messenger.clone()));
-        self.line_layer.set_messenger(Box::new(messenger.clone()));
-        self.point_layer.set_messenger(Box::new(messenger));
+        self.radius_layer.set_messenger(Box::new(messenger.clone()));
+        self.shortest_path_layer
+            .set_messenger(Box::new(messenger.clone()));
+        self.detour_layer.set_messenger(Box::new(messenger.clone()));
+        self.point_layer.set_messenger(Box::new(messenger.clone()));
+        self.poi_layer.set_messenger(Box::new(messenger));
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

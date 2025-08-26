@@ -4,7 +4,9 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
-    crane = { url = "github:ipetkov/crane"; };
+    crane = {
+      url = "github:ipetkov/crane";
+    };
 
     # fenix = {
     #   url = "github:nix-community/fenix";
@@ -25,8 +27,17 @@
   };
 
   outputs =
-    { self, nixpkgs, crane, rust-overlay, flake-utils, advisory-db, ... }:
-    flake-utils.lib.eachDefaultSystem (localSystem:
+    {
+      self,
+      nixpkgs,
+      crane,
+      rust-overlay,
+      flake-utils,
+      advisory-db,
+      ...
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      localSystem:
       let
         crossSystem = "x86_64-unknown-linux-gnu";
 
@@ -37,8 +48,9 @@
 
         inherit (pkgs) lib;
 
-        craneLib = (crane.mkLib pkgs).overrideToolchain
-          (p: p.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml);
+        craneLib = (crane.mkLib pkgs).overrideToolchain (
+          p: p.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml
+        );
 
         src = craneLib.cleanCargoSource ./.;
 
@@ -47,7 +59,8 @@
           inherit src;
           strictDeps = true;
 
-          buildInputs = with pkgs;
+          buildInputs =
+            with pkgs;
             [
               # Add additional build inputs here
               openssl
@@ -59,8 +72,8 @@
               vulkan-headers
               libGL
               fontconfig
-              tracy
-            ] ++ lib.optionals stdenv.isDarwin [
+            ]
+            ++ lib.optionals stdenv.isDarwin [
               # Additional darwin specific inputs can be set here
               libiconv
             ];
@@ -74,12 +87,10 @@
           # Additional environment variables can be set directly
           # MY_CUSTOM_VAR = "some value";
 
-          LD_LIBRARY_PATH =
-            "$LD_LIBRARY_PATH:${lib.makeLibraryPath buildInputs}";
+          LD_LIBRARY_PATH = "$LD_LIBRARY_PATH:${lib.makeLibraryPath buildInputs}";
         };
 
-        libPath = lib.makeLibraryPath
-          (with pkgs; [ xdg-desktop-portal ] ++ commonArgs.buildInputs);
+        libPath = lib.makeLibraryPath (with pkgs; [ xdg-desktop-portal ] ++ commonArgs.buildInputs);
 
         # craneLibLLvmTools = craneLib.overrideToolchain
         #   (fenix.packages.${localSystem}.complete.withComponents [
@@ -101,40 +112,57 @@
           doCheck = false;
         };
 
-        fileSetForCrate = crates:
+        fileSetForCrate =
+          crates:
           lib.fileset.toSource {
             root = ./.;
-            fileset = lib.fileset.unions ([
-              ./Cargo.toml
-              ./Cargo.lock
-              (craneLib.fileset.commonCargoSources ./crates/workspace-hack)
-              (craneLib.fileset.commonCargoSources ./crates/graph-rs)
-            ] ++ (map (path: craneLib.fileset.commonCargoSources path) crates));
+            fileset = lib.fileset.unions (
+              [
+                ./Cargo.toml
+                ./Cargo.lock
+                (craneLib.fileset.commonCargoSources ./crates/workspace-hack)
+                (craneLib.fileset.commonCargoSources ./crates/graph-rs)
+              ]
+              ++ (map (path: craneLib.fileset.commonCargoSources path) crates)
+            );
           };
 
         # Build the top-level crates of the workspace as individual derivations.
         # This allows consumers to only depend on (and build) only what they need.
         # Though it is possible to build the entire workspace as a single derivation,
         # so this is left up to you on how to organize things
-        burp = craneLib.buildPackage (individualCrateArgs // {
-          pname = "burp";
-          cargoExtraArgs = "-p burp";
-          src = fileSetForCrate [ ./crates/burp ];
-        });
-        burp-gui = craneLib.buildPackage (individualCrateArgs // {
-          pname = "burp-gui";
-          cargoExtraArgs = "-p burp-gui";
-          src = fileSetForCrate [ ./crates/burp ./crates/burp-gui ];
-          postInstall = ''
-            wrapProgram "$out/bin/burp-gui" --prefix LD_LIBRARY_PATH : "${libPath}"
-          '';
-        });
-        graph-rs = craneLib.buildPackage (individualCrateArgs // {
-          pname = "graph-rs";
-          cargoExtraArgs = "-p graph-rs";
-          src = fileSetForCrate [ ./crates/graph-rs ];
-        });
-      in {
+        burp = craneLib.buildPackage (
+          individualCrateArgs
+          // {
+            pname = "burp";
+            cargoExtraArgs = "-p burp";
+            src = fileSetForCrate [ ./crates/burp ];
+          }
+        );
+        burp-gui = craneLib.buildPackage (
+          individualCrateArgs
+          // {
+            pname = "burp-gui";
+            cargoExtraArgs = "-p burp-gui";
+            src = fileSetForCrate [
+              ./crates/burp
+              ./crates/burp-gui
+            ];
+            postInstall = ''
+              wrapProgram "$out/bin/burp-gui" --prefix LD_LIBRARY_PATH : "${libPath}"
+            '';
+          }
+        );
+        graph-rs = craneLib.buildPackage (
+          individualCrateArgs
+          // {
+            pname = "graph-rs";
+            cargoExtraArgs = "-p graph-rs";
+            src = fileSetForCrate [ ./crates/graph-rs ];
+          }
+        );
+      in
+      {
         checks = {
           # Build the crates as part of `nix flake check` for convenience
           burp = burp;
@@ -146,13 +174,15 @@
           # Note that this is done as a separate derivation so that
           # we can block the CI if there are issues here, but not
           # prevent downstream consumers from building our crate by itself.
-          my-workspace-clippy = craneLib.cargoClippy (commonArgs // {
-            inherit cargoArtifacts;
-            cargoClippyExtraArgs = "--all-targets -- --deny warnings";
-          });
+          my-workspace-clippy = craneLib.cargoClippy (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+            }
+          );
 
-          my-workspace-doc =
-            craneLib.cargoDoc (commonArgs // { inherit cargoArtifacts; });
+          my-workspace-doc = craneLib.cargoDoc (commonArgs // { inherit cargoArtifacts; });
 
           # Check formatting
           my-workspace-fmt = craneLib.cargoFmt { inherit src; };
@@ -166,11 +196,14 @@
           # Run tests with cargo-nextest
           # Consider setting `doCheck = false` on other crate derivations
           # if you do not want the tests to run twice
-          my-workspace-nextest = craneLib.cargoNextest (commonArgs // {
-            inherit cargoArtifacts;
-            partitions = 1;
-            partitionType = "count";
-          });
+          my-workspace-nextest = craneLib.cargoNextest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              partitions = 1;
+              partitionType = "count";
+            }
+          );
 
           # Ensure that cargo-hakari is up to date
           my-workspace-hakari = craneLib.mkCargoDerivation {
@@ -218,8 +251,10 @@
             pkgs.typst
             pkgs.tinymist
             pkgs.gnuplot
+            pkgs.tracy
           ];
         };
 
-      });
+      }
+    );
 }

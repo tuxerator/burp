@@ -1,17 +1,17 @@
-use std::{
-    fmt::Display,
-    ops::{Deref, DerefMut},
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{fmt::Display, ops::Deref, path::PathBuf, sync::Arc};
 
 use burp::{
-    oracle::{PoiGraph, block_pair::BlockPair, oracle::Oracle},
+    oracle::{
+        PoiGraph, RTreeGraphType,
+        block_pair::BlockPair,
+        oracle::{Oracle, OracleCollection},
+    },
     tree::Tree,
     types::Poi,
 };
 use memmap2::MmapOptions;
 use parking_lot::{Mutex, RwLock};
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize, ser::SerializeStruct};
 
 use crate::types::Dirty;
@@ -20,20 +20,21 @@ use crate::types::Dirty;
 #[serde(from = "AppDataSerde")]
 pub struct AppData {
     pub(crate) graph: Option<Arc<RwLock<Dirty<PoiGraph<Poi>>>>>,
-    pub(crate) oracle: Option<Arc<Mutex<Dirty<Oracle<f64, f64>>>>>,
-    pub(crate) split_tree: Option<Arc<RwLock<Dirty<Tree<BlockPair<f64, f64>>>>>>,
+    pub(crate) oracle: Option<Arc<Mutex<Dirty<OracleCollection<RTreeGraphType<Poi>>>>>>,
+    pub(crate) split_tree:
+        Option<Arc<RwLock<Dirty<FxHashMap<usize, id_tree::Tree<(BlockPair<f64, f64>, bool)>>>>>>,
 }
 
 impl AppData {
     pub fn load_from_path(path: PathBuf) -> Self {
         let mut graph_path = path.clone();
-        graph_path.push("graph.mp");
+        graph_path.push("graph.gmp");
 
         let mut oracle_path = path.clone();
-        oracle_path.push("oracle.mp");
+        oracle_path.push("oracle.ocmp");
 
         let mut split_tree_path = path.clone();
-        split_tree_path.push("split_tree.mp");
+        split_tree_path.push("split_tree.scmp");
 
         Self {
             graph: if let Ok(graph_file) = std::fs::File::open(graph_path) {
@@ -46,7 +47,7 @@ impl AppData {
                     tracing::warn!("Failed to load graph")
                 }
 
-                graph.map(|graph| Arc::new(RwLock::new(Dirty::new(graph))))
+                graph.map(|graph| Arc::new(RwLock::new(Dirty::new_clean(graph))))
             } else {
                 None
             },
@@ -61,7 +62,7 @@ impl AppData {
                     tracing::warn!("Failed to load oracle")
                 }
 
-                oracle.map(|oracle| Arc::new(Mutex::new(Dirty::new(oracle))))
+                oracle.map(|oracle| Arc::new(Mutex::new(Dirty::new_clean(oracle))))
             } else {
                 None
             },
@@ -77,7 +78,7 @@ impl AppData {
                     tracing::warn!("Failed to load split_tree")
                 }
 
-                split_tree.map(|split_tree| Arc::new(RwLock::new(Dirty::new(split_tree))))
+                split_tree.map(|split_tree| Arc::new(RwLock::new(Dirty::new_clean(split_tree))))
             } else {
                 None
             },
@@ -117,8 +118,8 @@ impl Serialize for AppData {
 #[derive(Serialize, Deserialize)]
 struct AppDataSerde {
     graph: Option<PoiGraph<Poi>>,
-    oracle: Option<Oracle<f64, f64>>,
-    split_tree: Option<Tree<BlockPair<f64, f64>>>,
+    oracle: Option<OracleCollection<RTreeGraphType<Poi>>>,
+    split_tree: Option<FxHashMap<usize, id_tree::Tree<(BlockPair<f64, f64>, bool)>>>,
 }
 
 impl From<AppDataSerde> for AppData {
