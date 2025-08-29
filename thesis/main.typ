@@ -5,6 +5,7 @@
 #import "@preview/algo:0.3.6": algo, i, d, comment, code
 #import "@local/cetz-plot:0.1.1"
 #import "cetz-figures.typ"
+#import "cetz-elements.typ"
 #import "acronyms.typ": acronyms
 #import "glossary.typ": glossary
 
@@ -283,6 +284,61 @@ Even $d_N (a_r, b_r) > 0$ would not be enough because $d_N (a_r, b_r) > (r_a^F +
   },
 ) <algo-in-path-oracle>
 
+#cite(<Ghosh2023>, form: "prose") claim the size of the _in-path_ oracle is $O(1 / epsilon^2 n)$.
+Their proof references the arguments in @Sankaranarayanan2009.
+In order to provide some context we will give a overview over these arguments.
+
+==== Distance Distortion
+
+The distance distortion is the ratio of the network distance to the spatial distance between two vertices.
+One can define a minimum and maximum distortion $gamma_L, gamma_H$ for a spatial network such that
+$
+  gamma_L <= (d_G (u,v)) / (d_S (u,v)) <= gamma_H; gamma_L. gamma_H > 0.
+$
+
+==== Well-Separated Pair Decomposition
+
+Given a point set $A$ then $r$ denotes the radius of the hypersphere containing all points in $A$.
+The _minimum distance_ of two point sets $A$ and $B$ is the distance between the hyperspheres containing them.
+Two sets of points are considered _well-separated_ if the _minimum distance_ between $A$ and $B$ is at least $s dot r$ with $s > 0$. (see @fig_wsp)
+$s$ is the _separation factor_ and $r$ is the larger radius of the two sets. Such a pair is termed a _well-separated pair_ (WSP).
+
+#cetz-figures.fig_wsp(
+  caption: [$A$ and $B$ are well-separated if the distance between them is larger than $s r$.],
+) <fig_wsp>
+
+#set math.equation(block: true)
+
+A _well-separated pair decomposition_ (WSPD) of a point set $S$ is a set of WSPs such that $forall u, v in S, u != v$, there is exactly one WSP $(A, B)$ with $u in A, v in B$.
+One possible WSPD would be pairs of singleton element subsets $(u,v) forall u, v in S, u != v$ containing $n dot (n -1)$ pairs.
+It has been proven one can always construct a WSPD of size $O(s^d n)$ @callahan1995dealing.
+
+Such a WSPD of $S$ can be constructed by first constructing a PR quadtree $T$ on $S$.
+The decomposition of $S$ into WSPs using $T$ is called a _realization_ on $T$, i.e., the subsets $A_i, B_i$ of $S$ forming a WSP $(A_i, B_i)$ correspond to nodes of $T$.
+Starting with the pair $(T,T)$ corresponding to the root of $T$ we check for each pair $(A, B)$ if it is separated with respect to $s$.
+If so it is reported as WSP.
+Otherwise we pair each child of $A$ with each child of $B$ in $T$ and repeat the process until all leafs of $T$ are covered.
+
+==== Packing Lemma
+
+Considering an arbitrary point set $A$ then a block with side length $2 r$ encloses all points in $A$.
+The total number of blocks with side length $2 r$ which are not _well-separated_ from $A$ is bounded by the number of blocks contained within a hypersphere of radius $(2s + 1)r$ centered at $A$, which contains a maximum of $O(s^d)$ blocks.
+
+#cetz-figures.fig_packing-lemma(caption: [])
+
+
+==== WSPD Size
+
+Using the packing lemma we get a size of $O(s^d n)$ for a WSPD since a PR quadtree has $O(n)$ inner nodes and each inner node can produce a maximum of $O(s^d)$ WSPs.
+
+==== Network Distance WSPD
+
+For a WSPD build using the network distance we can bound $r'$ by
+$
+  r' <= gamma_H r.
+$
+The effective separation factor $s'$ is $s gamma_H$.
+Therefore, the size of the WSPD is $O((s)^d n)$ and because $gamma_H$ is a constant independent of $n$.
 
 // #lemma("In-Path Oracle Size")[
 //   The size of the in-path oracle for a single $p$ is $O(1 / epsilon^2 n)$ since it is a Well-Seperated Pair Decomposition (WSPD) of the road network.
@@ -328,7 +384,8 @@ We found the oracle to be very large even on relatively small instances.
 Furthermore it was not possible to test instances of similar size to the instances used by @Ghosh2023.
 This bakes the question for the cause of the large size of the oracle.
 
-=== Theoretical
+=== Theoretical Analysis
+
 
 #definition("Radius")[
   Let $r$ be the average of $r_a^F, r_a^B, r_b^F, r_b^B$ such that $4r = r_a^F+ r_a^B+ r_b^F+ r_b^B$.
@@ -376,7 +433,41 @@ Moreover, $d_D$ is subtracted from $d_N (s,t) epsilon$ causing $r$ to have to be
   $
 ]
 
-For a block pair to be not _in-path_ $r$ is primarily bound by $d_D$ which makes sense because a large detour increases the difference to the detour limit and thus increases the size a block can have without containing a node which can have a detour within the limit.
+For a block pair to be _not-in-path_ $r$ is primarily bound by $d_D$ which makes sense because a large detour increases the difference to the detour limit and thus increases the size a block can have without containing a node which can have a detour within the limit.
+
+Using @lemma-In-Path-Radius-Upper-Bound and @lemma-Not-In-Path-Radius-Upper-Bound we can find a bound for $d_N (s,t)$ where it is neither _in-path_ nor _not-in-path_ or in other words where a block pair $(A, B)$ is not well-separated.
+
+#lemma("Not Well-Separated Block")[
+  A block pair $(A, B)$ is not well-separated when
+  $
+    (-r(4 + 2 epsilon) + d_D) / epsilon < d_N (s,t) < (r(4 + 2 epsilon) + d_D) / epsilon
+  $
+]
+
+#proof[
+  Solving @lemma-In-Path-Radius-Upper-Bound and @lemma-Not-In-Path-Radius-Upper-Bound for $d_N (s,t)$ gives us
+  $
+    d_N (s,t) >= (r(4 + 2 epsilon) + d_D) / epsilon
+  $
+  and
+  $
+    d_N (s,t) <= (-r(4 + 2 epsilon) + d_D) / epsilon
+  $
+
+  Using their negations we get:
+  $
+    (-r(4 + 2 epsilon) + d_D) / epsilon < d_N (s,t) < (r(4 + 2 epsilon) + d_D) / epsilon
+  $
+]
+
+We can see for a block pair $(A, B)$ to be a WSP is dependent on $d_D$.
+This poses a problem because we can no longer use the spacial coherence argument like #cite(<Ghosh2023>, form: "prose") suggest.
+@fig_no-spatial-coherence shows how only the relation to the _POI_ is relevant for a block pair to be a WSP.
+It is not possible anymore to define a hypersphere around a block which contains all blocks not well-separated from it so the packing lemma does not apply anymore.
+We therefore can not get an upper bound for the total number of blocks which are not well-separated from any given block and thus cannot guarantee the size of the oracle to be $O((1 / epsilon)^d n)$.
+
+#cetz-figures.fig_no-spatial-coherence <fig_no-spatial-coherence>
+
 
 === Practical Worst Cases
 
@@ -386,7 +477,7 @@ The tool also allows us to have a look at intermediate results occurring during 
 We could identify multiple cases proofing to be unfavorably for the algorithm.
 
 #figure(
-  caption: [A block pair is visualized in pink. The green dots show the representant of the block. The red dot shows the POI associated with the block pair. The shortest path is green. The detour is the red path. The blue paths are the radii of the blocks.],
+  caption: [A block pair is visualized in pink. The green dots show the representant of the block. The yellow dot shows the POI associated with the block pair. The shortest path is green. The detour is the red path. The blue paths are the radii of the blocks.],
 )[
   #image("assets/tool-showcase.png")
 ] <figure-tool-showcase>
@@ -395,10 +486,10 @@ We could identify multiple cases proofing to be unfavorably for the algorithm.
 
 Road networks often contain nodes which are very close in euclidean space but have a relatively high road network distance. (see )
 This case is very common on the border between different suburbs because they are often self contained networks with only one or two access roads with no roads connecting the suburbs.
-Another reason can be some kind of obstacle having to go arround.
+Another reason can be some kind of obstacle having to go around.
 
 #figure(
-  caption: [In order to reach the point on the other side of the train station, a relatively large detour compared to the euclidean distance.],
+  caption: [In order to reach the point on the other side of the train station, a relatively large detour is taken compared to the euclidean distance.],
 )[
   #image("assets/large-radius.png", height: 300pt)
 ]
@@ -414,19 +505,18 @@ Furthermore it can require blocks to be split until only one node is contained i
   #image("assets/one-way-street-radii.png", height: 300pt)
 ] <figure-one-way-radii>
 
-#cetz-figures.fig_one-way_street <figure-one-way-street>
+#cetz-figures.fig_one-way-street <figure-one-way-street>
 
 @figure-one-way-street illustrates this problem.
 When $p_2$ is the represent for this block we have to take a really long route to reach $p_1$.
-This is one reason why it is very difficult to find a concrete bound for $r$.
+
+==== No Spatial Coherence
 
 == Improvements
 
 === Merge
 
 === Ceter Representant
-
-In this section I will outline the main development of this work.
 
 - Merge Algorithm
 

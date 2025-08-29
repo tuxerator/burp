@@ -244,7 +244,7 @@ where
         node: &id_tree::NodeId,
         tree: &mut id_tree::Tree<(BlockPair<EV, C>, bool)>,
         graph: &G,
-        _params: P,
+        params: P,
     ) -> i32
     where
         G: CoordGraph<C = C, EV = EV> + Dijkstra + Radius,
@@ -287,10 +287,10 @@ where
 
         let children_in_path: Vec<_> = children_ids
             .iter()
-            .map(|child| self.process_block_pair(child, tree, graph, _params))
+            .map(|child| self.process_block_pair(child, tree, graph, params))
             .collect();
 
-        if children_in_path.iter().all(|in_path| *in_path == 1) && P::MERGE_BLOCKS {
+        if children_in_path.iter().all(|in_path| *in_path == 1) && params.merge_blocks() {
             log::trace!("All children are in-path");
             tree.get_mut(node).unwrap().data_mut().1 = true;
 
@@ -303,7 +303,7 @@ where
             return 1;
         }
 
-        if children_in_path.iter().all(|in_path| *in_path == -1) && P::MERGE_BLOCKS {
+        if children_in_path.iter().all(|in_path| *in_path == -1) && params.merge_blocks() {
             log::trace!("All children are not-in-path");
 
             let _ = tree
@@ -428,6 +428,14 @@ where
         Q: std::hash::Hash + Eq,
     {
         self.oracle.get(k)
+    }
+
+    pub fn remove<Q: ?Sized>(&mut self, k: &Q) -> Option<Oracle<G::EV, G::C>>
+    where
+        usize: std::borrow::Borrow<Q>,
+        Q: std::hash::Hash + Eq,
+    {
+        self.oracle.remove(k)
     }
 
     pub fn iter(&self) -> std::collections::hash_map::Iter<'_, usize, Oracle<G::EV, G::C>> {

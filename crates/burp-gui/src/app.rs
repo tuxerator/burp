@@ -85,6 +85,7 @@ pub struct BurpApp {
     sender: tokio::sync::mpsc::Sender<Event>,
     build_oracle: bool,
     split_strategy: SplitStrategy,
+    merge_blocks: bool,
 }
 
 impl BurpApp {
@@ -120,6 +121,7 @@ impl BurpApp {
             sender,
             build_oracle: false,
             split_strategy: SplitStrategy::SimpleSplitStrategy,
+            merge_blocks: true,
         }
     }
 
@@ -412,6 +414,8 @@ impl eframe::App for BurpApp {
                 self.build_oracle = true;
             }
 
+            ui.toggle_value(&mut self.merge_blocks, "Merge blocks");
+
             egui::ComboBox::from_label("Split stragety")
                 .selected_text(format!("{}", self.split_strategy))
                 .show_ui(ui, |ui| {
@@ -455,6 +459,7 @@ impl eframe::App for BurpApp {
                     tokio::task::spawn_blocking({
                         let sender = self.sender.clone();
                         let split_strategy = self.split_strategy;
+                        let merge_blocks = self.merge_blocks;
                         move || {
                             let graph = graph.read();
                             let oracle = match split_strategy {
@@ -462,14 +467,18 @@ impl eframe::App for BurpApp {
                                     node,
                                     0.25,
                                     graph.graph(),
-                                    DefaultOracleParams,
+                                    DefaultOracleParams {
+                                        merge_blocks: merge_blocks,
+                                    },
                                 )
                                 .unwrap(),
                                 SplitStrategy::MinimalSplitStrategy => Oracle::build_for_node(
                                     node,
                                     0.25,
                                     graph.graph(),
-                                    MinSplitParams,
+                                    MinSplitParams {
+                                        merge_blocks: merge_blocks,
+                                    },
                                 )
                                 .unwrap(),
                             };
@@ -519,6 +528,7 @@ impl eframe::App for BurpApp {
                 if self.data.split_tree.is_some() || self.data.oracle.is_some() {
                     egui::Window::new("Oracle").show(ctx, |ui| {
                         if let Some(oracles) = self.data.oracle.as_ref() {
+                            let mut delete = Vec::new();
                             for oracle in oracles.lock().iter() {
                                 ui.label(format!("Poi: {}", oracle.0));
                                 ui.label(format!("Size: {}", oracle.1.size()));
@@ -528,12 +538,20 @@ impl eframe::App for BurpApp {
                                         oracle.1.avg_block_ocupancy(graph.read().deref().graph())
                                     ));
                                 }
+                                if ui.button("Delete").clicked() {
+                                    delete.push(*oracle.0);
+                                }
                                 ui.separator();
+                            }
+
+                            for del in delete {
+                                oracles.lock().remove(&del);
                             }
                         }
 
                         if let Some(split_trees) = self.data.split_tree.as_ref() {
                             ui.heading("Split Trees");
+                            let mut delete = Vec::new();
                             for split_tree in split_trees.read().iter() {
                                 ui.collapsing(split_tree.0.to_string(), |ui| {
                                     ui.add(widgets::TreeView::new(split_tree.1, |ui, node, id| {
@@ -586,7 +604,15 @@ impl eframe::App for BurpApp {
                                         values
                                             .show(ui, |ui| ui.label(format!("{}", node.data().0)));
                                     }));
+
+                                    if ui.button("Delete").clicked() {
+                                        delete.push(*split_tree.0);
+                                    }
                                 });
+                            }
+
+                            for del in delete {
+                                split_trees.write().remove(&del);
                             }
                         }
                     });

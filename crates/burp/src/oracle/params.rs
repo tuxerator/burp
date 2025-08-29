@@ -9,32 +9,31 @@ pub trait OracleParams: Copy + Clone + Debug + Default {
     type SplitStrategy: SplitStrategyTrait;
 
     /// Wheater to merge blocks into their parents if they all are in-path.
-    const MERGE_BLOCKS: bool;
+    fn merge_blocks(&self) -> bool;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
-pub struct DefaultOracleParams;
+pub struct DefaultOracleParams {
+    pub merge_blocks: bool,
+}
 
 impl OracleParams for DefaultOracleParams {
     type SplitStrategy = SimpleSplitStrategy;
 
-    const MERGE_BLOCKS: bool = true;
+    fn merge_blocks(&self) -> bool {
+        self.merge_blocks
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
-pub struct MinSplitParams;
+pub struct MinSplitParams {
+    pub merge_blocks: bool,
+}
 
 impl OracleParams for MinSplitParams {
     type SplitStrategy = MinimalSplitStrategy;
 
-    const MERGE_BLOCKS: bool = true;
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
-pub struct NoMergeParams;
-
-impl OracleParams for NoMergeParams {
-    type SplitStrategy = SimpleSplitStrategy;
-
-    const MERGE_BLOCKS: bool = false;
+    fn merge_blocks(&self) -> bool {
+        self.merge_blocks
+    }
 }

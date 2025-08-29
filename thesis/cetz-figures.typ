@@ -3,8 +3,9 @@
 #import "@preview/suiji:0.4.0": *
 #import "cetz-elements.typ"
 
-#let fig_in-path = figure(caption: [Whether $p$ is in-path with respect to all sources in $A$ to destinations in $B$.])[
-  #cetz.canvas({
+#let fig_in-path = cetz-elements.cetz-figure(
+  caption: [Whether $p$ is in-path with respect to all sources in $A$ to destinations in $B$.],
+  {
     import kn_color: *
     import cetz.draw: *
     import cetz-elements: *
@@ -45,34 +46,34 @@
 
     arrow("s", "p", shift: .2, stroke: kn_bordeaux65)
     arrow("p", "t", shift: .2, stroke: kn_bordeaux65)
-  })
-];
+  },
+)
 
-#let fig_r-tree = figure()[
-  #cetz.canvas({
-    import cetz.draw: *
-    import cetz-elements: counted-rect
+#let fig_r-tree = cetz-elements.cetz-figure({
+  import cetz.draw: *
+  import cetz-elements: counted-rect
 
-    let m = 3
-    let depht = 3
-    let rng = gen-rng-f(42)
-    let a = ()
-    let b = ()
+  let m = 3
+  let depht = 3
+  let rng = gen-rng-f(42)
+  let a = ()
+  let b = ()
 
-    rect((0, 0), (2, 2))
-    set-viewport((0, 0), (2, 2), bounds: (10, 10))
-    for i in range(depht) {
-      (rng, a) = uniform-f(rng, high: 4., size: 2)
-      (rng, b) = uniform-f(rng, low: 1., high: 3., size: 2)
+  rect((0, 0), (2, 2))
+  set-viewport((0, 0), (2, 2), bounds: (10, 10))
+  for i in range(depht) {
+    (rng, a) = uniform-f(rng, high: 4., size: 2)
+    (rng, b) = uniform-f(rng, low: 1., high: 3., size: 2)
 
 
-      counted-rect(a, (rel: b))
-    }
-  })
-]
+    counted-rect(a, (rel: b))
+  }
+})
 
-#let fig_one-way_street = figure(caption: [To get from $p_2$ to $p_1$ one has to take the long way around])[
-  #cetz.canvas({
+
+#let fig_one-way-street = cetz-elements.cetz-figure(
+  caption: [To get from $p_2$ to $p_1$ one has to take the long way around],
+  {
     import kn_color: *
     import cetz.draw: *
     import cetz-elements: *
@@ -101,5 +102,126 @@
       arrow("p5", "p6", shift: -.1, stroke: kn_seeblau)
       arrow("p6", "p0", shift: -.1, stroke: kn_seeblau)
     })
-  })
-]
+  },
+)
+#let fig_no-spatial-coherence = cetz-elements.cetz-figure(
+  caption: [Depending on the _POI_, $d_D$ can vary for the same block pair and thus be a WSP or not.],
+  {
+    import kn_color: *
+    import cetz.draw: *
+    import cetz-elements: *
+    set-style(
+      circle: (radius: 0.08, fill: kn_seeblau, stroke: none),
+      content: (padding: .1),
+      mark: (scale: .6),
+    )
+
+    group({
+      rect((0, 0), (rel: (2, 2)), name: "block_a")
+      circle((0.6, .8), name: "s")
+      content("s", anchor: "north-east")[$s$]
+
+      rect((2, 0), (rel: (2, 2)), name: "block_b")
+      circle((3.4, 1.3), name: "t")
+      content("t", anchor: "north-west")[$t$]
+
+      circle("block_a", radius: 4, stroke: black, fill: none)
+
+      circle((2, -5), fill: kn_bordeaux_d, name: "poi")
+      content("poi", anchor: "north-west")[_POI_]
+
+      arrow("s", "poi", shift: -.2)
+      arrow("poi", "t", shift: -.2)
+
+      arrow("s", "t", shift: .1, stroke: kn_grau, name: "d_N")
+      get-ctx(ctx => {
+        let (ctx, d_N) = cetz.coordinate.resolve(ctx, "d_N")
+        content(cetz.vector.add(d_N, (-.3, 0)), anchor: "south")[$d_N$]
+      })
+    })
+    group({
+      set-origin((9, 0))
+      rect((0, 0), (rel: (2, 2)), name: "block_a")
+      circle((0.6, .8), name: "s")
+      content("s", anchor: "north-east")[$s$]
+
+      rect((2, 0), (rel: (2, 2)), name: "block_b")
+      circle((3.4, 1.3), name: "t")
+      content("t", anchor: "north-west")[$t$]
+
+      circle("block_a", radius: 4, stroke: black, fill: none)
+
+      circle((2, -2), fill: kn_bordeaux_d, name: "poi")
+      content("poi", anchor: "north-west")[_POI_]
+
+      arrow("s", "poi", shift: -.2)
+      arrow("poi", "t", shift: -.2)
+
+      arrow("s", "t", shift: .1, stroke: kn_grau, name: "d_N")
+      get-ctx(ctx => {
+        let (ctx, d_N) = cetz.coordinate.resolve(ctx, "d_N")
+        content(cetz.vector.add(d_N, (-.3, 0)), anchor: "south")[$d_N$]
+      })
+    })
+  },
+)
+
+#let fig_wsp(..args) = {
+  cetz-elements.cetz-figure(
+    ..args,
+    {
+      import cetz.draw: *
+
+      group(
+        name: "A",
+        {
+          translate((-6, 0))
+          circle((0, 0), radius: 2, name: "circle")
+          content("circle.north-east", anchor: "south-west", padding: .1)[$A$]
+
+          line("circle.center", "circle.east", name: "r")
+          content("r", anchor: "south", padding: .2)[$r$]
+        },
+      )
+
+      group(
+        name: "B",
+        {
+          translate((6, -0.4))
+          circle((0, 0), radius: 2, name: "circle")
+          content("circle.north-west", anchor: "south-east", padding: .1)[$B$]
+
+          line("circle.center", "circle.west", name: "r")
+          content("r", anchor: "south", padding: .2)[$r$]
+        },
+      )
+
+      line("A.east", "B.west", name: "d", stroke: kn_color.kn_bordeaux, mark: (symbol: ">", fill: kn_color.kn_bordeaux))
+
+      content("d", anchor: "south", padding: .2)[$>= s r$]
+    },
+  )
+}
+
+#let fig_packing-lemma(..args) = {
+  cetz-elements.cetz-figure(
+    ..args,
+    {
+      import cetz.draw: *
+
+      rect((0, 0), (rel: (1, 1)), name: "block")
+      content("block.south", anchor: "north", padding: .1)[$2r$]
+
+      circle("block", radius: 3, name: "sphere")
+
+      line("sphere.center", "sphere.west", name: "r")
+      content("r", padding: .1, anchor: "south")[$(s+1)r$]
+
+      grid(("sphere.west", "|-", "sphere.north"), ("sphere.east", "|-", "sphere.south"), stroke: (
+          paint: kn_color.kn_seeblau,
+          thickness: 0.5pt,
+          dash: "dashed",
+        ), name: "grid")
+    },
+  )
+}

@@ -81,3 +81,18 @@
     },
   )
 }
+
+#let cetz-figure(..args, body) = {
+  figure(..args)[
+    #context {
+      let (width, height) = measure(cetz.canvas(body))
+      layout(size => {
+        if width > size.width {
+          cetz.canvas(length: (size.width / width) * 1cm, body)
+        } else {
+          cetz.canvas(body)
+        }
+      })
+    }
+  ]
+}
