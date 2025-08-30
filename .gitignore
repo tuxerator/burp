@@ -5,6 +5,8 @@ result
 resources/map_styles
 .direnv
 resources/*
+!resources/Konstanz_Paradies.geojson
+!resources/Konstanz_Paradies_small.geojson
 !resources/small_poi.gmp
 !resources/medium_poi.gmp
 
