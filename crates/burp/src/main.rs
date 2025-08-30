@@ -69,6 +69,10 @@ enum Commands {
         #[arg(short, long)]
         split_tree: bool,
 
+        /// Compress oracle through merging in-path blocks
+        #[arg(short, long)]
+        merge_blocks: bool,
+
         /// Set output file to <FILE>. Defaults to '<IN_FILE>.omp'.
         #[arg(short = 'o', long)]
         out_file: Option<PathBuf>,
@@ -165,6 +169,7 @@ fn main() {
             out_file,
             epsilon,
             split_tree,
+            merge_blocks,
         } => {
             let oracle_file = out_file.unwrap_or_else(|| {
                 let mut out_file = in_file.clone();
@@ -191,7 +196,7 @@ fn main() {
                     graph.poi_nodes(),
                     epsilon,
                     graph.graph(),
-                    DefaultOracleParams,
+                    DefaultOracleParams { merge_blocks },
                 )
                 .unwrap();
 

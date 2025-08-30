@@ -1,7 +1,7 @@
 use std::{fs::File, path::PathBuf, rc::Rc};
 
 use burp::{
-    oracle::{DefaultOracleParams, NoMergeParams, PoiGraph, SimpleSplitStrategy, oracle::Oracle},
+    oracle::{DefaultOracleParams, PoiGraph, SimpleSplitStrategy, oracle::Oracle},
     types::Poi,
 };
 use graph_rs::Graph;
@@ -36,9 +36,13 @@ pub fn oracle_size_merge(in_file: &PathBuf, v_epsilon: &[f64], batch_size: u64) 
                 )
                 .index(0);
 
-                let mut oracle =
-                    Oracle::build_for_node(poi, *epsilon, graph.graph(), DefaultOracleParams)
-                        .unwrap();
+                let mut oracle = Oracle::build_for_node(
+                    poi,
+                    *epsilon,
+                    graph.graph(),
+                    DefaultOracleParams { merge_blocks: true },
+                )
+                .unwrap();
 
                 oracle.0.size() as f64
             });
@@ -80,8 +84,15 @@ pub fn oracle_size_no_merge(
                 )
                 .index(0);
 
-                let mut oracle =
-                    Oracle::build_for_node(poi, *epsilon, graph.graph(), NoMergeParams).unwrap();
+                let mut oracle = Oracle::build_for_node(
+                    poi,
+                    *epsilon,
+                    graph.graph(),
+                    DefaultOracleParams {
+                        merge_blocks: false,
+                    },
+                )
+                .unwrap();
 
                 oracle.0.size() as f64
             });
