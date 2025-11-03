@@ -265,9 +265,11 @@ where
         if block_pair.values().not_in_path() {
             log::trace!("Found not in-path block pair:\n{:#?}", block_pair,);
 
-            let _ = tree
-                .remove_node(node.clone(), id_tree::RemoveBehavior::DropChildren)
-                .inspect_err(|e| tracing::error!("Coud not remove node. Reason: {e}"));
+            if params.merge_blocks() {
+                let _ = tree
+                    .remove_node(node.clone(), id_tree::RemoveBehavior::DropChildren)
+                    .inspect_err(|e| tracing::error!("Coud not remove node. Reason: {e}"));
+            }
 
             return -1;
         }
