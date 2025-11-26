@@ -5,7 +5,7 @@
 ### Nix
 
 ```
-nix build
+nix build .
 ```
 
 ### Cargo

@@ -29,7 +29,7 @@
   show-declaration-of-authorship: false,
   math-numbering: none,
   abstract: [
-    This thesis analyzes the concept of the in-path oracle introduced in the paper In-Path Oracles for Road Networks @Ghosh2023 for identifying Points of Interest (POIs) within a bounded detour from the shortest path between a source and destination in a road network.
+    This thesis analyses the concept of the in-path oracle introduced in the paper In-Path Oracles for Road Networks @Ghosh2023 for identifying Points of Interest (POIs) within a bounded detour from the shortest path between a source and destination in a road network.
     It defines essential concepts like shortest distance, detour, and in-path POIs.
     The study compares three algorithms: double Dijkstra, parallel dual Dijkstra, and an in-path oracle method that uses precomputed results to improve query times.
 
@@ -38,7 +38,7 @@
 
     Experiments were conducted on datasets from OpenStreetMap, specifically Konstanz and San Francisco, with varying detour limits and POI sampling rates.
     Results show that the in-path oracle method achieves higher throughput compared to the baseline dual Dijkstra, confirming its efficiency for large-scale applications.
-    However, the oracle size was larger than expected, indicating a need for further optimization and proof refinement.
+    However, the oracle size was larger than expected, indicating a need for further optimisation and proof refinement.
 
     // The report concludes with insights into the practical feasibility of these algorithms and highlights areas for future work, including the need for a concrete proof of the oracle size bounds and further investigation into the impact of insufficient lemmas on algorithm performance.
   ],
